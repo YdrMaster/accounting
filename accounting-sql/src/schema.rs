@@ -26,6 +26,7 @@ pub fn insert_seed_data(conn: &Connection, lang: &str) -> Result<(), DbError> {
 
 const SCHEMA_SQL: &str = r#"
 PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
 
 CREATE TABLE IF NOT EXISTS commodities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
