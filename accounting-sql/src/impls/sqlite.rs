@@ -49,6 +49,10 @@ impl SqliteDatabase {
     pub fn initialize(&self, lang: &str) -> Result<(), DbError> {
         let conn = self.pool.get();
         crate::schema::insert_seed_data(&conn, lang)?;
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('language', ?1)",
+            [lang],
+        )?;
         Ok(())
     }
 

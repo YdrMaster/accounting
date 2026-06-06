@@ -100,6 +100,11 @@ CREATE TABLE IF NOT EXISTS transactions (
     updated_at TEXT NOT NULL DEFAULT (date('now'))
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS postings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
@@ -301,6 +306,7 @@ mod tests {
         assert!(tables.contains(&"postings".to_string()));
         assert!(tables.contains(&"attachments".to_string()));
         assert!(tables.contains(&"transaction_tags".to_string()));
+        assert!(tables.contains(&"settings".to_string()));
     }
 
     #[test]
