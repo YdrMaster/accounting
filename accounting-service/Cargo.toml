@@ -7,3 +7,8 @@ edition = "2024"
 accounting = { path = "../accounting" }
 accounting-sql = { path = "../accounting-sql" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+rust_decimal = "1.36"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

@@ -31,6 +31,9 @@ pub trait Database: Send + Sync {
     /// 获取 PostingRepo
     fn posting_repo(&self) -> &dyn PostingRepo;
 
+    /// 获取底层数据库连接（用于只读查询）
+    fn connection(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection>;
+
     /// 开始事务
     async fn transaction(&self) -> Result<Self::Tx, crate::error::DbError>;
 }

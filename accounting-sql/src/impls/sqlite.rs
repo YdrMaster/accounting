@@ -90,6 +90,10 @@ impl Database for SqliteDatabase {
         &self.posting_repo
     }
 
+    fn connection(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
+        self.pool.get()
+    }
+
     async fn transaction(&self) -> Result<Self::Tx, DbError> {
         let conn = self.pool.get();
         conn.execute("BEGIN", [])?;
@@ -153,6 +157,10 @@ impl Transaction for SqliteTransaction {
     }
     fn posting_repo(&self) -> &dyn PostingRepo {
         &self.posting_repo
+    }
+
+    fn conn(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
+        self.pool.get()
     }
 
     async fn commit(mut self) -> Result<(), DbError> {

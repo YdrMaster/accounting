@@ -27,6 +27,9 @@ pub trait Transaction: Send {
     /// 获取 PostingRepo
     fn posting_repo(&self) -> &dyn PostingRepo;
 
+    /// 获取底层数据库连接
+    fn conn(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection>;
+
     /// 提交事务
     async fn commit(self) -> Result<(), crate::error::DbError>;
 }
