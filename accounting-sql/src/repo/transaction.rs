@@ -97,10 +97,12 @@ impl TransactionRepo for SqliteTransactionRepo {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<Transaction>, crate::error::DbError> {
+        // 动态构建 JOIN 与 WHERE 条件
         let mut joins = Vec::new();
         let mut conditions = vec!["1=1"];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
+        // 按过滤条件追加 WHERE 子句与参数
         if let Some(start) = filter.start_date {
             conditions.push("transactions.date >= ?");
             params_vec.push(Box::new(start.to_string()));
@@ -121,16 +123,19 @@ impl TransactionRepo for SqliteTransactionRepo {
             conditions.push("transactions.is_template = ?");
             params_vec.push(Box::new(is_template as i64));
         }
+        // 账户过滤需要 JOIN postings 表
         if let Some(account) = filter.account_id {
             joins.push("JOIN postings p ON p.transaction_id = transactions.id");
             conditions.push("p.account_id = ?");
             params_vec.push(Box::new(account.0));
         }
+        // 标签过滤需要 JOIN transaction_tags 表
         if let Some(tag) = filter.tag_id {
             joins.push("JOIN transaction_tags tt ON tt.transaction_id = transactions.id");
             conditions.push("tt.tag_id = ?");
             params_vec.push(Box::new(tag.0));
         }
+        // 渠道过滤同样依赖 postings 表，若未 JOIN 则自动追加
         if let Some(channel) = filter.channel_id {
             if !joins.iter().any(|j| j.contains("postings")) {
                 joins.push("JOIN postings p ON p.transaction_id = transactions.id");
@@ -139,6 +144,7 @@ impl TransactionRepo for SqliteTransactionRepo {
             params_vec.push(Box::new(channel.0));
         }
 
+        // 组装最终 SQL
         let join_clause = joins.join(" ");
         let where_clause = conditions.join(" AND ");
         let sql = format!(
@@ -153,6 +159,7 @@ impl TransactionRepo for SqliteTransactionRepo {
         params_vec.push(Box::new(limit as i64));
         params_vec.push(Box::new(offset as i64));
 
+        // 执行查询并映射结果
         let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(param_refs), map_transaction)?;
@@ -164,6 +171,7 @@ impl TransactionRepo for SqliteTransactionRepo {
         conn: &Connection,
         filter: &TransactionFilter,
     ) -> Result<usize, crate::error::DbError> {
+        // 动态构建 JOIN 与 WHERE 条件（逻辑与 list 保持一致）
         let mut joins = Vec::new();
         let mut conditions = vec!["1=1"];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
@@ -206,6 +214,7 @@ impl TransactionRepo for SqliteTransactionRepo {
             params_vec.push(Box::new(channel.0));
         }
 
+        // 组装 COUNT SQL 并执行
         let join_clause = joins.join(" ");
         let where_clause = conditions.join(" AND ");
         let sql = format!(

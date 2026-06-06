@@ -86,10 +86,12 @@ impl PostingRepo for SqlitePostingRepo {
         conn: &Connection,
         transaction_id: TransactionId,
     ) -> Result<Vec<Posting>, crate::error::DbError> {
+        // 准备查询语句，获取指定交易的所有原始分录数据
         let mut stmt = conn.prepare(
             "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id
              FROM postings WHERE transaction_id = ?1"
         )?;
+        // 先以原始 i64 形式读取所有行，避免在闭包中查询精度导致编译问题
         let raw_rows: Vec<_> = stmt
             .query_map(params![transaction_id.0], |row| {
                 Ok((
@@ -106,6 +108,7 @@ impl PostingRepo for SqlitePostingRepo {
                 ))
             })?
             .collect::<Result<_, _>>()?;
+        // 逐行根据商品精度还原 Decimal 金额并构造 Posting
         let mut postings = Vec::new();
         for (
             id,
@@ -146,10 +149,12 @@ impl PostingRepo for SqlitePostingRepo {
         conn: &Connection,
         account_id: AccountId,
     ) -> Result<Vec<Posting>, crate::error::DbError> {
+        // 准备查询语句，按交易 ID 排序获取该账户下所有原始分录
         let mut stmt = conn.prepare(
             "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id
              FROM postings WHERE account_id = ?1 ORDER BY transaction_id"
         )?;
+        // 先以原始 i64 读取所有行，避免闭包内查询精度
         let raw_rows: Vec<_> = stmt
             .query_map(params![account_id.0], |row| {
                 Ok((
@@ -166,6 +171,7 @@ impl PostingRepo for SqlitePostingRepo {
                 ))
             })?
             .collect::<Result<_, _>>()?;
+        // 逐行还原精度并构造 Posting 对象
         let mut postings = Vec::new();
         for (
             id,

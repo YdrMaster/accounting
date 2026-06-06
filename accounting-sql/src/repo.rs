@@ -1,8 +1,16 @@
+/// Account Repository
 pub mod account;
+/// Attachment Repository
 pub mod attachment;
+/// Channel Repository
 pub mod channel;
+/// Commodity Repository
 pub mod commodity;
+/// Member Repository
 pub mod member;
+/// Posting Repository
 pub mod posting;
+/// Tag Repository
 pub mod tag;
+/// Transaction Repository
 pub mod transaction;
