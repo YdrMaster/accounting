@@ -39,6 +39,8 @@ pub struct AccountDto {
     pub billing_day: Option<u8>,
     /// 还款日。
     pub repayment_day: Option<u8>,
+    /// 所有者成员 ID。
+    pub owner_id: Option<i64>,
 }
 
 /// 创建账户请求。
@@ -50,6 +52,15 @@ pub struct CreateAccountRequest {
     pub billing_day: Option<u8>,
     /// 还款日。
     pub repayment_day: Option<u8>,
+    /// 所有者成员 ID。
+    pub owner_id: Option<i64>,
+}
+
+/// 设置账户所有者请求。
+#[derive(Deserialize)]
+pub struct SetAccountOwnerRequest {
+    /// 所有者成员 ID。
+    pub owner_id: i64,
 }
 
 /// 交易响应。

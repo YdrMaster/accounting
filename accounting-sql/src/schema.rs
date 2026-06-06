@@ -378,9 +378,11 @@ mod tests {
         assert_eq!(count, 12);
 
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM tags WHERE name='还款'", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM tags WHERE name='repayment'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1);
     }

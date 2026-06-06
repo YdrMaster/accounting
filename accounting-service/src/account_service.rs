@@ -1,7 +1,7 @@
 use accounting::account::Account;
 use accounting::account_type::AccountType;
 use accounting::error::AccountingError;
-use accounting::id::{AccountId, CommodityId};
+use accounting::id::{AccountId, CommodityId, MemberId};
 use accounting::validation::validate_account_close;
 use accounting_sql::database::Database;
 use accounting_sql::transaction::Transaction;
@@ -74,6 +74,7 @@ impl<D: Database> AccountService<D> {
         full_name: &str,
         billing_day: Option<u8>,
         repayment_day: Option<u8>,
+        owner_id: Option<MemberId>,
     ) -> Result<AccountId, AccountingError> {
         let segments: Vec<&str> = full_name.split(':').collect();
         if segments.is_empty() {
@@ -141,6 +142,13 @@ impl<D: Database> AccountService<D> {
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             parent_id = Some(id);
             last_id = Some(id);
+        }
+
+        // 设置账户所有者
+        if let (Some(owner_id), Some(account_id)) = (owner_id, last_id) {
+            tx.account_repo()
+                .set_owner(&tx.conn(), account_id, owner_id)
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
         tx.commit()

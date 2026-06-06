@@ -1,6 +1,6 @@
 use accounting::account::Account;
 use accounting::account_type::AccountType;
-use accounting::id::AccountId;
+use accounting::id::{AccountId, MemberId};
 use chrono::NaiveDate;
 use rusqlite::{Connection, params};
 
@@ -42,6 +42,19 @@ pub trait AccountRepo {
         conn: &Connection,
         account: &Account,
     ) -> Result<AccountId, crate::error::DbError>;
+    /// 获取账户所有者（第一个关联的成员）
+    fn get_owner(
+        &self,
+        conn: &Connection,
+        account_id: AccountId,
+    ) -> Result<Option<MemberId>, crate::error::DbError>;
+    /// 设置账户所有者（替换现有关系）
+    fn set_owner(
+        &self,
+        conn: &Connection,
+        account_id: AccountId,
+        member_id: MemberId,
+    ) -> Result<(), crate::error::DbError>;
 }
 
 /// SQLite AccountRepo 实现
@@ -182,6 +195,38 @@ impl AccountRepo for SqliteAccountRepo {
         }
 
         Ok(id)
+    }
+
+    fn get_owner(
+        &self,
+        conn: &Connection,
+        account_id: AccountId,
+    ) -> Result<Option<MemberId>, crate::error::DbError> {
+        let mut stmt =
+            conn.prepare("SELECT member_id FROM account_owners WHERE account_id = ?1 LIMIT 1")?;
+        let mut rows = stmt.query(params![account_id.0])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(MemberId(row.get(0)?)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn set_owner(
+        &self,
+        conn: &Connection,
+        account_id: AccountId,
+        member_id: MemberId,
+    ) -> Result<(), crate::error::DbError> {
+        conn.execute(
+            "DELETE FROM account_owners WHERE account_id = ?1",
+            params![account_id.0],
+        )?;
+        conn.execute(
+            "INSERT INTO account_owners (account_id, member_id) VALUES (?1, ?2)",
+            params![account_id.0, member_id.0],
+        )?;
+        Ok(())
     }
 }
 

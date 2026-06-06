@@ -1,31 +1,48 @@
 <template>
   <div class="account-tree">
-    <div class="toolbar">
-      <a-button type="primary" @click="handleAddRoot">
-        <PlusOutlined />
-        新建根账户
-      </a-button>
-    </div>
-
     <a-tree
       :tree-data="treeData"
       :default-expand-all="true"
       class="tree"
     >
-      <template #title="{ title, key }">
+      <template #title="{ title, key, dataRef }">
         <template v-if="key === '__new__'">
-          <a-input
-            ref="newInputRef"
-            v-model:value="newAccountName"
-            size="small"
-            placeholder="输入账户名"
-            class="inline-input"
-            @press-enter="handleConfirmNew"
-            @blur="handleBlurNew"
-          />
+          <div class="new-node-row">
+            <a-input
+              ref="newInputRef"
+              v-model:value="newAccountName"
+              size="small"
+              placeholder="输入账户名"
+              class="inline-input"
+              @press-enter="handleConfirmNew"
+            />
+            <a-select
+              v-model:value="newOwnerId"
+              size="small"
+              style="width: 100px"
+              placeholder="所有者"
+            >
+              <a-select-option
+                v-for="m in members"
+                :key="m.id"
+                :value="m.id"
+              >
+                {{ m.name }}
+              </a-select-option>
+            </a-select>
+            <a-button size="small" type="primary" @click.stop="handleConfirmNew">确认</a-button>
+            <a-button size="small" @click.stop="cancelAdd">取消</a-button>
+          </div>
         </template>
         <template v-else>
-          <span class="node-title">{{ title }}</span>
+          <span
+            class="node-title"
+            :class="{ active: selectedKey === key }"
+            @click.stop="selectNode(Number(key))"
+          >
+            {{ title }}
+          </span>
+          <a-tag v-if="dataRef?.is_system" color="orange" class="system-tag">系统</a-tag>
           <a-button
             type="link"
             size="small"
@@ -37,42 +54,89 @@
         </template>
       </template>
     </a-tree>
+
+    <!-- 详情面板 -->
+    <div v-if="selectedAccount" class="detail-panel">
+      <h3>账户详情</h3>
+      <div class="detail-row">
+        <span class="detail-label">名称</span>
+        <span>{{ selectedAccount.full_name }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">类型</span>
+        <span>{{ selectedAccount.account_type }}</span>
+      </div>
+      <div v-if="selectedAccount.is_system" class="detail-row">
+        <span class="detail-label"></span>
+        <a-tag color="orange">系统内置账户</a-tag>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">所有者</span>
+        <a-select
+          :value="selectedAccount.owner_id"
+          style="width: 200px"
+          placeholder="选择所有者"
+          allow-clear
+          @update:value="handleUpdateOwner"
+        >
+          <a-select-option
+            v-for="m in members"
+            :key="m.id"
+            :value="m.id"
+          >
+            {{ m.name }}
+          </a-select-option>
+        </a-select>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, watch, nextTick, onMounted, computed } from 'vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { useAccountStore } from '@/stores/account'
+import { useMemberStore } from '@/stores/member'
 
 interface TreeNode {
   title: string
   key: string
+  is_system?: boolean
   children: TreeNode[]
 }
 
 const accountStore = useAccountStore()
+const memberStore = useMemberStore()
+
 const treeData = ref<TreeNode[]>([])
 const addingParentId = ref<number | null>(null)
 const newAccountName = ref('')
+const newOwnerId = ref<number | undefined>(undefined)
 const newInputRef = ref<HTMLInputElement | null>(null)
+const selectedKey = ref<string | null>(null)
+
+const members = computed(() => memberStore.members)
+
+const selectedAccount = computed(() => {
+  if (!selectedKey.value) return null
+  return accountStore.accounts.find((a) => String(a.id) === selectedKey.value) || null
+})
 
 function buildTreeData(): TreeNode[] {
   const accounts = accountStore.accounts
   const map = new Map<number, TreeNode>()
   const roots: TreeNode[] = []
 
-  // 先建节点
   accounts.forEach((acc) => {
     const segments = acc.full_name.split(':')
     map.set(acc.id, {
       title: segments[segments.length - 1],
       key: String(acc.id),
+      is_system: acc.is_system,
       children: [],
     })
   })
 
-  // 再挂父子关系
   accounts.forEach((acc) => {
     const node = map.get(acc.id)
     if (!node) return
@@ -83,18 +147,10 @@ function buildTreeData(): TreeNode[] {
     }
   })
 
-  // 插入临时输入框节点
   if (addingParentId.value !== null) {
     const parentNode = findNode(roots, String(addingParentId.value))
     if (parentNode) {
       parentNode.children.push({
-        title: '__new__',
-        key: '__new__',
-        children: [],
-      })
-    } else {
-      // 根级别新建
-      roots.push({
         title: '__new__',
         key: '__new__',
         children: [],
@@ -114,18 +170,10 @@ function findNode(nodes: TreeNode[], key: string): TreeNode | null {
   return null
 }
 
-function handleAddRoot() {
-  addingParentId.value = -1 // -1 表示根级别
-  newAccountName.value = ''
-  treeData.value = buildTreeData()
-  nextTick(() => {
-    newInputRef.value?.focus()
-  })
-}
-
 function handleAddChild(parentId: number) {
   addingParentId.value = parentId
   newAccountName.value = ''
+  newOwnerId.value = undefined
   treeData.value = buildTreeData()
   nextTick(() => {
     newInputRef.value?.focus()
@@ -133,25 +181,14 @@ function handleAddChild(parentId: number) {
 }
 
 async function handleConfirmNew() {
-  await doCreate()
-}
-
-async function handleBlurNew() {
-  // 短暂延迟，避免和点击其他按钮冲突
-  await new Promise((r) => setTimeout(r, 100))
-  await doCreate()
-}
-
-async function doCreate() {
   const name = newAccountName.value.trim()
   if (!name) {
-    addingParentId.value = null
-    treeData.value = buildTreeData()
+    cancelAdd()
     return
   }
 
   let fullName = name
-  if (addingParentId.value !== null && addingParentId.value !== -1) {
+  if (addingParentId.value !== null) {
     const parent = accountStore.accounts.find((a) => a.id === addingParentId.value)
     if (parent) {
       fullName = `${parent.full_name}:${name}`
@@ -160,7 +197,26 @@ async function doCreate() {
 
   addingParentId.value = null
   newAccountName.value = ''
-  await accountStore.createAccount(fullName)
+  await accountStore.createAccount(fullName, newOwnerId.value)
+}
+
+function cancelAdd() {
+  addingParentId.value = null
+  newAccountName.value = ''
+  treeData.value = buildTreeData()
+}
+
+function selectNode(id: number) {
+  selectedKey.value = String(id)
+}
+
+async function handleUpdateOwner(value: number | undefined) {
+  if (!selectedAccount.value) return
+  if (selectedAccount.value.is_system) {
+    return
+  }
+  if (value === undefined) return
+  await accountStore.setOwner(selectedAccount.value.id, value)
 }
 
 watch(
@@ -173,6 +229,7 @@ watch(
 
 onMounted(() => {
   accountStore.fetchAccounts()
+  memberStore.fetchMembers()
 })
 </script>
 
@@ -182,10 +239,6 @@ onMounted(() => {
   margin: 0 auto;
 }
 
-.toolbar {
-  margin-bottom: 16px;
-}
-
 .tree {
   background: #fff;
   padding: 16px;
@@ -193,6 +246,19 @@ onMounted(() => {
 }
 
 .node-title {
+  margin-right: 4px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.node-title.active {
+  background: #e6f7ff;
+  color: #1890ff;
+}
+
+.system-tag {
+  font-size: 12px;
   margin-right: 4px;
 }
 
@@ -209,6 +275,32 @@ onMounted(() => {
 }
 
 .inline-input {
-  width: 160px;
+  width: 120px;
+}
+
+.new-node-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.detail-panel {
+  margin-top: 24px;
+  background: #fff;
+  padding: 24px;
+  border-radius: 8px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.detail-label {
+  width: 60px;
+  color: #666;
+  font-weight: 500;
 }
 </style>

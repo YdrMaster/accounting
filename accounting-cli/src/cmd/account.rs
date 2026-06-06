@@ -78,7 +78,7 @@ impl AccountCmd {
             AccountCmd::Add(args) => {
                 let service = accounting_service::account_service::AccountService::new(db);
                 let id = service
-                    .create_cascading(&args.full_name, args.billing_day, args.repayment_day)
+                    .create_cascading(&args.full_name, args.billing_day, args.repayment_day, None)
                     .await?;
                 print_line(&format!("{}", t!("account_created", id = id.0)), format);
             }
