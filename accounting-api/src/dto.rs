@@ -39,8 +39,8 @@ pub struct AccountDto {
     pub billing_day: Option<u8>,
     /// 还款日。
     pub repayment_day: Option<u8>,
-    /// 所有者成员 ID。
-    pub owner_id: Option<i64>,
+    /// 所有者成员 ID 列表。
+    pub owner_ids: Vec<i64>,
 }
 
 /// 创建账户请求。
@@ -52,15 +52,15 @@ pub struct CreateAccountRequest {
     pub billing_day: Option<u8>,
     /// 还款日。
     pub repayment_day: Option<u8>,
-    /// 所有者成员 ID。
-    pub owner_id: Option<i64>,
+    /// 所有者成员 ID 列表。
+    pub owner_ids: Vec<i64>,
 }
 
 /// 设置账户所有者请求。
 #[derive(Deserialize)]
-pub struct SetAccountOwnerRequest {
-    /// 所有者成员 ID。
-    pub owner_id: i64,
+pub struct SetAccountOwnersRequest {
+    /// 所有者成员 ID 列表。
+    pub owner_ids: Vec<i64>,
 }
 
 /// 交易响应。
@@ -76,6 +76,8 @@ pub struct TransactionDto {
     pub member_id: Option<i64>,
     /// 是否为模板。
     pub is_template: bool,
+    /// 分录列表。
+    pub postings: Vec<PostingDto>,
 }
 
 /// 分录响应。

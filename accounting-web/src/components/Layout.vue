@@ -30,11 +30,58 @@
           <BarChartOutlined />
           <span>报表</span>
         </a-menu-item>
-        <a-menu-item key="/members">
-          <TeamOutlined />
-          <span>成员</span>
-        </a-menu-item>
       </a-menu>
+
+      <!-- 当前成员选择器 -->
+      <div class="sider-member">
+        <a-select
+          v-model:value="currentId"
+          style="width: 100%"
+          size="small"
+          :bordered="false"
+          :dropdown-match-select-width="false"
+          @update:value="handleChange"
+        >
+          <a-select-option
+            v-for="m in memberStore.members"
+            :key="m.id"
+            :value="m.id"
+          >
+            {{ m.name }}
+          </a-select-option>
+          <template #dropdownRender="{ menuNode: menu }">
+            <div>
+              <component :is="menu" />
+              <a-divider style="margin: 4px 0" />
+              <div
+                v-if="!adding"
+                style="padding: 4px 12px; cursor: pointer"
+                @mousedown.prevent
+                @click="adding = true"
+              >
+                <PlusOutlined />
+                <span style="margin-left: 4px">添加成员</span>
+              </div>
+              <div
+                v-else
+                style="padding: 4px 12px; display: flex; gap: 4px"
+              >
+                <a-input
+                  v-model:value="newName"
+                  ref="addInputRef"
+                  size="small"
+                  placeholder="成员名"
+                  style="flex: 1"
+                  @press-enter="handleAdd"
+                />
+                <a-button size="small" type="primary" @click="handleAdd">
+                  确认
+                </a-button>
+              </div>
+            </div>
+          </template>
+        </a-select>
+      </div>
     </a-layout-sider>
 
     <!-- 内容区 -->
@@ -42,6 +89,57 @@
       class="layout-content"
       :class="{ 'mobile-content': isMobile }"
     >
+      <!-- 移动端顶部成员栏 -->
+      <div v-if="isMobile" class="mobile-member-bar">
+        <span class="member-label">当前成员</span>
+        <a-select
+          v-model:value="currentId"
+          style="width: 140px"
+          size="small"
+          :bordered="false"
+          :dropdown-match-select-width="false"
+          @update:value="handleChange"
+        >
+          <a-select-option
+            v-for="m in memberStore.members"
+            :key="m.id"
+            :value="m.id"
+          >
+            {{ m.name }}
+          </a-select-option>
+          <template #dropdownRender="{ menuNode: menu }">
+            <div>
+              <component :is="menu" />
+              <a-divider style="margin: 4px 0" />
+              <div
+                v-if="!adding"
+                style="padding: 4px 12px; cursor: pointer"
+                @mousedown.prevent
+                @click="adding = true"
+              >
+                <PlusOutlined />
+                <span style="margin-left: 4px">添加成员</span>
+              </div>
+              <div
+                v-else
+                style="padding: 4px 12px; display: flex; gap: 4px"
+              >
+                <a-input
+                  v-model:value="newName"
+                  ref="addInputRef"
+                  size="small"
+                  placeholder="成员名"
+                  style="flex: 1"
+                  @press-enter="handleAdd"
+                />
+                <a-button size="small" type="primary" @click="handleAdd">
+                  确认
+                </a-button>
+              </div>
+            </div>
+          </template>
+        </a-select>
+      </div>
       <router-view />
     </a-layout-content>
 
@@ -62,28 +160,37 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   HomeOutlined,
   BookOutlined,
   TagOutlined,
   BarChartOutlined,
-  TeamOutlined,
+  PlusOutlined,
 } from '@ant-design/icons-vue'
+import { useMemberStore } from '@/stores/member'
+import api from '@/api/client'
 
 const route = useRoute()
 const router = useRouter()
+const memberStore = useMemberStore()
 const isMobile = ref(window.innerWidth < 768)
+const adding = ref(false)
+const newName = ref('')
+const addInputRef = ref<HTMLInputElement | null>(null)
 
 const currentRoute = computed(() => route.path)
+const currentId = computed({
+  get: () => memberStore.currentMember?.id ?? undefined,
+  set: () => {},
+})
 
 const tabs = [
   { path: '/', label: '首页', icon: HomeOutlined },
   { path: '/accounts', label: '账户', icon: BookOutlined },
   { path: '/tags', label: '标签', icon: TagOutlined },
   { path: '/reports', label: '报表', icon: BarChartOutlined },
-  { path: '/members', label: '成员', icon: TeamOutlined },
 ]
 
 function handleMenuClick(info: { key: string | number }) {
@@ -94,8 +201,38 @@ function handleResize() {
   isMobile.value = window.innerWidth < 768
 }
 
+async function handleChange(value: number) {
+  await memberStore.setCurrent(value)
+}
+
+async function handleAdd() {
+  const name = newName.value.trim()
+  if (!name) {
+    adding.value = false
+    return
+  }
+  try {
+    await api.post('/members', { name })
+    await memberStore.fetchMembers()
+    adding.value = false
+    newName.value = ''
+  } catch (e) {
+    console.error('创建成员失败', e)
+  }
+}
+
+watch(adding, (val) => {
+  if (val) {
+    nextTick(() => {
+      addInputRef.value?.focus()
+    })
+  }
+})
+
 onMounted(() => {
   window.addEventListener('resize', handleResize)
+  memberStore.fetchMembers()
+  memberStore.fetchMe()
 })
 
 onUnmounted(() => {
@@ -125,6 +262,42 @@ onUnmounted(() => {
 
 .mobile-content {
   padding: 16px 16px 80px;
+}
+
+.sider-member {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+}
+
+.sider-member :deep(.ant-select-selector) {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+}
+
+.sider-member :deep(.ant-select-selection-item) {
+  color: #fff !important;
+}
+
+.sider-member :deep(.ant-select-arrow) {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.mobile-member-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+  margin: -16px -16px 12px;
+}
+
+.member-label {
+  font-size: 13px;
+  color: #666;
 }
 
 .mobile-tab-bar {

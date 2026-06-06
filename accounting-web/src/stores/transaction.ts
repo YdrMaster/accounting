@@ -2,12 +2,20 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import api from '@/api/client'
 
+export interface Posting {
+  id: number
+  account: string
+  commodity: string
+  amount: string
+}
+
 export interface Transaction {
   id: number
   date_time: string
   description: string
   member_id?: number
   is_template: boolean
+  postings: Posting[]
 }
 
 export interface PostingInput {

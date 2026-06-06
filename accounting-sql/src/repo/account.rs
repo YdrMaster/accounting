@@ -42,18 +42,18 @@ pub trait AccountRepo {
         conn: &Connection,
         account: &Account,
     ) -> Result<AccountId, crate::error::DbError>;
-    /// 获取账户所有者（第一个关联的成员）
-    fn get_owner(
+    /// 获取账户所有者列表
+    fn get_owners(
         &self,
         conn: &Connection,
         account_id: AccountId,
-    ) -> Result<Option<MemberId>, crate::error::DbError>;
+    ) -> Result<Vec<MemberId>, crate::error::DbError>;
     /// 设置账户所有者（替换现有关系）
-    fn set_owner(
+    fn set_owners(
         &self,
         conn: &Connection,
         account_id: AccountId,
-        member_id: MemberId,
+        member_ids: &[MemberId],
     ) -> Result<(), crate::error::DbError>;
 }
 
@@ -197,35 +197,33 @@ impl AccountRepo for SqliteAccountRepo {
         Ok(id)
     }
 
-    fn get_owner(
+    fn get_owners(
         &self,
         conn: &Connection,
         account_id: AccountId,
-    ) -> Result<Option<MemberId>, crate::error::DbError> {
+    ) -> Result<Vec<MemberId>, crate::error::DbError> {
         let mut stmt =
-            conn.prepare("SELECT member_id FROM account_owners WHERE account_id = ?1 LIMIT 1")?;
-        let mut rows = stmt.query(params![account_id.0])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(MemberId(row.get(0)?)))
-        } else {
-            Ok(None)
-        }
+            conn.prepare("SELECT member_id FROM account_owners WHERE account_id = ?1")?;
+        let rows = stmt.query_map(params![account_id.0], |row| Ok(MemberId(row.get(0)?)))?;
+        rows.collect::<Result<_, _>>().map_err(Into::into)
     }
 
-    fn set_owner(
+    fn set_owners(
         &self,
         conn: &Connection,
         account_id: AccountId,
-        member_id: MemberId,
+        member_ids: &[MemberId],
     ) -> Result<(), crate::error::DbError> {
         conn.execute(
             "DELETE FROM account_owners WHERE account_id = ?1",
             params![account_id.0],
         )?;
-        conn.execute(
-            "INSERT INTO account_owners (account_id, member_id) VALUES (?1, ?2)",
-            params![account_id.0, member_id.0],
-        )?;
+        for member_id in member_ids {
+            conn.execute(
+                "INSERT INTO account_owners (account_id, member_id) VALUES (?1, ?2)",
+                params![account_id.0, member_id.0],
+            )?;
+        }
         Ok(())
     }
 }

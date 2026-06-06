@@ -4,12 +4,15 @@
       <div class="transaction-info">
         <span class="transaction-date">{{ formattedDate }}</span>
         <span class="transaction-desc">{{ tx.description }}</span>
+        <span v-if="memberName" class="transaction-member">{{ memberName }}</span>
       </div>
-      <span class="expand-icon">{{ expanded ? '▼' : '▶' }}</span>
+      <div class="transaction-meta">
+        <span class="transaction-amount">¥{{ totalAmount.toFixed(2) }}</span>
+        <span class="expand-icon">{{ expanded ? '▼' : '▶' }}</span>
+      </div>
     </div>
     <div v-if="expanded" class="transaction-detail">
-      <div v-if="loading" class="loading">加载中...</div>
-      <div v-else-if="postings.length === 0" class="empty">暂无分录</div>
+      <div v-if="postings.length === 0" class="empty">暂无分录</div>
       <div v-else class="postings">
         <div v-for="p in postings" :key="p.id" class="posting-row">
           <span class="posting-account">{{ p.account }}</span>
@@ -25,54 +28,44 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import api from '@/api/client'
 import type { Transaction } from '@/stores/transaction'
-
-interface Posting {
-  id: number
-  account: string
-  commodity: string
-  amount: string
-}
+import { useMemberStore } from '@/stores/member'
 
 const props = defineProps<{
   tx: Transaction
 }>()
 
+const memberStore = useMemberStore()
 const expanded = ref(false)
-const loading = ref(false)
-const postings = ref<Posting[]>([])
+const postings = computed(() => props.tx.postings || [])
 
 const formattedDate = computed(() => {
   const d = new Date(props.tx.date_time)
   return d.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   })
 })
 
-async function toggleExpand() {
-  expanded.value = !expanded.value
-  if (expanded.value && postings.value.length === 0) {
-    loading.value = true
-    try {
-      const res = await api.get<{
-        id: number
-        date_time: string
-        description: string
-        member_id?: number
-        is_template: boolean
-        postings: Posting[]
-      }>(`/transactions/${props.tx.id}`)
-      postings.value = res.data.postings
-    } catch (e) {
-      console.error('获取分录失败', e)
-    } finally {
-      loading.value = false
+const memberName = computed(() => {
+  if (!props.tx.member_id) return ''
+  const m = memberStore.members.find((m) => m.id === props.tx.member_id)
+  return m?.name || ''
+})
+
+const totalAmount = computed(() => {
+  let sum = 0
+  for (const p of postings.value) {
+    const amount = parseFloat(p.amount)
+    if (amount > 0) {
+      sum += amount
     }
   }
+  return sum
+})
+
+function toggleExpand() {
+  expanded.value = !expanded.value
 }
 </script>
 
@@ -107,6 +100,23 @@ async function toggleExpand() {
 .transaction-desc {
   color: #333;
   font-size: 14px;
+}
+
+.transaction-member {
+  color: #999;
+  font-size: 12px;
+}
+
+.transaction-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.transaction-amount {
+  font-size: 15px;
+  font-weight: 600;
+  color: #f5222d;
 }
 
 .expand-icon {

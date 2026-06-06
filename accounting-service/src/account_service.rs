@@ -74,7 +74,7 @@ impl<D: Database> AccountService<D> {
         full_name: &str,
         billing_day: Option<u8>,
         repayment_day: Option<u8>,
-        owner_id: Option<MemberId>,
+        owner_ids: &[MemberId],
     ) -> Result<AccountId, AccountingError> {
         let segments: Vec<&str> = full_name.split(':').collect();
         if segments.is_empty() {
@@ -145,9 +145,9 @@ impl<D: Database> AccountService<D> {
         }
 
         // 设置账户所有者
-        if let (Some(owner_id), Some(account_id)) = (owner_id, last_id) {
+        if !owner_ids.is_empty() && let Some(account_id) = last_id {
             tx.account_repo()
-                .set_owner(&tx.conn(), account_id, owner_id)
+                .set_owners(&tx.conn(), account_id, owner_ids)
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 

@@ -10,7 +10,7 @@ export interface Account {
   is_system: boolean
   billing_day?: number
   repayment_day?: number
-  owner_id?: number
+  owner_ids?: number[]
 }
 
 export const useAccountStore = defineStore('account', () => {
@@ -31,23 +31,23 @@ export const useAccountStore = defineStore('account', () => {
 
   async function createAccount(
     fullName: string,
-    ownerId?: number,
+    ownerIds: number[] = [],
     billingDay?: number,
     repaymentDay?: number
   ) {
     await api.post('/accounts', {
       full_name: fullName,
-      owner_id: ownerId,
+      owner_ids: ownerIds,
       billing_day: billingDay,
       repayment_day: repaymentDay,
     })
     await fetchAccounts()
   }
 
-  async function setOwner(accountId: number, ownerId: number) {
-    await api.put(`/accounts/${accountId}/owner`, { owner_id: ownerId })
+  async function setOwners(accountId: number, ownerIds: number[]) {
+    await api.put(`/accounts/${accountId}/owner`, { owner_ids: ownerIds })
     await fetchAccounts()
   }
 
-  return { accounts, loading, fetchAccounts, createAccount, setOwner }
+  return { accounts, loading, fetchAccounts, createAccount, setOwners }
 })

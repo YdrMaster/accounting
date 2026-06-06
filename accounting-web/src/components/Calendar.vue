@@ -21,14 +21,18 @@
         }"
         @click="handleClick(day.date)"
       >
-        <div class="day-number">{{ day.dayOfMonth }}</div>
-        <div v-if="data && data[day.date]" class="day-stats">
-          <div v-if="data[day.date].income" class="income">
-            +{{ data[day.date].income }}
-          </div>
-          <div v-if="data[day.date].expense" class="expense">
-            -{{ data[day.date].expense }}
-          </div>
+        <div class="day-top">
+          <span class="day-number">{{ day.dayOfMonth }}</span>
+        </div>
+        <div class="day-bottom">
+          <template v-if="data && data[day.date]">
+            <span v-if="data[day.date].expense" class="expense">
+              -{{ fmt(data[day.date].expense) }}
+            </span>
+            <span v-if="data[day.date].income" class="income">
+              +{{ fmt(data[day.date].income) }}
+            </span>
+          </template>
         </div>
       </div>
     </div>
@@ -144,6 +148,10 @@ function isInRange(date: string): boolean {
   )
 }
 
+function fmt(n: number) {
+  return n.toFixed(2)
+}
+
 function handleClick(date: string) {
   if (!props.rangeMode) {
     // 单日模式：单击选单日，再次点击取消
@@ -193,90 +201,128 @@ function handleClick(date: string) {
 <style scoped>
 .calendar {
   background: #fff;
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: 12px;
+  padding: 12px;
   user-select: none;
+  container-type: inline-size;
 }
 
 .calendar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
-  font-size: 16px;
+  margin-bottom: 12px;
+  font-size: clamp(14px, 3cqi, 18px);
   font-weight: bold;
 }
 
 .arrow {
   cursor: pointer;
-  padding: 0 12px;
-  font-size: 20px;
+  padding: 0 clamp(8px, 2cqi, 12px);
+  font-size: clamp(16px, 4cqi, 22px);
   color: #666;
 }
 
 .calendar-weekdays {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .weekday {
   text-align: center;
   color: #999;
-  font-size: 12px;
+  font-size: clamp(10px, 2.5cqi, 14px);
 }
 
 .calendar-days {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  gap: 8px;
 }
 
 .day-cell {
-  min-height: 64px;
-  padding: 4px;
-  border-radius: 4px;
+  aspect-ratio: 1.618 / 1;
+  min-height: 48px;
+  padding: clamp(2px, 0.6cqi, 5px);
+  border-radius: 8px;
+  background: #f5f5f5;
   cursor: pointer;
   transition: background 0.2s;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
 }
 
 .day-cell:hover {
-  background: #f5f5f5;
+  background: #e8e8e8;
 }
 
 .day-cell.other-month {
+  background: #fafafa;
   color: #ccc;
 }
 
+.day-cell.other-month .income,
+.day-cell.other-month .expense {
+  color: #ddd;
+}
+
+.day-cell.today {
+  background: #fff7e6;
+}
+
 .day-cell.today .day-number {
-  color: #1890ff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(18px, 5.5cqi, 26px);
+  height: clamp(18px, 5.5cqi, 26px);
+  background: #fa8c16;
+  color: #fff;
+  border-radius: 50%;
   font-weight: bold;
 }
 
 .day-cell.selected {
-  background: #e6f7ff;
-  border: 1px solid #1890ff;
+  background: #bae7ff;
+  box-shadow: 0 0 0 2px #1890ff;
 }
 
 .day-cell.in-range {
   background: #e6f7ff;
 }
 
-.day-number {
-  font-size: 14px;
-  margin-bottom: 2px;
+.day-top {
+  text-align: center;
 }
 
-.day-stats {
-  font-size: 10px;
-  line-height: 1.2;
+.day-number {
+  font-size: clamp(12px, 3.2cqi, 15px);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.day-bottom {
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(10px, 2.5cqi, 12px);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .income {
   color: #52c41a;
+  font-weight: 500;
 }
 
 .expense {
   color: #f5222d;
+  font-weight: 500;
 }
 </style>

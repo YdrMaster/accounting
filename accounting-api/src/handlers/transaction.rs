@@ -90,6 +90,25 @@ async fn list_transactions(
         filter.keyword = Some(keyword);
     }
 
+    let (accounts, commodities) = {
+        let conn = db.connection();
+        let accounts: std::collections::HashMap<i64, String> = db
+            .account_repo()
+            .list(&conn)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|a| (a.id.0, a.full_name))
+            .collect();
+        let commodities: std::collections::HashMap<i64, String> = db
+            .commodity_repo()
+            .list(&conn)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|c| (c.id.0, c.symbol))
+            .collect();
+        (accounts, commodities)
+    };
+
     let service = TransactionService::new(db);
     let transactions = service
         .list(filter, query.limit, query.offset)
@@ -98,12 +117,24 @@ async fn list_transactions(
 
     let dtos: Vec<TransactionDto> = transactions
         .into_iter()
-        .map(|(tx, _)| TransactionDto {
+        .map(|(tx, postings)| TransactionDto {
             id: tx.id.0,
             date_time: tx.date_time.to_string(),
             description: tx.description,
             member_id: tx.member_id.map(|id| id.0),
             is_template: tx.is_template,
+            postings: postings
+                .into_iter()
+                .map(|p| PostingDto {
+                    id: p.id.0,
+                    account: accounts.get(&p.account_id.0).cloned().unwrap_or_default(),
+                    commodity: commodities
+                        .get(&p.commodity_id.0)
+                        .cloned()
+                        .unwrap_or_default(),
+                    amount: p.amount.to_string(),
+                })
+                .collect(),
         })
         .collect();
 

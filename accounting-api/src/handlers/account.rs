@@ -1,6 +1,6 @@
 //! 账户 API handler
 
-use crate::dto::{AccountDto, CreateAccountRequest, SetAccountOwnerRequest};
+use crate::dto::{AccountDto, CreateAccountRequest, SetAccountOwnersRequest};
 use crate::handlers::member::AppState;
 use accounting::id::{AccountId, MemberId};
 use accounting_sql::database::Database;
@@ -19,11 +19,14 @@ async fn list_accounts(
     let conn = db.connection();
 
     // 先查询所有者
-    let mut owners: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    let mut owners: std::collections::HashMap<i64, Vec<i64>> = std::collections::HashMap::new();
     let accounts_raw = db.account_repo().list(&conn).map_err(|e| e.to_string())?;
     for account in &accounts_raw {
-        if let Ok(Some(owner)) = db.account_repo().get_owner(&conn, account.id) {
-            owners.insert(account.id.0, owner.0);
+        if let Ok(list) = db.account_repo().get_owners(&conn, account.id) {
+            let ids: Vec<i64> = list.into_iter().map(|m| m.0).collect();
+            if !ids.is_empty() {
+                owners.insert(account.id.0, ids);
+            }
         }
     }
 
@@ -38,7 +41,7 @@ async fn list_accounts(
             is_system: a.is_system,
             billing_day: a.billing_day,
             repayment_day: a.repayment_day,
-            owner_id: owners.get(&a.id.0).copied(),
+            owner_ids: owners.get(&a.id.0).cloned().unwrap_or_default(),
         })
         .collect();
     Ok(Json(dtos))
@@ -51,12 +54,13 @@ async fn create_account(
 ) -> Result<Json<i64>, String> {
     let db = state.db().map_err(|e| e.to_string())?;
     let service = accounting_service::account_service::AccountService::new(db);
+    let owner_ids: Vec<MemberId> = req.owner_ids.into_iter().map(MemberId).collect();
     let id = service
         .create_cascading(
             &req.full_name,
             req.billing_day,
             req.repayment_day,
-            req.owner_id.map(MemberId),
+            &owner_ids,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -85,12 +89,13 @@ async fn get_balance(
 async fn set_owner(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-    Json(req): Json<SetAccountOwnerRequest>,
+    Json(req): Json<SetAccountOwnersRequest>,
 ) -> Result<String, String> {
     let db = state.db().map_err(|e| e.to_string())?;
     let conn = db.connection();
+    let member_ids: Vec<MemberId> = req.owner_ids.into_iter().map(MemberId).collect();
     db.account_repo()
-        .set_owner(&conn, AccountId(id), MemberId(req.owner_id))
+        .set_owners(&conn, AccountId(id), &member_ids)
         .map_err(|e| e.to_string())?;
     Ok("ok".to_string())
 }

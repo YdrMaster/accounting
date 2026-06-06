@@ -16,20 +16,6 @@
               class="inline-input"
               @press-enter="handleConfirmNew"
             />
-            <a-select
-              v-model:value="newOwnerId"
-              size="small"
-              style="width: 100px"
-              placeholder="所有者"
-            >
-              <a-select-option
-                v-for="m in members"
-                :key="m.id"
-                :value="m.id"
-              >
-                {{ m.name }}
-              </a-select-option>
-            </a-select>
             <a-button size="small" type="primary" @click.stop="handleConfirmNew">确认</a-button>
             <a-button size="small" @click.stop="cancelAdd">取消</a-button>
           </div>
@@ -70,23 +56,13 @@
         <span class="detail-label"></span>
         <a-tag color="orange">系统内置账户</a-tag>
       </div>
-      <div class="detail-row">
+      <div class="detail-row owners-row">
         <span class="detail-label">所有者</span>
-        <a-select
-          :value="selectedAccount.owner_id"
-          style="width: 200px"
-          placeholder="选择所有者"
-          allow-clear
-          @update:value="handleUpdateOwner"
-        >
-          <a-select-option
-            v-for="m in members"
-            :key="m.id"
-            :value="m.id"
-          >
-            {{ m.name }}
-          </a-select-option>
-        </a-select>
+        <a-checkbox-group
+          :value="selectedAccount.owner_ids || []"
+          :options="memberOptions"
+          @change="handleUpdateOwners"
+        />
       </div>
     </div>
   </div>
@@ -111,11 +87,14 @@ const memberStore = useMemberStore()
 const treeData = ref<TreeNode[]>([])
 const addingParentId = ref<number | null>(null)
 const newAccountName = ref('')
-const newOwnerId = ref<number | undefined>(undefined)
 const newInputRef = ref<HTMLInputElement | null>(null)
 const selectedKey = ref<string | null>(null)
 
 const members = computed(() => memberStore.members)
+
+const memberOptions = computed(() =>
+  members.value.map((m) => ({ label: m.name, value: m.id }))
+)
 
 const selectedAccount = computed(() => {
   if (!selectedKey.value) return null
@@ -173,7 +152,6 @@ function findNode(nodes: TreeNode[], key: string): TreeNode | null {
 function handleAddChild(parentId: number) {
   addingParentId.value = parentId
   newAccountName.value = ''
-  newOwnerId.value = undefined
   treeData.value = buildTreeData()
   nextTick(() => {
     newInputRef.value?.focus()
@@ -197,7 +175,7 @@ async function handleConfirmNew() {
 
   addingParentId.value = null
   newAccountName.value = ''
-  await accountStore.createAccount(fullName, newOwnerId.value)
+  await accountStore.createAccount(fullName)
 }
 
 function cancelAdd() {
@@ -210,13 +188,11 @@ function selectNode(id: number) {
   selectedKey.value = String(id)
 }
 
-async function handleUpdateOwner(value: number | undefined) {
+async function handleUpdateOwners(checkedValues: (string | number)[]) {
   if (!selectedAccount.value) return
-  if (selectedAccount.value.is_system) {
-    return
-  }
-  if (value === undefined) return
-  await accountStore.setOwner(selectedAccount.value.id, value)
+  if (selectedAccount.value.is_system) return
+  const ids = checkedValues.map((v) => Number(v))
+  await accountStore.setOwners(selectedAccount.value.id, ids)
 }
 
 watch(
@@ -281,7 +257,8 @@ onMounted(() => {
 .new-node-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .detail-panel {
@@ -298,9 +275,14 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 
+.owners-row {
+  align-items: flex-start;
+}
+
 .detail-label {
   width: 60px;
   color: #666;
   font-weight: 500;
+  flex-shrink: 0;
 }
 </style>
