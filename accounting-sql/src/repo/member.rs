@@ -12,6 +12,8 @@ pub trait MemberRepo {
     -> Result<Option<Member>, crate::error::DbError>;
     /// 列出所有成员
     fn list(&self, conn: &Connection) -> Result<Vec<Member>, crate::error::DbError>;
+    /// 删除成员
+    fn delete(&self, conn: &Connection, id: MemberId) -> Result<(), crate::error::DbError>;
 }
 
 /// SQLite MemberRepo 实现
@@ -59,6 +61,11 @@ impl MemberRepo for SqliteMemberRepo {
         })?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
     }
+
+    fn delete(&self, conn: &Connection, id: MemberId) -> Result<(), crate::error::DbError> {
+        conn.execute("DELETE FROM members WHERE id = ?1", params![id.0])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -98,5 +105,18 @@ mod tests {
         repo.create(&conn, &member).unwrap();
         let list = repo.list(&conn).unwrap();
         assert!(list.iter().any(|m| m.name == "Bob"));
+    }
+
+    #[test]
+    fn test_delete() {
+        let (conn, repo) = setup();
+        let member = Member {
+            id: MemberId(0),
+            name: "Charlie".to_string(),
+            description: None,
+        };
+        let id = repo.create(&conn, &member).unwrap();
+        repo.delete(&conn, id).unwrap();
+        assert!(repo.get(&conn, id).unwrap().is_none());
     }
 }

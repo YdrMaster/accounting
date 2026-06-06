@@ -12,6 +12,12 @@ pub trait CommodityRepo {
     ) -> Result<Option<Commodity>, crate::error::DbError>;
     /// 列出所有商品
     fn list(&self, conn: &Connection) -> Result<Vec<Commodity>, crate::error::DbError>;
+    /// 创建商品
+    fn create(
+        &self,
+        conn: &Connection,
+        commodity: &Commodity,
+    ) -> Result<CommodityId, crate::error::DbError>;
 }
 
 /// SQLite CommodityRepo 实现
@@ -51,6 +57,18 @@ impl CommodityRepo for SqliteCommodityRepo {
         })?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
     }
+
+    fn create(
+        &self,
+        conn: &Connection,
+        commodity: &Commodity,
+    ) -> Result<CommodityId, crate::error::DbError> {
+        conn.execute(
+            "INSERT INTO commodities (symbol, name, precision) VALUES (?1, ?2, ?3)",
+            params![commodity.symbol, commodity.name, commodity.precision as i32],
+        )?;
+        Ok(CommodityId(conn.last_insert_rowid()))
+    }
 }
 
 #[cfg(test)]
@@ -82,5 +100,20 @@ mod tests {
         let list = repo.list(&conn).unwrap();
         assert!(!list.is_empty());
         assert!(list.iter().any(|c| c.symbol == "CNY"));
+    }
+
+    #[test]
+    fn test_create() {
+        let (conn, repo) = setup();
+        let commodity = Commodity {
+            id: CommodityId(0),
+            symbol: "USD".to_string(),
+            name: "美元".to_string(),
+            precision: 2,
+        };
+        let id = repo.create(&conn, &commodity).unwrap();
+        let fetched = repo.get_by_symbol(&conn, "USD").unwrap().unwrap();
+        assert_eq!(fetched.id, id);
+        assert_eq!(fetched.name, "美元");
     }
 }

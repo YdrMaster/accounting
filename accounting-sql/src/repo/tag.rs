@@ -12,6 +12,10 @@ pub trait TagRepo {
     ) -> Result<Option<Tag>, crate::error::DbError>;
     /// 列出所有标签
     fn list(&self, conn: &Connection) -> Result<Vec<Tag>, crate::error::DbError>;
+    /// 创建标签
+    fn create(&self, conn: &Connection, tag: &Tag) -> Result<TagId, crate::error::DbError>;
+    /// 删除标签
+    fn delete(&self, conn: &Connection, name: &str) -> Result<(), crate::error::DbError>;
 }
 
 /// SQLite TagRepo 实现
@@ -51,6 +55,19 @@ impl TagRepo for SqliteTagRepo {
         })?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
     }
+
+    fn create(&self, conn: &Connection, tag: &Tag) -> Result<TagId, crate::error::DbError> {
+        conn.execute(
+            "INSERT INTO tags (name, description, is_system) VALUES (?1, ?2, ?3)",
+            params![tag.name, tag.description, tag.is_system as i32],
+        )?;
+        Ok(TagId(conn.last_insert_rowid()))
+    }
+
+    fn delete(&self, conn: &Connection, name: &str) -> Result<(), crate::error::DbError> {
+        conn.execute("DELETE FROM tags WHERE name = ?1", params![name])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -80,5 +97,34 @@ mod tests {
         let list = repo.list(&conn).unwrap();
         assert!(!list.is_empty());
         assert!(list.iter().any(|t| t.name == "repayment"));
+    }
+
+    #[test]
+    fn test_create() {
+        let (conn, repo) = setup();
+        let tag = Tag {
+            id: TagId(0),
+            name: "travel".to_string(),
+            description: Some("旅行".to_string()),
+            is_system: false,
+        };
+        let id = repo.create(&conn, &tag).unwrap();
+        let fetched = repo.get_by_name(&conn, "travel").unwrap().unwrap();
+        assert_eq!(fetched.id, id);
+        assert_eq!(fetched.description, Some("旅行".to_string()));
+    }
+
+    #[test]
+    fn test_delete() {
+        let (conn, repo) = setup();
+        let tag = Tag {
+            id: TagId(0),
+            name: "temp".to_string(),
+            description: None,
+            is_system: false,
+        };
+        repo.create(&conn, &tag).unwrap();
+        repo.delete(&conn, "temp").unwrap();
+        assert!(repo.get_by_name(&conn, "temp").unwrap().is_none());
     }
 }
