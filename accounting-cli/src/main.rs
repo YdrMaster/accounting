@@ -41,7 +41,9 @@ async fn initialize(
     }
     let db = accounting_sql::impls::sqlite::SqliteDatabase::open(db_path.to_str().unwrap())
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
-    let lang = cli_lang.map(|s| s.to_string()).unwrap_or_else(detect_system_language);
+    let lang = cli_lang
+        .map(|s| s.to_string())
+        .unwrap_or_else(detect_system_language);
     rust_i18n::set_locale(&lang);
     db.initialize(&lang)
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
