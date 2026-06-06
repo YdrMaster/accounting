@@ -24,6 +24,12 @@ pub enum AccountingError {
     /// 底层数据库异常
     #[error("数据库错误: {0}")]
     DatabaseError(String),
+    /// 数据库文件不存在
+    #[error("数据库文件不存在，请先运行 initialize 命令")]
+    DbNotInitialized,
+    /// 数据库文件已存在
+    #[error("数据库文件已存在")]
+    DbAlreadyExists,
     /// 其他未知错误
     #[error("未知错误: {0}")]
     Unknown(String),

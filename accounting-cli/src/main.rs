@@ -17,16 +17,14 @@ async fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("错误: {:?}", e);
+        eprintln!("错误: {}", e);
         process::exit(1);
     }
 }
 
 async fn initialize(db_path: &std::path::Path) -> Result<(), accounting::error::AccountingError> {
     if db_path.exists() {
-        return Err(accounting::error::AccountingError::Unknown(
-            "数据库文件已存在".to_string(),
-        ));
+        return Err(accounting::error::AccountingError::DbAlreadyExists);
     }
     let _db = accounting_sql::impls::sqlite::SqliteDatabase::open(db_path.to_str().unwrap())
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
@@ -36,9 +34,7 @@ async fn initialize(db_path: &std::path::Path) -> Result<(), accounting::error::
 
 async fn run_command(cli: Cli) -> Result<(), accounting::error::AccountingError> {
     if !cli.db.exists() {
-        return Err(accounting::error::AccountingError::Unknown(
-            "数据库文件不存在，请先运行 initialize 命令".to_string(),
-        ));
+        return Err(accounting::error::AccountingError::DbNotInitialized);
     }
     let db = accounting_sql::impls::sqlite::SqliteDatabase::open(cli.db.to_str().unwrap())
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
