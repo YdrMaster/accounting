@@ -11,6 +11,9 @@ serde_json = "1"
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "fs"] }
 
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+rust_decimal = "1.36"
+
 accounting = { path = "../accounting" }
 accounting-sql = { path = "../accounting-sql" }
 accounting-service = { path = "../accounting-service" }
