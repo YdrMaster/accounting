@@ -46,7 +46,7 @@ impl CommodityRepo for SqliteCommodityRepo {
 
     fn list(&self, conn: &Connection) -> Result<Vec<Commodity>, crate::error::DbError> {
         let mut stmt =
-            conn.prepare("SELECT id, symbol, name, precision FROM commodities ORDER BY symbol")?;
+            conn.prepare("SELECT id, symbol, name, precision FROM commodities ORDER BY id")?;
         let rows = stmt.query_map([], |row| {
             Ok(Commodity {
                 id: CommodityId(row.get(0)?),

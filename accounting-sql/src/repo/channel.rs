@@ -55,7 +55,7 @@ impl ChannelRepo for SqliteChannelRepo {
     }
 
     fn list(&self, conn: &Connection) -> Result<Vec<Channel>, crate::error::DbError> {
-        let mut stmt = conn.prepare("SELECT id, name, description FROM channels ORDER BY name")?;
+        let mut stmt = conn.prepare("SELECT id, name, description FROM channels ORDER BY id")?;
         let rows = stmt.query_map([], |row| {
             Ok(Channel {
                 id: ChannelId(row.get(0)?),

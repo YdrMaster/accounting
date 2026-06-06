@@ -44,7 +44,7 @@ impl TagRepo for SqliteTagRepo {
 
     fn list(&self, conn: &Connection) -> Result<Vec<Tag>, crate::error::DbError> {
         let mut stmt =
-            conn.prepare("SELECT id, name, description, is_system FROM tags ORDER BY name")?;
+            conn.prepare("SELECT id, name, description, is_system FROM tags ORDER BY id")?;
         let rows = stmt.query_map([], |row| {
             Ok(Tag {
                 id: TagId(row.get(0)?),

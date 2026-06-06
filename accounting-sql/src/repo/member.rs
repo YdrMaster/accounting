@@ -50,7 +50,7 @@ impl MemberRepo for SqliteMemberRepo {
     }
 
     fn list(&self, conn: &Connection) -> Result<Vec<Member>, crate::error::DbError> {
-        let mut stmt = conn.prepare("SELECT id, name FROM members ORDER BY name")?;
+        let mut stmt = conn.prepare("SELECT id, name FROM members ORDER BY id")?;
         let rows = stmt.query_map([], |row| {
             Ok(Member {
                 id: MemberId(row.get(0)?),

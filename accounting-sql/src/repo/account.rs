@@ -107,7 +107,7 @@ impl AccountRepo for SqliteAccountRepo {
     fn list(&self, conn: &Connection) -> Result<Vec<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
             "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
-             FROM accounts ORDER BY full_name"
+             FROM accounts ORDER BY id"
         )?;
         let rows = stmt.query_map([], map_account)?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
@@ -120,7 +120,7 @@ impl AccountRepo for SqliteAccountRepo {
     ) -> Result<Vec<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
             "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
-             FROM accounts WHERE parent_id = ?1 ORDER BY full_name"
+             FROM accounts WHERE parent_id = ?1 ORDER BY id"
         )?;
         let rows = stmt.query_map(params![parent_id.0], map_account)?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
