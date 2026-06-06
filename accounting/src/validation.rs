@@ -1,6 +1,6 @@
+use crate::account_type::AccountType;
 use crate::error::AccountingError;
 use crate::posting::Posting;
-use crate::account_type::AccountType;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -20,7 +20,9 @@ pub fn validate_transaction(postings: &[Posting]) -> Result<(), AccountingError>
     // 按 commodity 分组求和
     let mut sums: HashMap<i64, Decimal> = HashMap::new();
     for p in postings {
-        *sums.entry(p.commodity_id.0).or_insert_with(|| Decimal::ZERO) += p.amount;
+        *sums
+            .entry(p.commodity_id.0)
+            .or_insert_with(|| Decimal::ZERO) += p.amount;
     }
 
     // 检查是否所有 commodity 都能自平衡
@@ -34,9 +36,13 @@ pub fn validate_transaction(postings: &[Posting]) -> Result<(), AccountingError>
     for p in postings {
         if let Some(cost) = p.cost {
             let cost_commodity = p.cost_commodity_id.map(|c| c.0).unwrap_or(p.commodity_id.0);
-            *cost_sums.entry(cost_commodity).or_insert_with(|| Decimal::ZERO) += cost;
+            *cost_sums
+                .entry(cost_commodity)
+                .or_insert_with(|| Decimal::ZERO) += cost;
         } else {
-            *cost_sums.entry(p.commodity_id.0).or_insert_with(|| Decimal::ZERO) += p.amount;
+            *cost_sums
+                .entry(p.commodity_id.0)
+                .or_insert_with(|| Decimal::ZERO) += p.amount;
         }
     }
 
@@ -58,15 +64,13 @@ pub fn validate_account_close(
     balances: &[(crate::id::CommodityId, Decimal)],
 ) -> Result<(), AccountingError> {
     match account_type {
-        AccountType::Asset | AccountType::Liability | AccountType::Expense | AccountType::Equity => {
-            let non_zero: Vec<_> = balances
-                .iter()
-                .filter(|(_, b)| !b.is_zero())
-                .collect();
+        AccountType::Asset
+        | AccountType::Liability
+        | AccountType::Expense
+        | AccountType::Equity => {
+            let non_zero: Vec<_> = balances.iter().filter(|(_, b)| !b.is_zero()).collect();
             if !non_zero.is_empty() {
-                return Err(AccountingError::AccountNotEmpty(
-                    "账户余额非零".to_string(),
-                ));
+                return Err(AccountingError::AccountNotEmpty("账户余额非零".to_string()));
             }
         }
         AccountType::Income => {
@@ -83,7 +87,13 @@ mod tests {
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
-    fn posting(account_id: i64, commodity_id: i64, amount: &str, cost: Option<&str>, cost_commodity: Option<i64>) -> Posting {
+    fn posting(
+        account_id: i64,
+        commodity_id: i64,
+        amount: &str,
+        cost: Option<&str>,
+        cost_commodity: Option<i64>,
+    ) -> Posting {
         Posting {
             id: PostingId(0),
             transaction_id: TransactionId(0),

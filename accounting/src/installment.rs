@@ -5,11 +5,7 @@ use chrono::{Datelike, NaiveDate};
 /// 规则：交易日期在还款日之前 → 当期(1)，之后 → 下期(2)
 pub fn infer_installment_index(tx_date: NaiveDate, repayment_day: u8) -> u32 {
     let day = tx_date.day() as u8;
-    if day <= repayment_day {
-        1
-    } else {
-        2
-    }
+    if day <= repayment_day { 1 } else { 2 }
 }
 
 #[cfg(test)]

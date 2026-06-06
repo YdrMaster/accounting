@@ -16,7 +16,9 @@ pub fn calculate_balance(postings: &[Posting], commodity_id: CommodityId) -> Dec
 pub fn calculate_all_balances(postings: &[Posting]) -> HashMap<CommodityId, Decimal> {
     let mut balances: HashMap<CommodityId, Decimal> = HashMap::new();
     for p in postings {
-        *balances.entry(p.commodity_id).or_insert_with(|| Decimal::ZERO) += p.amount;
+        *balances
+            .entry(p.commodity_id)
+            .or_insert_with(|| Decimal::ZERO) += p.amount;
     }
     balances
 }
@@ -57,10 +59,7 @@ mod tests {
 
     #[test]
     fn test_multi_commodity_balances() {
-        let postings = vec![
-            make_posting(1, 1, "100"),
-            make_posting(1, 2, "50"),
-        ];
+        let postings = vec![make_posting(1, 1, "100"), make_posting(1, 2, "50")];
         let balances = calculate_all_balances(&postings);
         assert_eq!(balances[&CommodityId(1)], Decimal::from_str("100").unwrap());
         assert_eq!(balances[&CommodityId(2)], Decimal::from_str("50").unwrap());

@@ -50,9 +50,11 @@ mod tests {
 
     #[test]
     fn test_root_account() {
-        let accounts = vec![
-            AccountNode { id: AccountId(1), parent_id: None, full_name: "Assets".to_string() },
-        ];
+        let accounts = vec![AccountNode {
+            id: AccountId(1),
+            parent_id: None,
+            full_name: "Assets".to_string(),
+        }];
         let closure = compute_closure(&accounts);
         assert_eq!(closure.get(&AccountId(1)).unwrap(), &vec![AccountId(1)]);
     }
@@ -60,20 +62,43 @@ mod tests {
     #[test]
     fn test_parent_child() {
         let accounts = vec![
-            AccountNode { id: AccountId(1), parent_id: None, full_name: "Assets".to_string() },
-            AccountNode { id: AccountId(2), parent_id: Some(AccountId(1)), full_name: "Assets:Cash".to_string() },
+            AccountNode {
+                id: AccountId(1),
+                parent_id: None,
+                full_name: "Assets".to_string(),
+            },
+            AccountNode {
+                id: AccountId(2),
+                parent_id: Some(AccountId(1)),
+                full_name: "Assets:Cash".to_string(),
+            },
         ];
         let closure = compute_closure(&accounts);
-        assert_eq!(closure.get(&AccountId(1)).unwrap(), &vec![AccountId(1), AccountId(2)]);
+        assert_eq!(
+            closure.get(&AccountId(1)).unwrap(),
+            &vec![AccountId(1), AccountId(2)]
+        );
         assert_eq!(closure.get(&AccountId(2)).unwrap(), &vec![AccountId(2)]);
     }
 
     #[test]
     fn test_deep_hierarchy() {
         let accounts = vec![
-            AccountNode { id: AccountId(1), parent_id: None, full_name: "Assets".to_string() },
-            AccountNode { id: AccountId(2), parent_id: Some(AccountId(1)), full_name: "Assets:Bank".to_string() },
-            AccountNode { id: AccountId(3), parent_id: Some(AccountId(2)), full_name: "Assets:Bank:Checking".to_string() },
+            AccountNode {
+                id: AccountId(1),
+                parent_id: None,
+                full_name: "Assets".to_string(),
+            },
+            AccountNode {
+                id: AccountId(2),
+                parent_id: Some(AccountId(1)),
+                full_name: "Assets:Bank".to_string(),
+            },
+            AccountNode {
+                id: AccountId(3),
+                parent_id: Some(AccountId(2)),
+                full_name: "Assets:Bank:Checking".to_string(),
+            },
         ];
         let closure = compute_closure(&accounts);
         let root = closure.get(&AccountId(1)).unwrap();
