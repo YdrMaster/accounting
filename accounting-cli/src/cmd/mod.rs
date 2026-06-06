@@ -148,7 +148,7 @@ impl From<&accounting::account::Account> for AccountRow {
         Self {
             id: a.id.0,
             full_name: a.full_name.clone(),
-            account_type: format!("{:?}", a.account_type),
+            account_type: a.account_type.display_name(),
             parent_id: a.parent_id.map(|id| id.0.to_string()).unwrap_or_default(),
             closed_at: a.closed_at.map(|d| d.to_string()).unwrap_or_default(),
             is_system: a.is_system,

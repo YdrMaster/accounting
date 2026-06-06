@@ -27,6 +27,18 @@ impl AccountType {
             AccountType::Expense | AccountType::Equity => "余额为零",
         }
     }
+
+    /// 返回本地化的显示名称
+    pub fn display_name(self) -> String {
+        let key = match self {
+            AccountType::Asset => "account_type_asset",
+            AccountType::Liability => "account_type_liability",
+            AccountType::Equity => "account_type_equity",
+            AccountType::Income => "account_type_income",
+            AccountType::Expense => "account_type_expense",
+        };
+        rust_i18n::t!(key).to_string()
+    }
 }
 
 /// 分期方式
