@@ -13,6 +13,7 @@ tower-http = { version = "0.5", features = ["cors", "fs"] }
 
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rust_decimal = "1.36"
+clap = { version = "4", features = ["derive"] }
 
 accounting = { path = "../accounting" }
 accounting-sql = { path = "../accounting-sql" }
