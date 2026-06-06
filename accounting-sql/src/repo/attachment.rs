@@ -79,7 +79,7 @@ mod tests {
 
     fn insert_test_transaction(conn: &Connection) -> TransactionId {
         conn.execute(
-            "INSERT INTO transactions (date, description, is_template) VALUES ('2024-01-01', 'test', 0)",
+            "INSERT INTO transactions (date_time, description, is_template) VALUES ('2024-01-01 00:00:00', 'test', 0)",
             [],
         )
         .unwrap();

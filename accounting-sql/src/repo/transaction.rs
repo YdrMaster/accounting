@@ -1,7 +1,7 @@
 use accounting::id::{TagId, TransactionId};
 use accounting::transaction::Transaction;
 use accounting::transaction_filter::TransactionFilter;
-use chrono::NaiveDate;
+use chrono::NaiveDateTime;
 use rusqlite::{Connection, params};
 
 /// Transaction 仓库 trait
@@ -55,10 +55,10 @@ impl TransactionRepo for SqliteTransactionRepo {
         tag_ids: &[TagId],
     ) -> Result<TransactionId, crate::error::DbError> {
         conn.execute(
-            "INSERT INTO transactions (date, description, member_id, is_template)
+            "INSERT INTO transactions (date_time, description, member_id, is_template)
              VALUES (?1, ?2, ?3, ?4)",
             params![
-                tx.date.to_string(),
+                tx.date_time.to_string(),
                 tx.description,
                 tx.member_id.map(|id| id.0),
                 tx.is_template as i32,
@@ -80,7 +80,7 @@ impl TransactionRepo for SqliteTransactionRepo {
         id: TransactionId,
     ) -> Result<Option<Transaction>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, date, description, member_id, is_template FROM transactions WHERE id = ?1",
+            "SELECT id, date_time, description, member_id, is_template FROM transactions WHERE id = ?1",
         )?;
         let mut rows = stmt.query(params![id.0])?;
         if let Some(row) = rows.next()? {
@@ -104,12 +104,12 @@ impl TransactionRepo for SqliteTransactionRepo {
 
         // 按过滤条件追加 WHERE 子句与参数
         if let Some(start) = filter.start_date {
-            conditions.push("transactions.date >= ?");
-            params_vec.push(Box::new(start.to_string()));
+            conditions.push("transactions.date_time >= ?");
+            params_vec.push(Box::new(start.and_hms_opt(0, 0, 0).unwrap().to_string()));
         }
         if let Some(end) = filter.end_date {
-            conditions.push("transactions.date <= ?");
-            params_vec.push(Box::new(end.to_string()));
+            conditions.push("transactions.date_time <= ?");
+            params_vec.push(Box::new(end.and_hms_opt(23, 59, 59).unwrap().to_string()));
         }
         if let Some(member) = filter.member_id {
             conditions.push("transactions.member_id = ?");
@@ -148,10 +148,10 @@ impl TransactionRepo for SqliteTransactionRepo {
         let join_clause = joins.join(" ");
         let where_clause = conditions.join(" AND ");
         let sql = format!(
-            "SELECT DISTINCT transactions.id, transactions.date, transactions.description, transactions.member_id, transactions.is_template
+            "SELECT DISTINCT transactions.id, transactions.date_time, transactions.description, transactions.member_id, transactions.is_template
              FROM transactions {}
              WHERE {}
-             ORDER BY transactions.date DESC, transactions.id DESC
+             ORDER BY transactions.date_time DESC, transactions.id DESC
              LIMIT ? OFFSET ?",
             join_clause,
             where_clause
@@ -177,12 +177,12 @@ impl TransactionRepo for SqliteTransactionRepo {
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
         if let Some(start) = filter.start_date {
-            conditions.push("transactions.date >= ?");
-            params_vec.push(Box::new(start.to_string()));
+            conditions.push("transactions.date_time >= ?");
+            params_vec.push(Box::new(start.and_hms_opt(0, 0, 0).unwrap().to_string()));
         }
         if let Some(end) = filter.end_date {
-            conditions.push("transactions.date <= ?");
-            params_vec.push(Box::new(end.to_string()));
+            conditions.push("transactions.date_time <= ?");
+            params_vec.push(Box::new(end.and_hms_opt(23, 59, 59).unwrap().to_string()));
         }
         if let Some(member) = filter.member_id {
             conditions.push("transactions.member_id = ?");
@@ -241,10 +241,10 @@ impl TransactionRepo for SqliteTransactionRepo {
     ) -> Result<(), crate::error::DbError> {
         conn.execute(
             "UPDATE transactions
-             SET date = ?1, description = ?2, member_id = ?3, is_template = ?4
+             SET date_time = ?1, description = ?2, member_id = ?3, is_template = ?4
              WHERE id = ?5",
             params![
-                tx.date.to_string(),
+                tx.date_time.to_string(),
                 tx.description,
                 tx.member_id.map(|id| id.0),
                 tx.is_template as i32,
@@ -267,13 +267,13 @@ impl TransactionRepo for SqliteTransactionRepo {
 
 fn map_transaction(row: &rusqlite::Row) -> Result<Transaction, rusqlite::Error> {
     let date_str: String = row.get(1)?;
-    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d").map_err(|e| {
+    let date_time = NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S").map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
     })?;
 
     Ok(Transaction {
         id: TransactionId(row.get(0)?),
-        date,
+        date_time,
         description: row.get(2)?,
         member_id: row.get::<_, Option<i64>>(3)?.map(accounting::id::MemberId),
         is_template: row.get::<_, i32>(4)? != 0,
@@ -297,7 +297,10 @@ mod tests {
     fn sample_tx() -> Transaction {
         Transaction {
             id: TransactionId(0),
-            date: NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 15)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             description: "Grocery shopping".to_string(),
             member_id: None,
             is_template: false,
@@ -311,7 +314,7 @@ mod tests {
         let id = repo.insert(&conn, &tx, &[]).unwrap();
         let fetched = repo.get(&conn, id).unwrap().unwrap();
         assert_eq!(fetched.description, "Grocery shopping");
-        assert_eq!(fetched.date, tx.date);
+        assert_eq!(fetched.date_time, tx.date_time);
     }
 
     #[test]
@@ -356,9 +359,15 @@ mod tests {
     fn test_list_filter_by_date() {
         let (conn, repo) = setup();
         let mut tx1 = sample_tx();
-        tx1.date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+        tx1.date_time = NaiveDate::from_ymd_opt(2024, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let mut tx2 = sample_tx();
-        tx2.date = NaiveDate::from_ymd_opt(2024, 12, 31).unwrap();
+        tx2.date_time = NaiveDate::from_ymd_opt(2024, 12, 31)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         repo.insert(&conn, &tx1, &[]).unwrap();
         repo.insert(&conn, &tx2, &[]).unwrap();
 
@@ -369,7 +378,7 @@ mod tests {
         };
         let list = repo.list(&conn, &filter, 10, 0).unwrap();
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].date, tx2.date);
+        assert_eq!(list[0].date_time, tx2.date_time);
     }
 
     #[test]

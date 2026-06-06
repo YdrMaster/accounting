@@ -186,7 +186,6 @@ mod tests {
     use accounting::account::Account;
     use accounting::account_type::AccountType;
     use accounting::id::AccountId;
-    use chrono::NaiveDate;
 
     #[tokio::test]
     async fn test_open_in_memory_initializes_schema() {
@@ -206,7 +205,6 @@ mod tests {
             full_name: "Assets:Cash".to_string(),
             account_type: AccountType::Asset,
             parent_id: None,
-            opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             closed_at: None,
             is_system: false,
             billing_day: None,
@@ -230,7 +228,6 @@ mod tests {
                 full_name: "Assets:Cash".to_string(),
                 account_type: AccountType::Asset,
                 parent_id: None,
-                opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
                 closed_at: None,
                 is_system: false,
                 billing_day: None,

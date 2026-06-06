@@ -304,7 +304,7 @@ mod tests {
 
     fn insert_transaction(conn: &Connection) -> TransactionId {
         conn.execute(
-            "INSERT INTO transactions (date, description, is_template) VALUES ('2024-01-01', 'test', 0)",
+            "INSERT INTO transactions (date_time, description, is_template) VALUES ('2024-01-01 00:00:00', 'test', 0)",
             [],
         )
         .unwrap();
@@ -313,7 +313,7 @@ mod tests {
 
     fn insert_account(conn: &Connection, name: &str) -> AccountId {
         conn.execute(
-            "INSERT INTO accounts (full_name, account_type, opened_at, is_system) VALUES (?1, 1, '2024-01-01', 0)",
+            "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 1, 0)",
             [name],
         )
         .unwrap();

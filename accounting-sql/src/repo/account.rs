@@ -33,12 +33,7 @@ pub trait AccountRepo {
         parent_id: AccountId,
     ) -> Result<Vec<Account>, crate::error::DbError>;
     /// 关闭账户（设置 closed_at）
-    fn close(
-        &self,
-        conn: &Connection,
-        id: AccountId,
-        closed_at: NaiveDate,
-    ) -> Result<(), crate::error::DbError>;
+    fn close(&self, conn: &Connection, id: AccountId) -> Result<(), crate::error::DbError>;
     /// 重新开启账户（清除 closed_at）
     fn reopen(&self, conn: &Connection, id: AccountId) -> Result<(), crate::error::DbError>;
     /// 创建账户并自动维护闭包表
@@ -60,13 +55,12 @@ impl AccountRepo for SqliteAccountRepo {
     ) -> Result<AccountId, crate::error::DbError> {
         conn.execute(
             "INSERT INTO accounts
-             (full_name, account_type, parent_id, opened_at, closed_at, is_system, billing_day, repayment_day)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             (full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 account.full_name,
                 account.account_type as i32,
                 account.parent_id.map(|id| id.0),
-                account.opened_at.to_string(),
                 account.closed_at.map(|d| d.to_string()),
                 account.is_system as i32,
                 account.billing_day,
@@ -82,7 +76,7 @@ impl AccountRepo for SqliteAccountRepo {
         id: AccountId,
     ) -> Result<Option<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, opened_at, closed_at, is_system, billing_day, repayment_day
+            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
              FROM accounts WHERE id = ?1"
         )?;
         let mut rows = stmt.query(params![id.0])?;
@@ -99,7 +93,7 @@ impl AccountRepo for SqliteAccountRepo {
         name: &str,
     ) -> Result<Option<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, opened_at, closed_at, is_system, billing_day, repayment_day
+            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
              FROM accounts WHERE full_name = ?1"
         )?;
         let mut rows = stmt.query(params![name])?;
@@ -112,7 +106,7 @@ impl AccountRepo for SqliteAccountRepo {
 
     fn list(&self, conn: &Connection) -> Result<Vec<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, opened_at, closed_at, is_system, billing_day, repayment_day
+            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
              FROM accounts ORDER BY full_name"
         )?;
         let rows = stmt.query_map([], map_account)?;
@@ -125,22 +119,17 @@ impl AccountRepo for SqliteAccountRepo {
         parent_id: AccountId,
     ) -> Result<Vec<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, opened_at, closed_at, is_system, billing_day, repayment_day
+            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
              FROM accounts WHERE parent_id = ?1 ORDER BY full_name"
         )?;
         let rows = stmt.query_map(params![parent_id.0], map_account)?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
     }
 
-    fn close(
-        &self,
-        conn: &Connection,
-        id: AccountId,
-        closed_at: NaiveDate,
-    ) -> Result<(), crate::error::DbError> {
+    fn close(&self, conn: &Connection, id: AccountId) -> Result<(), crate::error::DbError> {
         conn.execute(
-            "UPDATE accounts SET closed_at = ?1 WHERE id = ?2",
-            params![closed_at.to_string(), id.0],
+            "UPDATE accounts SET closed_at = date('now') WHERE id = ?1",
+            params![id.0],
         )?;
         Ok(())
     }
@@ -207,15 +196,10 @@ fn map_account(row: &rusqlite::Row) -> Result<Account, rusqlite::Error> {
         _ => AccountType::Asset,
     };
 
-    let opened_str: String = row.get(4)?;
-    let opened_at = NaiveDate::parse_from_str(&opened_str, "%Y-%m-%d").map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e))
-    })?;
-
-    let closed_at: Option<String> = row.get(5)?;
+    let closed_at: Option<String> = row.get(4)?;
     let closed_at = match closed_at {
         Some(s) => Some(NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(e))
+            rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e))
         })?),
         None => None,
     };
@@ -225,11 +209,10 @@ fn map_account(row: &rusqlite::Row) -> Result<Account, rusqlite::Error> {
         full_name: row.get(1)?,
         account_type,
         parent_id: row.get::<_, Option<i64>>(3)?.map(AccountId),
-        opened_at,
         closed_at,
-        is_system: row.get::<_, i32>(6)? != 0,
-        billing_day: row.get::<_, Option<i32>>(7)?.map(|v| v as u8),
-        repayment_day: row.get::<_, Option<i32>>(8)?.map(|v| v as u8),
+        is_system: row.get::<_, i32>(5)? != 0,
+        billing_day: row.get::<_, Option<i32>>(6)?.map(|v| v as u8),
+        repayment_day: row.get::<_, Option<i32>>(7)?.map(|v| v as u8),
     })
 }
 
@@ -239,7 +222,6 @@ mod tests {
     use accounting::account::Account;
     use accounting::account_type::AccountType;
     use accounting::id::AccountId;
-    use chrono::NaiveDate;
     use rusqlite::Connection;
 
     fn setup() -> (Connection, SqliteAccountRepo) {
@@ -257,7 +239,6 @@ mod tests {
             full_name: "Assets:Cash".to_string(),
             account_type: AccountType::Asset,
             parent_id: None,
-            opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             closed_at: None,
             is_system: false,
             billing_day: None,
@@ -293,7 +274,6 @@ mod tests {
             full_name: "Assets".to_string(),
             account_type: AccountType::Asset,
             parent_id: None,
-            opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             closed_at: None,
             is_system: false,
             billing_day: None,
@@ -306,7 +286,6 @@ mod tests {
             full_name: "Assets:Bank".to_string(),
             account_type: AccountType::Asset,
             parent_id: Some(parent_id),
-            opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             closed_at: None,
             is_system: false,
             billing_day: None,
@@ -326,12 +305,7 @@ mod tests {
             .get_by_name(&conn, "Equity:OpeningBalances")
             .unwrap()
             .unwrap();
-        repo.close(
-            &conn,
-            found.id,
-            NaiveDate::from_ymd_opt(2024, 12, 31).unwrap(),
-        )
-        .unwrap();
+        repo.close(&conn, found.id).unwrap();
         let closed = repo.get(&conn, found.id).unwrap().unwrap();
         assert!(closed.closed_at.is_some());
 

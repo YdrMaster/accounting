@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS commodities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     symbol TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    precision INTEGER NOT NULL DEFAULT 2
+    precision INTEGER NOT NULL DEFAULT 2,
+    created_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (date('now'))
 );
 
 CREATE TABLE IF NOT EXISTS accounts (
@@ -29,8 +31,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     full_name TEXT NOT NULL UNIQUE,
     account_type INTEGER NOT NULL CHECK(account_type BETWEEN 1 AND 5),
     parent_id INTEGER REFERENCES accounts(id),
-    opened_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (date('now')),
     closed_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (date('now')),
     is_system INTEGER NOT NULL DEFAULT 0,
     billing_day INTEGER CHECK(billing_day BETWEEN 1 AND 31),
     repayment_day INTEGER CHECK(repayment_day BETWEEN 1 AND 31)
@@ -40,41 +43,51 @@ CREATE TABLE IF NOT EXISTS account_ancestors (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     ancestor_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     depth INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (date('now')),
     PRIMARY KEY (account_id, ancestor_id)
 );
 
 CREATE TABLE IF NOT EXISTS account_owners (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (date('now')),
     PRIMARY KEY (account_id, member_id)
 );
 
 CREATE TABLE IF NOT EXISTS members (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    description TEXT
+    created_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (date('now'))
 );
 
 CREATE TABLE IF NOT EXISTS channels (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
-    description TEXT
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (date('now'))
 );
 
 CREATE TABLE IF NOT EXISTS tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     description TEXT,
-    is_system INTEGER NOT NULL DEFAULT 0
+    is_system INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (date('now'))
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
+    date_time TEXT NOT NULL,
     description TEXT NOT NULL,
     member_id INTEGER REFERENCES members(id),
     is_template INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (date('now'))
 );
 
 CREATE TABLE IF NOT EXISTS postings (
@@ -87,19 +100,25 @@ CREATE TABLE IF NOT EXISTS postings (
     cost_commodity_id INTEGER REFERENCES commodities(id),
     description TEXT,
     member_id INTEGER REFERENCES members(id),
-    channel_id INTEGER REFERENCES channels(id)
+    channel_id INTEGER REFERENCES channels(id),
+    created_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (date('now'))
 );
 
 CREATE TABLE IF NOT EXISTS attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     filename TEXT NOT NULL,
-    data BLOB NOT NULL
+    data BLOB NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (date('now'))
 );
 
 CREATE TABLE IF NOT EXISTS transaction_tags (
     transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (date('now')),
     PRIMARY KEY (transaction_id, tag_id)
 );
 
@@ -111,22 +130,113 @@ CREATE INDEX IF NOT EXISTS idx_postings_tx ON postings(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_postings_account ON postings(account_id);
 CREATE INDEX IF NOT EXISTS idx_postings_commodity ON postings(commodity_id);
 CREATE INDEX IF NOT EXISTS idx_postings_account_commodity ON postings(account_id, commodity_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date_time);
 CREATE INDEX IF NOT EXISTS idx_attachments_tx ON attachments(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_transaction_tags_tag ON transaction_tags(tag_id);
+
+CREATE TRIGGER IF NOT EXISTS update_commodities_updated_at
+AFTER UPDATE ON commodities
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE commodities SET updated_at = date('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS update_accounts_updated_at
+AFTER UPDATE ON accounts
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE accounts SET updated_at = date('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS update_account_ancestors_updated_at
+AFTER UPDATE ON account_ancestors
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE account_ancestors SET updated_at = date('now')
+    WHERE account_id = NEW.account_id AND ancestor_id = NEW.ancestor_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS update_account_owners_updated_at
+AFTER UPDATE ON account_owners
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE account_owners SET updated_at = date('now')
+    WHERE account_id = NEW.account_id AND member_id = NEW.member_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS update_members_updated_at
+AFTER UPDATE ON members
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE members SET updated_at = date('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS update_channels_updated_at
+AFTER UPDATE ON channels
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE channels SET updated_at = date('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS update_tags_updated_at
+AFTER UPDATE ON tags
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE tags SET updated_at = date('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS update_transactions_updated_at
+AFTER UPDATE ON transactions
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE transactions SET updated_at = date('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS update_postings_updated_at
+AFTER UPDATE ON postings
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE postings SET updated_at = date('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS update_attachments_updated_at
+AFTER UPDATE ON attachments
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE attachments SET updated_at = date('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS update_transaction_tags_updated_at
+AFTER UPDATE ON transaction_tags
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE transaction_tags SET updated_at = date('now')
+    WHERE transaction_id = NEW.transaction_id AND tag_id = NEW.tag_id;
+END;
 "#;
 
 const SEED_SQL: &str = r#"
 INSERT OR IGNORE INTO commodities (symbol, name, precision) VALUES ('CNY', '人民币', 2);
 
-INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, opened_at, is_system) VALUES
-('Equity:OpeningBalances', 3, NULL, '2000-01-01', 1),
-('Income:Uncategorized', 4, NULL, '2000-01-01', 1),
-('Expenses:Uncategorized', 5, NULL, '2000-01-01', 1),
-('Expenses:Fees', 5, NULL, '2000-01-01', 1),
-('Expenses:Discounts', 5, NULL, '2000-01-01', 1),
-('Expenses:InstallmentFees', 5, NULL, '2000-01-01', 1),
-('Assets:Cashback', 1, NULL, '2000-01-01', 1);
+INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
+('Equity:OpeningBalances', 3, NULL, 1),
+('Income:Uncategorized', 4, NULL, 1),
+('Expenses:Uncategorized', 5, NULL, 1),
+('Expenses:Fees', 5, NULL, 1),
+('Expenses:Discounts', 5, NULL, 1),
+('Expenses:InstallmentFees', 5, NULL, 1),
+('Assets:Cashback', 1, NULL, 1);
 
 INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
 ('repayment', '分期/信用卡还款标记', 1);
@@ -195,5 +305,73 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_audit_columns_exist() {
+        let conn = Connection::open_in_memory().unwrap();
+        initialize_schema(&conn).unwrap();
+
+        let tables = [
+            "commodities",
+            "accounts",
+            "account_ancestors",
+            "account_owners",
+            "members",
+            "channels",
+            "tags",
+            "transactions",
+            "postings",
+            "attachments",
+            "transaction_tags",
+        ];
+
+        for table in tables {
+            let cols: Vec<String> = conn
+                .prepare(&format!("SELECT name FROM pragma_table_info('{}')", table))
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert!(
+                cols.contains(&"created_at".to_string()),
+                "{} 缺少 created_at",
+                table
+            );
+            assert!(
+                cols.contains(&"updated_at".to_string()),
+                "{} 缺少 updated_at",
+                table
+            );
+        }
+    }
+
+    #[test]
+    fn test_updated_at_trigger() {
+        let conn = Connection::open_in_memory().unwrap();
+        initialize_schema(&conn).unwrap();
+        insert_seed_data(&conn).unwrap();
+
+        // 手动将 updated_at 设为过去日期，以便触发器能体现出变化
+        conn.execute(
+            "UPDATE accounts SET updated_at = '2000-01-01' WHERE id = 1",
+            [],
+        )
+        .unwrap();
+
+        conn.execute(
+            "UPDATE accounts SET full_name = full_name || 'X' WHERE id = 1",
+            [],
+        )
+        .unwrap();
+
+        let after: String = conn
+            .query_row("SELECT updated_at FROM accounts WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        assert_ne!(after, "2000-01-01", "updated_at 触发器未生效");
     }
 }

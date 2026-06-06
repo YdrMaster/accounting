@@ -26,8 +26,8 @@ impl MemberRepo for SqliteMemberRepo {
         member: &Member,
     ) -> Result<MemberId, crate::error::DbError> {
         conn.execute(
-            "INSERT INTO members (name, description) VALUES (?1, ?2)",
-            params![member.name, member.description],
+            "INSERT INTO members (name) VALUES (?1)",
+            params![member.name],
         )?;
         Ok(MemberId(conn.last_insert_rowid()))
     }
@@ -37,13 +37,12 @@ impl MemberRepo for SqliteMemberRepo {
         conn: &Connection,
         id: MemberId,
     ) -> Result<Option<Member>, crate::error::DbError> {
-        let mut stmt = conn.prepare("SELECT id, name, description FROM members WHERE id = ?1")?;
+        let mut stmt = conn.prepare("SELECT id, name FROM members WHERE id = ?1")?;
         let mut rows = stmt.query(params![id.0])?;
         if let Some(row) = rows.next()? {
             Ok(Some(Member {
                 id: MemberId(row.get(0)?),
                 name: row.get(1)?,
-                description: row.get(2)?,
             }))
         } else {
             Ok(None)
@@ -51,12 +50,11 @@ impl MemberRepo for SqliteMemberRepo {
     }
 
     fn list(&self, conn: &Connection) -> Result<Vec<Member>, crate::error::DbError> {
-        let mut stmt = conn.prepare("SELECT id, name, description FROM members ORDER BY name")?;
+        let mut stmt = conn.prepare("SELECT id, name FROM members ORDER BY name")?;
         let rows = stmt.query_map([], |row| {
             Ok(Member {
                 id: MemberId(row.get(0)?),
                 name: row.get(1)?,
-                description: row.get(2)?,
             })
         })?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
@@ -86,12 +84,10 @@ mod tests {
         let member = Member {
             id: MemberId(0),
             name: "Alice".to_string(),
-            description: Some("Tester".to_string()),
         };
         let id = repo.create(&conn, &member).unwrap();
         let fetched = repo.get(&conn, id).unwrap().unwrap();
         assert_eq!(fetched.name, "Alice");
-        assert_eq!(fetched.description, Some("Tester".to_string()));
     }
 
     #[test]
@@ -100,7 +96,6 @@ mod tests {
         let member = Member {
             id: MemberId(0),
             name: "Bob".to_string(),
-            description: None,
         };
         repo.create(&conn, &member).unwrap();
         let list = repo.list(&conn).unwrap();
@@ -113,7 +108,6 @@ mod tests {
         let member = Member {
             id: MemberId(0),
             name: "Charlie".to_string(),
-            description: None,
         };
         let id = repo.create(&conn, &member).unwrap();
         repo.delete(&conn, id).unwrap();
