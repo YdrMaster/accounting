@@ -13,8 +13,6 @@ pub struct Account {
     pub account_type: AccountType,
     /// 父账户 ID，根账户为 None
     pub parent_id: Option<AccountId>,
-    /// 开户日期
-    pub opened_at: NaiveDate,
     /// 关户日期，未关闭为 None
     pub closed_at: Option<NaiveDate>,
     /// 是否为系统内置账户
@@ -30,8 +28,6 @@ mod tests {
     use super::*;
     use crate::account_type::AccountType;
     use crate::id::AccountId;
-    use chrono::NaiveDate;
-
     #[test]
     fn test_account_fields() {
         let a = Account {
@@ -39,7 +35,6 @@ mod tests {
             full_name: "Assets:Cash".to_string(),
             account_type: AccountType::Asset,
             parent_id: None,
-            opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             closed_at: None,
             is_system: false,
             billing_day: None,
