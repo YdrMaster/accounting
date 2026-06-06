@@ -9,3 +9,6 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 rust_decimal = "1.36"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
