@@ -10,6 +10,9 @@ pub fn create_app(state: Arc<handlers::member::AppState>) -> Router {
         .merge(handlers::member::router())
         .merge(handlers::account::router())
         .merge(handlers::transaction::router())
+        .merge(handlers::tag::router())
+        .merge(handlers::report::router())
+        .merge(handlers::me::router())
         .route("/api/health", axum::routing::get(|| async { "ok" }))
         .with_state(state)
 }
