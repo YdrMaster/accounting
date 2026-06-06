@@ -10,17 +10,21 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), DbError> {
 
 /// 插入系统内置数据，支持语言选择
 pub fn insert_seed_data(conn: &Connection, lang: &str) -> Result<(), DbError> {
-    let accounts_sql = if lang.starts_with("zh") {
-        SEED_ACCOUNTS_ZH
+    let (accounts_root, accounts_child) = if lang.starts_with("zh") {
+        (SEED_ACCOUNTS_ROOT_ZH, SEED_ACCOUNTS_CHILD_ZH)
     } else {
-        SEED_ACCOUNTS_EN
+        (SEED_ACCOUNTS_ROOT_EN, SEED_ACCOUNTS_CHILD_EN)
     };
     let tags_sql = if lang.starts_with("zh") {
         SEED_TAGS_ZH
     } else {
         SEED_TAGS_EN
     };
-    conn.execute_batch(&format!("{}{}{}", SEED_COMMODITIES, accounts_sql, tags_sql))?;
+    // 先插入根账户，再插入子账户（子查询依赖根账户已存在）
+    conn.execute_batch(&format!(
+        "{}{}{}{}{}",
+        SEED_COMMODITIES, accounts_root, accounts_child, tags_sql, SEED_CLOSURE
+    ))?;
     Ok(())
 }
 
@@ -242,13 +246,17 @@ BEGIN
 END;
 "#;
 
-const SEED_ACCOUNTS_EN: &str = r#"
+const SEED_ACCOUNTS_ROOT_EN: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('Assets', 1, NULL, 1),
 ('Liabilities', 2, NULL, 1),
 ('Equity', 3, NULL, 1),
 ('Income', 4, NULL, 1),
-('Expenses', 5, NULL, 1),
+('Expenses', 5, NULL, 1);
+"#;
+
+const SEED_ACCOUNTS_CHILD_EN: &str = r#"
+INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('Equity:OpeningBalances', 3, (SELECT id FROM accounts WHERE full_name = 'Equity'), 1),
 ('Income:Uncategorized', 4, (SELECT id FROM accounts WHERE full_name = 'Income'), 1),
 ('Expenses:Uncategorized', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
@@ -258,13 +266,17 @@ INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) V
 ('Assets:Cashback', 1, (SELECT id FROM accounts WHERE full_name = 'Assets'), 1);
 "#;
 
-const SEED_ACCOUNTS_ZH: &str = r#"
+const SEED_ACCOUNTS_ROOT_ZH: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('资产', 1, NULL, 1),
 ('负债', 2, NULL, 1),
 ('权益', 3, NULL, 1),
 ('收入', 4, NULL, 1),
-('支出', 5, NULL, 1),
+('支出', 5, NULL, 1);
+"#;
+
+const SEED_ACCOUNTS_CHILD_ZH: &str = r#"
+INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('权益:期初余额', 3, (SELECT id FROM accounts WHERE full_name = '权益'), 1),
 ('收入:未分类', 4, (SELECT id FROM accounts WHERE full_name = '收入'), 1),
 ('支出:未分类', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
@@ -286,6 +298,27 @@ INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
 const SEED_TAGS_ZH: &str = r#"
 INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
 ('repayment', '分期/信用卡还款标记', 1);
+"#;
+
+/// 维护系统内置账户的闭包表
+const SEED_CLOSURE: &str = r#"
+-- 1. 每个账户的自身关系 (depth = 0)
+INSERT OR IGNORE INTO account_ancestors (account_id, ancestor_id, depth)
+SELECT id, id, 0 FROM accounts WHERE is_system = 1;
+
+-- 2. 递归维护祖先关系 (depth >= 1)
+WITH RECURSIVE ancestors AS (
+    SELECT id, parent_id, 1 AS depth
+    FROM accounts
+    WHERE is_system = 1 AND parent_id IS NOT NULL
+    UNION ALL
+    SELECT a.id, p.parent_id, a.depth + 1
+    FROM ancestors a
+    JOIN accounts p ON p.id = a.parent_id
+    WHERE p.parent_id IS NOT NULL
+)
+INSERT OR IGNORE INTO account_ancestors (account_id, ancestor_id, depth)
+SELECT id, parent_id, depth FROM ancestors;
 "#;
 
 #[cfg(test)]
