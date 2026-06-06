@@ -1,7 +1,7 @@
 <template>
   <div class="transaction-form">
     <h2>记一笔</h2>
-    <a-form layout="vertical" @finish="handleSubmit">
+    <a-form layout="vertical">
       <a-form-item label="日期时间" required>
         <a-date-picker
           v-model:value="dateTime"
@@ -65,7 +65,7 @@
           <a-button class="btn-cancel" @click="handleCancel">
             取消
           </a-button>
-          <a-button type="primary" html-type="submit" class="btn-submit" :loading="submitting">
+          <a-button type="primary" class="btn-submit" :loading="submitting" @click="handleSubmit">
             确认
           </a-button>
         </div>
@@ -80,6 +80,7 @@ import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
 import { PlusOutlined } from '@ant-design/icons-vue'
+import { message } from 'ant-design-vue'
 import { useTransactionStore } from '@/stores/transaction'
 import { useMemberStore } from '@/stores/member'
 import { useAccountStore } from '@/stores/account'
@@ -136,9 +137,25 @@ function removePosting(index: number) {
 }
 
 async function handleSubmit() {
-  const validPostings = postings.value.filter((p) => p.accountId && p.amount)
+  // 验证日期
+  if (!dateTime.value || !dateTime.value.isValid()) {
+    message.error('请选择日期时间')
+    return
+  }
+
+  // 验证分录
+  const validPostings = postings.value.filter((p) => p.accountId && p.amount.trim() !== '')
   if (validPostings.length < 2) {
-    // 至少需要两个分录才能平衡
+    message.error('至少需要两条有效分录（借方和贷方）')
+    return
+  }
+
+  // 验证金额格式
+  for (const p of validPostings) {
+    if (isNaN(Number(p.amount))) {
+      message.error(`金额格式错误: ${p.amount}`)
+      return
+    }
   }
 
   const accountMap = new Map(accountStore.accounts.map((a) => [a.id, a.full_name]))
@@ -152,11 +169,15 @@ async function handleSubmit() {
       postings: validPostings.map((p) => ({
         account: accountMap.get(p.accountId!) || '',
         commodity: p.commodity,
-        amount: p.amount,
+        amount: p.amount.trim(),
       })),
       tags: selectedTagNames.value,
     })
+    message.success('记账成功')
     router.push('/')
+  } catch (err: any) {
+    const msg = err?.response?.data?.error || err?.message || '记账失败'
+    message.error(msg)
   } finally {
     submitting.value = false
   }
