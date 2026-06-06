@@ -1,0 +1,11 @@
+_version: 1
+invalid_transaction: "Invalid transaction: %{msg}"
+account_not_found: "Account not found: %{name}"
+account_not_empty: "Account has non-zero balance, cannot close: %{name}"
+commodity_not_found: "Commodity not found: %{name}"
+account_already_exists: "Account already exists: %{name}"
+invalid_date: "Invalid date format: %{msg}"
+database_error: "Database error: %{msg}"
+db_not_initialized: "Database file not found. Please run 'initialize' first."
+db_already_exists: "Database file already exists."
+unknown_error: "Unknown error: %{msg}"

@@ -34,3 +34,5 @@ pub mod transaction;
 pub mod transaction_filter;
 /// 交易验证规则
 pub mod validation;
+
+rust_i18n::i18n!("locales", fallback = "en");

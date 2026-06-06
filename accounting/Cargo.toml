@@ -7,3 +7,4 @@ edition = "2024"
 rust_decimal = "1.36"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 thiserror = "2"
+rust-i18n = "3"
