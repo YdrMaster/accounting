@@ -2,6 +2,7 @@ use accounting::id::{
     AccountId, ChannelId, CommodityId, MemberId, PostingId, TagId, TransactionId,
 };
 use accounting::posting::Posting;
+use accounting::transaction_filter::TransactionFilter;
 use rusqlite::{Connection, params};
 use rust_decimal::Decimal;
 
@@ -298,26 +299,229 @@ impl PostingRepo for SqlitePostingRepo {
 
     fn sum_by_tag(
         &self,
-        _conn: &Connection,
-        _filter: &accounting::transaction_filter::TransactionFilter,
+        conn: &Connection,
+        filter: &TransactionFilter,
     ) -> Result<Vec<(TagId, CommodityId, i64, Decimal)>, crate::error::DbError> {
-        todo!()
+        let mut conditions = vec!["1=1"];
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
+
+        if let Some(start) = filter.start_date {
+            conditions.push("t.date_time >= ?");
+            params_vec.push(Box::new(start.and_hms_opt(0, 0, 0).unwrap().to_string()));
+        }
+        if let Some(end) = filter.end_date {
+            conditions.push("t.date_time <= ?");
+            params_vec.push(Box::new(end.and_hms_opt(23, 59, 59).unwrap().to_string()));
+        }
+        if let Some(account) = filter.account_id {
+            conditions.push("p.account_id = ?");
+            params_vec.push(Box::new(account.0));
+        }
+        if let Some(member) = filter.member_id {
+            conditions.push("t.member_id = ?");
+            params_vec.push(Box::new(member.0));
+        }
+        if let Some(channel) = filter.channel_id {
+            conditions.push("p.channel_id = ?");
+            params_vec.push(Box::new(channel.0));
+        }
+        if let Some(ref keyword) = filter.keyword {
+            conditions.push("t.description LIKE ?");
+            params_vec.push(Box::new(format!("%{}%", keyword)));
+        }
+        if let Some(is_template) = filter.is_template {
+            conditions.push("t.is_template = ?");
+            params_vec.push(Box::new(is_template as i64));
+        }
+
+        let where_clause = conditions.join(" AND ");
+        let sql = format!(
+            "SELECT tt.tag_id, p.commodity_id, a.account_type, SUM(p.amount) as total
+             FROM postings p
+             JOIN accounts a ON p.account_id = a.id
+             JOIN transactions t ON p.transaction_id = t.id
+             JOIN transaction_tags tt ON tt.transaction_id = t.id
+             WHERE {}
+             GROUP BY tt.tag_id, p.commodity_id, a.account_type",
+            where_clause
+        );
+
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let raw_rows: Vec<_> = stmt
+            .query_map(rusqlite::params_from_iter(param_refs), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+
+        let mut result = Vec::new();
+        for (tag_id, commodity_id, account_type, amount) in raw_rows {
+            let precision = get_precision(conn, CommodityId(commodity_id))?;
+            result.push((
+                TagId(tag_id),
+                CommodityId(commodity_id),
+                account_type,
+                accounting::amount::from_db_amount(amount, precision),
+            ));
+        }
+        Ok(result)
     }
 
     fn sum_by_member(
         &self,
-        _conn: &Connection,
-        _filter: &accounting::transaction_filter::TransactionFilter,
+        conn: &Connection,
+        filter: &TransactionFilter,
     ) -> Result<Vec<(MemberId, CommodityId, i64, Decimal)>, crate::error::DbError> {
-        todo!()
+        let mut conditions = vec!["1=1", "t.member_id IS NOT NULL"];
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
+
+        if let Some(start) = filter.start_date {
+            conditions.push("t.date_time >= ?");
+            params_vec.push(Box::new(start.and_hms_opt(0, 0, 0).unwrap().to_string()));
+        }
+        if let Some(end) = filter.end_date {
+            conditions.push("t.date_time <= ?");
+            params_vec.push(Box::new(end.and_hms_opt(23, 59, 59).unwrap().to_string()));
+        }
+        if let Some(account) = filter.account_id {
+            conditions.push("p.account_id = ?");
+            params_vec.push(Box::new(account.0));
+        }
+        if let Some(channel) = filter.channel_id {
+            conditions.push("p.channel_id = ?");
+            params_vec.push(Box::new(channel.0));
+        }
+        if let Some(tag) = filter.tag_id {
+            conditions.push(
+                "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = ?)"
+            );
+            params_vec.push(Box::new(tag.0));
+        }
+        if let Some(ref keyword) = filter.keyword {
+            conditions.push("t.description LIKE ?");
+            params_vec.push(Box::new(format!("%{}%", keyword)));
+        }
+        if let Some(is_template) = filter.is_template {
+            conditions.push("t.is_template = ?");
+            params_vec.push(Box::new(is_template as i64));
+        }
+
+        let where_clause = conditions.join(" AND ");
+        let sql = format!(
+            "SELECT t.member_id, p.commodity_id, a.account_type, SUM(p.amount) as total
+             FROM postings p
+             JOIN accounts a ON p.account_id = a.id
+             JOIN transactions t ON p.transaction_id = t.id
+             WHERE {}
+             GROUP BY t.member_id, p.commodity_id, a.account_type",
+            where_clause
+        );
+
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let raw_rows: Vec<_> = stmt
+            .query_map(rusqlite::params_from_iter(param_refs), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+
+        let mut result = Vec::new();
+        for (member_id, commodity_id, account_type, amount) in raw_rows {
+            let precision = get_precision(conn, CommodityId(commodity_id))?;
+            result.push((
+                MemberId(member_id),
+                CommodityId(commodity_id),
+                account_type,
+                accounting::amount::from_db_amount(amount, precision),
+            ));
+        }
+        Ok(result)
     }
 
     fn sum_by_channel(
         &self,
-        _conn: &Connection,
-        _filter: &accounting::transaction_filter::TransactionFilter,
+        conn: &Connection,
+        filter: &TransactionFilter,
     ) -> Result<Vec<(ChannelId, CommodityId, i64, Decimal)>, crate::error::DbError> {
-        todo!()
+        let mut conditions = vec!["1=1", "p.channel_id IS NOT NULL"];
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
+
+        if let Some(start) = filter.start_date {
+            conditions.push("t.date_time >= ?");
+            params_vec.push(Box::new(start.and_hms_opt(0, 0, 0).unwrap().to_string()));
+        }
+        if let Some(end) = filter.end_date {
+            conditions.push("t.date_time <= ?");
+            params_vec.push(Box::new(end.and_hms_opt(23, 59, 59).unwrap().to_string()));
+        }
+        if let Some(account) = filter.account_id {
+            conditions.push("p.account_id = ?");
+            params_vec.push(Box::new(account.0));
+        }
+        if let Some(member) = filter.member_id {
+            conditions.push("t.member_id = ?");
+            params_vec.push(Box::new(member.0));
+        }
+        if let Some(tag) = filter.tag_id {
+            conditions.push(
+                "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = ?)"
+            );
+            params_vec.push(Box::new(tag.0));
+        }
+        if let Some(ref keyword) = filter.keyword {
+            conditions.push("t.description LIKE ?");
+            params_vec.push(Box::new(format!("%{}%", keyword)));
+        }
+        if let Some(is_template) = filter.is_template {
+            conditions.push("t.is_template = ?");
+            params_vec.push(Box::new(is_template as i64));
+        }
+
+        let where_clause = conditions.join(" AND ");
+        let sql = format!(
+            "SELECT p.channel_id, p.commodity_id, a.account_type, SUM(p.amount) as total
+             FROM postings p
+             JOIN accounts a ON p.account_id = a.id
+             JOIN transactions t ON p.transaction_id = t.id
+             WHERE {}
+             GROUP BY p.channel_id, p.commodity_id, a.account_type",
+            where_clause
+        );
+
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let raw_rows: Vec<_> = stmt
+            .query_map(rusqlite::params_from_iter(param_refs), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+
+        let mut result = Vec::new();
+        for (channel_id, commodity_id, account_type, amount) in raw_rows {
+            let precision = get_precision(conn, CommodityId(commodity_id))?;
+            result.push((
+                ChannelId(channel_id),
+                CommodityId(commodity_id),
+                account_type,
+                accounting::amount::from_db_amount(amount, precision),
+            ));
+        }
+        Ok(result)
     }
 }
 
@@ -337,7 +541,9 @@ fn get_precision(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use accounting::id::{AccountId, CommodityId};
+    use accounting::id::{AccountId, ChannelId, CommodityId, MemberId, TagId};
+    use accounting::transaction_filter::TransactionFilter;
+    use chrono::NaiveDate;
     use rusqlite::Connection;
     use rust_decimal::Decimal;
     use std::str::FromStr;
@@ -361,6 +567,26 @@ mod tests {
     fn insert_account(conn: &Connection, name: &str) -> AccountId {
         conn.execute(
             "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 1, 0)",
+            [name],
+        )
+        .unwrap();
+        AccountId(conn.last_insert_rowid())
+    }
+
+    /// 插入 Income 类型账户（account_type = 4）
+    fn insert_income_account(conn: &Connection, name: &str) -> AccountId {
+        conn.execute(
+            "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 4, 0)",
+            [name],
+        )
+        .unwrap();
+        AccountId(conn.last_insert_rowid())
+    }
+
+    /// 插入 Expense 类型账户（account_type = 5）
+    fn insert_expense_account(conn: &Connection, name: &str) -> AccountId {
+        conn.execute(
+            "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 5, 0)",
             [name],
         )
         .unwrap();
@@ -451,5 +677,198 @@ mod tests {
         let list = repo.list_by_transaction(&conn, tx_id).unwrap();
         assert_eq!(list[0].amount, Decimal::from_str("123.45").unwrap());
         assert_eq!(list[0].cost, Some(Decimal::from_str("67.89").unwrap()));
+    }
+
+    /// 测试按标签汇总分录金额
+    #[test]
+    fn test_sum_by_tag() {
+        let (conn, repo) = setup();
+        let income = insert_income_account(&conn, "Income:Salary");
+        let expense = insert_expense_account(&conn, "Expenses:Food");
+
+        // 创建标签
+        conn.execute(
+            "INSERT INTO tags (name, description, is_system) VALUES ('餐饮', NULL, 0)",
+            [],
+        )
+        .unwrap();
+        let tag_id = TagId(conn.last_insert_rowid());
+
+        // 插入交易
+        conn.execute(
+            "INSERT INTO transactions (date_time, description, is_template) VALUES ('2024-01-15 00:00:00', 'lunch', 0)",
+            [],
+        )
+        .unwrap();
+        let tx_id = TransactionId(conn.last_insert_rowid());
+
+        // 关联标签
+        conn.execute(
+            "INSERT INTO transaction_tags (transaction_id, tag_id) VALUES (?1, ?2)",
+            [tx_id.0, tag_id.0],
+        )
+        .unwrap();
+
+        // 插入分录
+        let p1 = sample_posting(tx_id, income, "100.00");
+        let p2 = sample_posting(tx_id, expense, "-100.00");
+        repo.insert(&conn, &p1).unwrap();
+        repo.insert(&conn, &p2).unwrap();
+
+        // 无过滤查询
+        let results = repo
+            .sum_by_tag(&conn, &TransactionFilter::default())
+            .unwrap();
+        assert_eq!(results.len(), 2);
+
+        let income_row = results.iter().find(|r| r.2 == 4).unwrap();
+        let expense_row = results.iter().find(|r| r.2 == 5).unwrap();
+        assert_eq!(income_row.0, tag_id);
+        assert_eq!(income_row.1, CommodityId(1));
+        assert_eq!(income_row.3, Decimal::from_str("100.00").unwrap());
+        assert_eq!(expense_row.0, tag_id);
+        assert_eq!(expense_row.1, CommodityId(1));
+        assert_eq!(expense_row.3, Decimal::from_str("-100.00").unwrap());
+
+        // 日期过滤（包含）
+        let filter_include = TransactionFilter {
+            start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
+            end_date: Some(NaiveDate::from_ymd_opt(2024, 1, 31).unwrap()),
+            ..Default::default()
+        };
+        let results = repo.sum_by_tag(&conn, &filter_include).unwrap();
+        assert_eq!(results.len(), 2);
+
+        // 日期过滤（排除）
+        let filter_exclude = TransactionFilter {
+            start_date: Some(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap()),
+            end_date: Some(NaiveDate::from_ymd_opt(2024, 2, 28).unwrap()),
+            ..Default::default()
+        };
+        let results = repo.sum_by_tag(&conn, &filter_exclude).unwrap();
+        assert!(results.is_empty());
+    }
+
+    /// 测试按成员汇总分录金额
+    #[test]
+    fn test_sum_by_member() {
+        let (conn, repo) = setup();
+        let income = insert_income_account(&conn, "Income:Bonus");
+        let expense = insert_expense_account(&conn, "Expenses:Transport");
+
+        // 创建成员
+        conn.execute("INSERT INTO members (name) VALUES ('Alice')", [])
+            .unwrap();
+        let member_id = MemberId(conn.last_insert_rowid());
+
+        // 插入交易（关联成员）
+        conn.execute(
+            "INSERT INTO transactions (date_time, description, member_id, is_template) VALUES ('2024-03-10 00:00:00', 'commute', ?1, 0)",
+            [member_id.0],
+        )
+        .unwrap();
+        let tx_id = TransactionId(conn.last_insert_rowid());
+
+        // 插入分录
+        let p1 = sample_posting(tx_id, income, "200.00");
+        let p2 = sample_posting(tx_id, expense, "-200.00");
+        repo.insert(&conn, &p1).unwrap();
+        repo.insert(&conn, &p2).unwrap();
+
+        // 无过滤查询
+        let results = repo
+            .sum_by_member(&conn, &TransactionFilter::default())
+            .unwrap();
+        assert_eq!(results.len(), 2);
+
+        let income_row = results.iter().find(|r| r.2 == 4).unwrap();
+        let expense_row = results.iter().find(|r| r.2 == 5).unwrap();
+        assert_eq!(income_row.0, member_id);
+        assert_eq!(income_row.1, CommodityId(1));
+        assert_eq!(income_row.3, Decimal::from_str("200.00").unwrap());
+        assert_eq!(expense_row.0, member_id);
+        assert_eq!(expense_row.1, CommodityId(1));
+        assert_eq!(expense_row.3, Decimal::from_str("-200.00").unwrap());
+
+        // member_id 过滤条件应被忽略（维度自身不过滤自身）
+        let filter_member = TransactionFilter {
+            member_id: Some(member_id),
+            ..Default::default()
+        };
+        let results = repo.sum_by_member(&conn, &filter_member).unwrap();
+        assert_eq!(results.len(), 2);
+
+        // 日期过滤（排除）
+        let filter_exclude = TransactionFilter {
+            start_date: Some(NaiveDate::from_ymd_opt(2024, 4, 1).unwrap()),
+            end_date: Some(NaiveDate::from_ymd_opt(2024, 4, 30).unwrap()),
+            ..Default::default()
+        };
+        let results = repo.sum_by_member(&conn, &filter_exclude).unwrap();
+        assert!(results.is_empty());
+    }
+
+    /// 测试按渠道汇总分录金额
+    #[test]
+    fn test_sum_by_channel() {
+        let (conn, repo) = setup();
+        let income = insert_income_account(&conn, "Income:Refund");
+        let expense = insert_expense_account(&conn, "Expenses:Shopping");
+
+        // 创建渠道
+        conn.execute(
+            "INSERT INTO channels (name, description) VALUES ('Alipay', NULL)",
+            [],
+        )
+        .unwrap();
+        let channel_id = ChannelId(conn.last_insert_rowid());
+
+        // 插入交易
+        conn.execute(
+            "INSERT INTO transactions (date_time, description, is_template) VALUES ('2024-06-01 00:00:00', 'online shopping', 0)",
+            [],
+        )
+        .unwrap();
+        let tx_id = TransactionId(conn.last_insert_rowid());
+
+        // 插入分录（带渠道）
+        let mut p1 = sample_posting(tx_id, income, "300.00");
+        p1.channel_id = Some(channel_id);
+        let mut p2 = sample_posting(tx_id, expense, "-300.00");
+        p2.channel_id = Some(channel_id);
+        repo.insert(&conn, &p1).unwrap();
+        repo.insert(&conn, &p2).unwrap();
+
+        // 无过滤查询
+        let results = repo
+            .sum_by_channel(&conn, &TransactionFilter::default())
+            .unwrap();
+        assert_eq!(results.len(), 2);
+
+        let income_row = results.iter().find(|r| r.2 == 4).unwrap();
+        let expense_row = results.iter().find(|r| r.2 == 5).unwrap();
+        assert_eq!(income_row.0, channel_id);
+        assert_eq!(income_row.1, CommodityId(1));
+        assert_eq!(income_row.3, Decimal::from_str("300.00").unwrap());
+        assert_eq!(expense_row.0, channel_id);
+        assert_eq!(expense_row.1, CommodityId(1));
+        assert_eq!(expense_row.3, Decimal::from_str("-300.00").unwrap());
+
+        // channel_id 过滤条件应被忽略（维度自身不过滤自身）
+        let filter_channel = TransactionFilter {
+            channel_id: Some(channel_id),
+            ..Default::default()
+        };
+        let results = repo.sum_by_channel(&conn, &filter_channel).unwrap();
+        assert_eq!(results.len(), 2);
+
+        // 日期过滤（排除）
+        let filter_exclude = TransactionFilter {
+            start_date: Some(NaiveDate::from_ymd_opt(2024, 7, 1).unwrap()),
+            end_date: Some(NaiveDate::from_ymd_opt(2024, 7, 31).unwrap()),
+            ..Default::default()
+        };
+        let results = repo.sum_by_channel(&conn, &filter_exclude).unwrap();
+        assert!(results.is_empty());
     }
 }
