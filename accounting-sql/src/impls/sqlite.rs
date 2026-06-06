@@ -25,26 +25,31 @@ pub struct SqliteDatabase {
 }
 
 impl SqliteDatabase {
-    /// 打开文件数据库并自动初始化 schema 与 seed 数据
+    /// 打开文件数据库并自动初始化 schema
     pub fn open(path: &str) -> Result<Self, DbError> {
         let pool = ConnectionHandle::open(path)?;
         {
             let conn = pool.get();
             crate::schema::initialize_schema(&conn)?;
-            crate::schema::insert_seed_data(&conn)?;
         }
         Ok(Self::new(pool))
     }
 
-    /// 打开内存数据库并自动初始化 schema 与 seed 数据
+    /// 打开内存数据库并自动初始化 schema
     pub fn open_in_memory() -> Result<Self, DbError> {
         let pool = ConnectionHandle::open_in_memory()?;
         {
             let conn = pool.get();
             crate::schema::initialize_schema(&conn)?;
-            crate::schema::insert_seed_data(&conn)?;
         }
         Ok(Self::new(pool))
+    }
+
+    /// 初始化 seed 数据，支持语言选择
+    pub fn initialize(&self, lang: &str) -> Result<(), DbError> {
+        let conn = self.pool.get();
+        crate::schema::insert_seed_data(&conn, lang)?;
+        Ok(())
     }
 
     fn new(pool: ConnectionHandle) -> Self {
@@ -190,6 +195,7 @@ mod tests {
     #[tokio::test]
     async fn test_open_in_memory_initializes_schema() {
         let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
         let conn = db.pool.get();
         let repo = SqliteAccountRepo;
         let found = repo.get_by_name(&conn, "Equity:OpeningBalances").unwrap();

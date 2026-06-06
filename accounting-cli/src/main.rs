@@ -40,7 +40,10 @@ async fn initialize(db_path: &std::path::Path) -> Result<(), accounting::error::
     if db_path.exists() {
         return Err(accounting::error::AccountingError::DbAlreadyExists);
     }
-    let _db = accounting_sql::impls::sqlite::SqliteDatabase::open(db_path.to_str().unwrap())
+    let db = accounting_sql::impls::sqlite::SqliteDatabase::open(db_path.to_str().unwrap())
+        .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
+    let lang = rust_i18n::locale().to_string();
+    db.initialize(&lang)
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
     println!("{}", rust_i18n::t!("db_initialized"));
     Ok(())

@@ -191,6 +191,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_balance() {
         let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
         let report_service = ReportService::new(db);
 
         let a1 = sample_account("Assets:I", AccountType::Asset);

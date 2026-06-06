@@ -211,6 +211,7 @@ mod tests {
     #[tokio::test]
     async fn test_submit_transaction() {
         let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
         let tx_service = TransactionService::new(db);
 
         let id1 = create_test_account(&tx_service.db, "Assets:A", AccountType::Asset);
@@ -235,6 +236,7 @@ mod tests {
     #[tokio::test]
     async fn test_submit_unbalanced_fails() {
         let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
         let tx_service = TransactionService::new(db);
 
         let id1 = create_test_account(&tx_service.db, "Assets:C", AccountType::Asset);
@@ -262,6 +264,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_transaction() {
         let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
         let tx_service = TransactionService::new(db);
 
         let id1 = create_test_account(&tx_service.db, "Assets:E", AccountType::Asset);
@@ -312,6 +315,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_transaction() {
         let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
         let tx_service = TransactionService::new(db);
 
         let id1 = create_test_account(&tx_service.db, "Assets:G", AccountType::Asset);

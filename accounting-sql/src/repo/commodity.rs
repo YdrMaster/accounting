@@ -79,7 +79,7 @@ mod tests {
     fn setup() -> (Connection, SqliteCommodityRepo) {
         let conn = Connection::open_in_memory().unwrap();
         crate::schema::initialize_schema(&conn).unwrap();
-        crate::schema::insert_seed_data(&conn).unwrap();
+        crate::schema::insert_seed_data(&conn, "en").unwrap();
         (conn, SqliteCommodityRepo)
     }
 

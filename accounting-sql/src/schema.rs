@@ -8,9 +8,19 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
-/// 插入系统内置数据
-pub fn insert_seed_data(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(SEED_SQL)?;
+/// 插入系统内置数据，支持语言选择
+pub fn insert_seed_data(conn: &Connection, lang: &str) -> Result<(), DbError> {
+    let accounts_sql = if lang.starts_with("zh") {
+        SEED_ACCOUNTS_ZH
+    } else {
+        SEED_ACCOUNTS_EN
+    };
+    let tags_sql = if lang.starts_with("zh") {
+        SEED_TAGS_ZH
+    } else {
+        SEED_TAGS_EN
+    };
+    conn.execute_batch(&format!("{}{}{}", SEED_COMMODITIES, accounts_sql, tags_sql))?;
     Ok(())
 }
 
@@ -226,9 +236,7 @@ BEGIN
 END;
 "#;
 
-const SEED_SQL: &str = r#"
-INSERT OR IGNORE INTO commodities (symbol, name, precision) VALUES ('CNY', '人民币', 2);
-
+const SEED_ACCOUNTS_EN: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('Equity:OpeningBalances', 3, NULL, 1),
 ('Income:Uncategorized', 4, NULL, 1),
@@ -237,7 +245,29 @@ INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) V
 ('Expenses:Discounts', 5, NULL, 1),
 ('Expenses:InstallmentFees', 5, NULL, 1),
 ('Assets:Cashback', 1, NULL, 1);
+"#;
 
+const SEED_ACCOUNTS_ZH: &str = r#"
+INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
+('权益:期初余额', 3, NULL, 1),
+('收入:未分类', 4, NULL, 1),
+('费用:未分类', 5, NULL, 1),
+('费用:手续费', 5, NULL, 1),
+('费用:折扣', 5, NULL, 1),
+('费用:分期手续费', 5, NULL, 1),
+('资产:返现', 1, NULL, 1);
+"#;
+
+const SEED_COMMODITIES: &str = r#"
+INSERT OR IGNORE INTO commodities (symbol, name, precision) VALUES ('CNY', '人民币', 2);
+"#;
+
+const SEED_TAGS_EN: &str = r#"
+INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
+('repayment', 'Installment or credit card repayment marker', 1);
+"#;
+
+const SEED_TAGS_ZH: &str = r#"
 INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
 ('repayment', '分期/信用卡还款标记', 1);
 "#;
@@ -277,7 +307,7 @@ mod tests {
     fn test_seed_data() {
         let conn = Connection::open_in_memory().unwrap();
         initialize_schema(&conn).unwrap();
-        insert_seed_data(&conn).unwrap();
+        insert_seed_data(&conn, "en").unwrap();
 
         let count: i64 = conn
             .query_row(
@@ -351,7 +381,7 @@ mod tests {
     fn test_updated_at_trigger() {
         let conn = Connection::open_in_memory().unwrap();
         initialize_schema(&conn).unwrap();
-        insert_seed_data(&conn).unwrap();
+        insert_seed_data(&conn, "en").unwrap();
 
         // 手动将 updated_at 设为过去日期，以便触发器能体现出变化
         conn.execute(
