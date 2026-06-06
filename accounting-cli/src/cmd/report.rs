@@ -1,6 +1,9 @@
-use crate::cmd::{BalanceRow, ReportBalanceRow};
+use crate::cmd::{BalanceRow, ReportBalanceRow, StatRow};
 use crate::output::{OutputFormat, print_line, print_vec};
-use accounting::id::AccountId;
+use accounting::error::AccountingError;
+use accounting::id::{AccountId, ChannelId, MemberId};
+use accounting::transaction_filter::TransactionFilter;
+use accounting_sql::database::Database;
 use accounting_sql::impls::sqlite::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_i18n::t;
@@ -13,6 +16,8 @@ pub enum ReportCmd {
     Bs,
     /// 损益表
     Is,
+    /// 按维度统计
+    Stat(ReportStatArgs),
 }
 
 #[derive(Args)]
@@ -20,12 +25,46 @@ pub struct ReportBalanceArgs {
     pub account_id: i64,
 }
 
+#[derive(Args)]
+pub struct ReportStatArgs {
+    /// 按标签统计
+    #[arg(long, group = "dimension")]
+    pub by_tag: bool,
+    /// 按成员统计
+    #[arg(long, group = "dimension")]
+    pub by_member: bool,
+    /// 按渠道统计
+    #[arg(long, group = "dimension")]
+    pub by_channel: bool,
+    /// 起始日期
+    #[arg(long)]
+    pub from: Option<String>,
+    /// 结束日期
+    #[arg(long)]
+    pub to: Option<String>,
+    /// 指定账户
+    #[arg(long)]
+    pub account: Option<i64>,
+    /// 指定成员
+    #[arg(long)]
+    pub member: Option<i64>,
+    /// 指定标签（名称）
+    #[arg(long)]
+    pub tag: Option<String>,
+    /// 指定渠道
+    #[arg(long)]
+    pub channel: Option<i64>,
+    /// 关键词
+    #[arg(long)]
+    pub keyword: Option<String>,
+}
+
 impl ReportCmd {
     pub async fn run(
         self,
         db: SqliteDatabase,
         format: OutputFormat,
-    ) -> Result<(), accounting::error::AccountingError> {
+    ) -> Result<(), AccountingError> {
         match self {
             ReportCmd::Balance(args) => {
                 // 查询指定账户余额并转换为表格行
@@ -116,7 +155,121 @@ impl ReportCmd {
                     print_vec(&rows, format);
                 }
             }
+            ReportCmd::Stat(args) => {
+                if !args.by_tag && !args.by_member && !args.by_channel {
+                    return Err(AccountingError::Unknown(
+                        "请指定 --by-tag、--by-member 或 --by-channel".to_string(),
+                    ));
+                }
+
+                let mut filter = TransactionFilter::default();
+                if let Some(ref from) = args.from {
+                    filter.start_date = Some(parse_date(from)?);
+                }
+                if let Some(ref to) = args.to {
+                    filter.end_date = Some(parse_date(to)?);
+                }
+                if let Some(account) = args.account {
+                    filter.account_id = Some(AccountId(account));
+                }
+                if let Some(member) = args.member {
+                    filter.member_id = Some(MemberId(member));
+                }
+                if let Some(ref tag_name) = args.tag {
+                    let conn = db.connection();
+                    let tag = db
+                        .tag_repo()
+                        .get_by_name(&conn, tag_name)
+                        .map_err(|e| AccountingError::Unknown(e.to_string()))?
+                        .ok_or_else(|| {
+                            AccountingError::Unknown(format!("标签不存在: {}", tag_name))
+                        })?;
+                    filter.tag_id = Some(tag.id);
+                }
+                if let Some(channel) = args.channel {
+                    filter.channel_id = Some(ChannelId(channel));
+                }
+                if let Some(ref keyword) = args.keyword {
+                    filter.keyword = Some(keyword.clone());
+                }
+
+                let service = accounting_service::report_service::ReportService::new(db);
+                let mut rows = Vec::new();
+
+                if args.by_tag {
+                    let stats = service.stats_by_tag(&filter).await?;
+                    for stat in &stats {
+                        for (cid, amount) in &stat.income {
+                            rows.push(StatRow {
+                                dimension_name: stat.tag.name.clone(),
+                                stat_type: "收入".to_string(),
+                                commodity_id: cid.0,
+                                amount: amount.to_string(),
+                            });
+                        }
+                        for (cid, amount) in &stat.expense {
+                            rows.push(StatRow {
+                                dimension_name: stat.tag.name.clone(),
+                                stat_type: "支出".to_string(),
+                                commodity_id: cid.0,
+                                amount: amount.to_string(),
+                            });
+                        }
+                    }
+                } else if args.by_member {
+                    let stats = service.stats_by_member(&filter).await?;
+                    for stat in &stats {
+                        for (cid, amount) in &stat.income {
+                            rows.push(StatRow {
+                                dimension_name: stat.member.name.clone(),
+                                stat_type: "收入".to_string(),
+                                commodity_id: cid.0,
+                                amount: amount.to_string(),
+                            });
+                        }
+                        for (cid, amount) in &stat.expense {
+                            rows.push(StatRow {
+                                dimension_name: stat.member.name.clone(),
+                                stat_type: "支出".to_string(),
+                                commodity_id: cid.0,
+                                amount: amount.to_string(),
+                            });
+                        }
+                    }
+                } else if args.by_channel {
+                    let stats = service.stats_by_channel(&filter).await?;
+                    for stat in &stats {
+                        for (cid, amount) in &stat.income {
+                            rows.push(StatRow {
+                                dimension_name: stat.channel.name.clone(),
+                                stat_type: "收入".to_string(),
+                                commodity_id: cid.0,
+                                amount: amount.to_string(),
+                            });
+                        }
+                        for (cid, amount) in &stat.expense {
+                            rows.push(StatRow {
+                                dimension_name: stat.channel.name.clone(),
+                                stat_type: "支出".to_string(),
+                                commodity_id: cid.0,
+                                amount: amount.to_string(),
+                            });
+                        }
+                    }
+                }
+
+                if rows.is_empty() {
+                    print_line(t!("no_data").as_ref(), format);
+                } else {
+                    print_vec(&rows, format);
+                }
+            }
         }
         Ok(())
     }
+}
+
+fn parse_date(s: &str) -> Result<chrono::NaiveDate, AccountingError> {
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .map_err(|_| AccountingError::InvalidDate(format!("日期格式应为 YYYY-MM-DD: {}", s)))
 }

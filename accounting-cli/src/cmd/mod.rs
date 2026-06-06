@@ -224,3 +224,16 @@ pub struct ReportBalanceRow {
     pub commodity_id: i64,
     pub amount: String,
 }
+
+/// 统计报表表格行
+#[derive(Tabled, Serialize)]
+pub struct StatRow {
+    /// 维度名称（标签名/成员名/渠道名）
+    pub dimension_name: String,
+    /// 统计类型（收入/支出）
+    pub stat_type: String,
+    /// 商品 ID
+    pub commodity_id: i64,
+    /// 金额
+    pub amount: String,
+}
