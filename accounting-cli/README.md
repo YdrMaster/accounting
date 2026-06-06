@@ -105,6 +105,7 @@ accounting my.db tx add \
 accounting my.db tx list \
   [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] \
   [--account <ID>] [--member <ID>] [--tag <TAG>] [--keyword <TEXT>] \
+  [--template] [--installment] \
   [--limit <N>] [--offset <N>]
 ```
 
@@ -148,6 +149,15 @@ accounting my.db report bs
 
 # 损益表
 accounting my.db report is
+
+# 按维度统计（标签/成员/渠道）
+accounting my.db report stat --by-tag [--from <DATE>] [--to <DATE>]
+accounting my.db report stat --by-member [--from <DATE>] [--to <DATE>]
+accounting my.db report stat --by-channel [--from <DATE>] [--to <DATE>]
+
+# 统计支持组合过滤
+accounting my.db report stat --by-tag --from 2024-01-01 --to 2024-12-31 --member 1
+accounting my.db report stat --by-member --tag 餐饮 --account 1
 ```
 
 ## 示例
