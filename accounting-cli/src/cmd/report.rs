@@ -27,6 +27,7 @@ impl ReportCmd {
     ) -> Result<(), accounting::error::AccountingError> {
         match self {
             ReportCmd::Balance(args) => {
+                // 查询指定账户余额并转换为表格行
                 let service = accounting_service::report_service::ReportService::new(db);
                 let balances = service.get_balance(AccountId(args.account_id)).await?;
                 let rows: Vec<BalanceRow> = balances
@@ -43,6 +44,7 @@ impl ReportCmd {
                 }
             }
             ReportCmd::Bs => {
+                // 生成资产负债表并按资产/负债/权益分类输出
                 let service = accounting_service::report_service::ReportService::new(db);
                 let bs = service.balance_sheet().await?;
                 let mut rows = Vec::new();
@@ -83,6 +85,7 @@ impl ReportCmd {
                 }
             }
             ReportCmd::Is => {
+                // 生成损益表并按收入/费用分类输出
                 let service = accounting_service::report_service::ReportService::new(db);
                 let is = service.income_statement().await?;
                 let mut rows = Vec::new();

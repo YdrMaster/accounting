@@ -1,3 +1,5 @@
+//! CLI 工具：基于 clap 的命令行记账工具
+
 mod cmd;
 mod output;
 

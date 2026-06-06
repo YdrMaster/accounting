@@ -96,12 +96,14 @@ impl TxCmd {
     ) -> Result<(), AccountingError> {
         match self {
             TxCmd::Add(args) => {
+                // 解析参数并提交新交易
                 let (tx, postings, tag_ids) = parse_tx_args(args, &db).await?;
                 let service = accounting_service::transaction_service::TransactionService::new(db);
                 let id = service.submit(tx, postings, tag_ids).await?;
                 print_line(&format!("交易已创建，ID: {}", id.0), format);
             }
             TxCmd::List(args) => {
+                // 构建过滤条件并查询交易列表
                 let limit = args.limit;
                 let offset = args.offset;
                 let filter = build_filter(&args, &db)?;
@@ -111,6 +113,7 @@ impl TxCmd {
                 print_vec(&rows, format);
             }
             TxCmd::Show(args) => {
+                // 查询单笔交易详情并打印交易与分录
                 let service = accounting_service::transaction_service::TransactionService::new(db);
                 let result = service.get(TransactionId(args.id)).await?;
                 match result {
@@ -127,11 +130,13 @@ impl TxCmd {
                 }
             }
             TxCmd::Delete(args) => {
+                // 删除指定交易
                 let service = accounting_service::transaction_service::TransactionService::new(db);
                 service.delete(TransactionId(args.id)).await?;
                 print_line(&format!("交易已删除，ID: {}", args.id), format);
             }
             TxCmd::Update(args) => {
+                // 解析更新参数并执行全量替换
                 let id = args.id;
                 let (mut tx, postings, tag_ids) = parse_tx_args_for_update(&args, &db).await?;
                 tx.id = TransactionId(id);
@@ -189,6 +194,7 @@ async fn parse_postings(
 ) -> Result<Vec<Posting>, AccountingError> {
     let mut postings = Vec::new();
     for s in posting_strs {
+        // 按冒号拆分，至少要有 account:commodity:amount 三段
         let parts: Vec<&str> = s.split(':').collect();
         if parts.len() < 3 {
             return Err(AccountingError::InvalidTransaction(format!(
@@ -209,6 +215,7 @@ async fn parse_postings(
         let could_be_five_part =
             parts.len() >= 5 && Decimal::from_str(parts[parts.len() - 3]).is_ok();
 
+        // 根据段数提取账户名、商品符号、金额及可选的 cost 信息
         let (account_name, commodity_symbol, amount, cost_commodity, cost_amount) =
             if could_be_five_part {
                 let account_name = parts[..parts.len() - 4].join(":");
@@ -237,6 +244,7 @@ async fn parse_postings(
             )));
         }
 
+        // 查询数据库验证账户与商品是否存在
         let conn = db.connection();
         let account = db
             .account_repo()
@@ -258,6 +266,7 @@ async fn parse_postings(
             })?
             .id;
 
+        // 若存在 cost，则进一步查询 cost_commodity 并构造 Posting
         let (cost, cost_commodity_id) = if let Some(cost_commodity_symbol) = cost_commodity {
             let cost_commodity = db
                 .commodity_repo()
