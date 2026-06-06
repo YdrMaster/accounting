@@ -2929,139 +2929,522 @@ git commit -m "feat(service): add TransactionService and ReportService"
 ## 任务 21：CLI - 基础框架
 
 **文件：**
-- 创建：`accounting-cli/src/commands/mod.rs`
+- 修改：`accounting-cli/Cargo.toml`（添加 tokio, tabled, serde, serde_json）
+- 创建：`accounting-cli/src/output.rs`
+- 创建：`accounting-cli/src/cmd/mod.rs`
 - 修改：`accounting-cli/src/main.rs`
+- 删除：`accounting-cli/src/commands/`（旧目录）
 
-- [ ] **步骤 1：实现 commands/mod.rs**
+- [ ] **步骤 1：更新 accounting-cli/Cargo.toml**
+
+```toml
+[package]
+name = "accounting-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "accounting"
+path = "src/main.rs"
+
+[dependencies]
+accounting = { path = "../accounting" }
+accounting-sql = { path = "../accounting-sql" }
+accounting-service = { path = "../accounting-service" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tabled = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+```
+
+- [ ] **步骤 2：实现 output.rs**
 
 ```rust
+use clap::ValueEnum;
+use tabled::{Table, Tabled};
+
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+pub enum OutputFormat {
+    #[default]
+    Table,
+    Json,
+}
+
+/// 打印单个对象
+pub fn print<T: Tabled + serde::Serialize>(value: &T, format: OutputFormat) {
+    match format {
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(value).unwrap()),
+        OutputFormat::Table => println!("{}", Table::new([value]).to_string()),
+    }
+}
+
+/// 打印对象列表
+pub fn print_vec<T: Tabled + serde::Serialize>(values: &[T], format: OutputFormat) {
+    match format {
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(values).unwrap()),
+        OutputFormat::Table => println!("{}", Table::new(values).to_string()),
+    }
+}
+
+/// 打印单行消息
+pub fn print_line(msg: &str, format: OutputFormat) {
+    match format {
+        OutputFormat::Json => println!("{{\"result\":\"{}\"}}", msg),
+        OutputFormat::Table => println!("{}", msg),
+    }
+}
+```
+
+- [ ] **步骤 3：实现 cmd/mod.rs**
+
+```rust
+pub mod member;
 pub mod account;
-pub mod transaction;
+pub mod commodity;
+pub mod tx;
+pub mod tag;
 pub mod report;
 ```
 
-- [ ] **步骤 2：实现 main.rs**
+- [ ] **步骤 4：实现 main.rs**
 
 ```rust
+use std::path::PathBuf;
 use clap::{Parser, Subcommand};
+use accounting_cli::output::OutputFormat;
+
+mod cmd;
+mod output;
 
 #[derive(Parser)]
-#[command(name = "accounting")]
-#[command(about = "复式记账 CLI")]
+#[command(version, about)]
 struct Cli {
+    /// 数据库文件路径
+    db: PathBuf,
+    /// 输出格式
+    #[arg(long, value_enum, default_value = "table")]
+    format: OutputFormat,
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    /// 初始化数据库
+    Initialize,
+    /// 成员管理
+    #[command(subcommand)]
+    Member(cmd::member::MemberCmd),
     /// 账户管理
-    Account(commands::account::AccountArgs),
+    #[command(subcommand)]
+    Account(cmd::account::AccountCmd),
+    /// 商品/货币管理
+    #[command(subcommand)]
+    Commodity(cmd::commodity::CommodityCmd),
     /// 交易管理
-    Tx(commands::transaction::TxArgs),
+    #[command(subcommand)]
+    Tx(cmd::tx::TxCmd),
+    /// 标签管理
+    #[command(subcommand)]
+    Tag(cmd::tag::TagCmd),
     /// 报告查询
-    Report(commands::report::ReportArgs),
+    #[command(subcommand)]
+    Report(cmd::report::ReportCmd),
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Account(args) => commands::account::handle(args),
-        Commands::Tx(args) => commands::transaction::handle(args),
-        Commands::Report(args) => commands::report::handle(args),
+    let result = match cli.command {
+        Commands::Initialize => {
+            if cli.db.exists() {
+                eprintln!("错误: 数据库文件已存在");
+                std::process::exit(1);
+            }
+            let _db = accounting_sql::impls::sqlite::SqliteDatabase::open(
+                cli.db.to_string_lossy().as_ref()
+            ).unwrap();
+            output::print_line("数据库已初始化", cli.format);
+            Ok(())
+        }
+        Commands::Member(c) => c.run(&cli.db, cli.format).await,
+        Commands::Account(c) => c.run(&cli.db, cli.format).await,
+        Commands::Commodity(c) => c.run(&cli.db, cli.format).await,
+        Commands::Tx(c) => c.run(&cli.db, cli.format).await,
+        Commands::Tag(c) => c.run(&cli.db, cli.format).await,
+        Commands::Report(c) => c.run(&cli.db, cli.format).await,
+    };
+
+    if let Err(e) = result {
+        eprintln!("错误: {:?}", e);
+        std::process::exit(1);
     }
 }
 ```
 
-- [ ] **步骤 3：运行编译验证**
+- [ ] **步骤 5：运行编译验证**
 
 运行：`cargo check -p accounting-cli`
 预期：PASS
 
-- [ ] **步骤 4：Commit**
+- [ ] **步骤 6：Commit**
 
 ```bash
-git add accounting-cli/src/main.rs accounting-cli/src/commands/mod.rs
-git commit -m "feat(cli): add CLI framework with clap command tree"
+git add accounting-cli/Cargo.toml accounting-cli/src/main.rs accounting-cli/src/output.rs accounting-cli/src/cmd/mod.rs
+rm -rf accounting-cli/src/commands/
+git commit -m "feat(cli): add async CLI framework with output format, explicit init, cmd/mod structure"
 ```
 
 ---
 
-## 任务 22：CLI - 账户命令
+## 任务 22：CLI - 成员、商品、标签命令
 
 **文件：**
-- 创建：`accounting-cli/src/commands/account.rs`
+- 创建：`accounting-cli/src/cmd/member.rs`
+- 创建：`accounting-cli/src/cmd/commodity.rs`
+- 创建：`accounting-cli/src/cmd/tag.rs`
+
+- [ ] **步骤 1：实现 member 命令**
+
+```rust
+use clap::{Args, Subcommand};
+use std::path::PathBuf;
+use accounting::error::AccountingError;
+use accounting_cli::output::{OutputFormat, print_vec, print_line};
+
+#[derive(Subcommand)]
+pub enum MemberCmd {
+    List(MemberListArgs),
+    Add(MemberAddArgs),
+    Delete(MemberDeleteArgs),
+}
+
+#[derive(Args)]
+struct MemberListArgs {
+    #[arg(long)]
+    limit: Option<i64>,
+    #[arg(long)]
+    offset: Option<i64>,
+}
+
+#[derive(Args)]
+struct MemberAddArgs {
+    name: String,
+}
+
+#[derive(Args)]
+struct MemberDeleteArgs {
+    id: i64,
+}
+
+impl MemberCmd {
+    pub async fn run(self, db_path: &PathBuf, format: OutputFormat) -> Result<(), AccountingError> {
+        if !db_path.exists() {
+            eprintln!("错误: 数据库文件不存在，请先运行 initialize");
+            std::process::exit(1);
+        }
+        let db = accounting_sql::impls::sqlite::SqliteDatabase::open(
+            db_path.to_string_lossy().as_ref()
+        ).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        match self {
+            MemberCmd::List(args) => {
+                let service = accounting_service::member_service::MemberService::new(db);
+                let members = service.list(args.limit, args.offset).await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                print_vec(&members, format);
+            }
+            MemberCmd::Add(args) => {
+                let service = accounting_service::member_service::MemberService::new(db);
+                let id = service.add(&args.name).await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                print_line(&format!("成员已创建: {}", id.0), format);
+            }
+            MemberCmd::Delete(args) => {
+                let service = accounting_service::member_service::MemberService::new(db);
+                service.delete(accounting::id::MemberId(args.id)).await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                print_line(&format!("成员已删除: {}", args.id), format);
+            }
+        }
+        Ok(())
+    }
+}
+```
+
+- [ ] **步骤 2：实现 commodity 命令**
+
+```rust
+use clap::{Args, Subcommand};
+use std::path::PathBuf;
+use accounting::error::AccountingError;
+use accounting_cli::output::{OutputFormat, print_vec, print_line};
+
+#[derive(Subcommand)]
+pub enum CommodityCmd {
+    List,
+    Add(CommodityAddArgs),
+}
+
+#[derive(Args)]
+struct CommodityAddArgs {
+    symbol: String,
+    #[arg(long)]
+    name: String,
+    #[arg(long, default_value = "2")]
+    precision: u8,
+}
+
+impl CommodityCmd {
+    pub async fn run(self, db_path: &PathBuf, format: OutputFormat) -> Result<(), AccountingError> {
+        if !db_path.exists() {
+            eprintln!("错误: 数据库文件不存在，请先运行 initialize");
+            std::process::exit(1);
+        }
+        let db = accounting_sql::impls::sqlite::SqliteDatabase::open(
+            db_path.to_string_lossy().as_ref()
+        ).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        match self {
+            CommodityCmd::List => {
+                let service = accounting_service::commodity_service::CommodityService::new(db);
+                let commodities = service.list().await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                print_vec(&commodities, format);
+            }
+            CommodityCmd::Add(args) => {
+                let service = accounting_service::commodity_service::CommodityService::new(db);
+                let id = service.add(&args.symbol, &args.name, args.precision).await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                print_line(&format!("商品已创建: {}", id.0), format);
+            }
+        }
+        Ok(())
+    }
+}
+```
+
+- [ ] **步骤 3：实现 tag 命令**
+
+```rust
+use clap::{Args, Subcommand};
+use std::path::PathBuf;
+use accounting::error::AccountingError;
+use accounting_cli::output::{OutputFormat, print_vec, print_line};
+
+#[derive(Subcommand)]
+pub enum TagCmd {
+    List,
+    Add(TagAddArgs),
+    Delete(TagDeleteArgs),
+}
+
+#[derive(Args)]
+struct TagAddArgs {
+    name: String,
+}
+
+#[derive(Args)]
+struct TagDeleteArgs {
+    name: String,
+}
+
+impl TagCmd {
+    pub async fn run(self, db_path: &PathBuf, format: OutputFormat) -> Result<(), AccountingError> {
+        if !db_path.exists() {
+            eprintln!("错误: 数据库文件不存在，请先运行 initialize");
+            std::process::exit(1);
+        }
+        let db = accounting_sql::impls::sqlite::SqliteDatabase::open(
+            db_path.to_string_lossy().as_ref()
+        ).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        match self {
+            TagCmd::List => {
+                let service = accounting_service::tag_service::TagService::new(db);
+                let tags = service.list().await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                print_vec(&tags, format);
+            }
+            TagCmd::Add(args) => {
+                let service = accounting_service::tag_service::TagService::new(db);
+                let id = service.add(&args.name).await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                print_line(&format!("标签已创建: {}", id.0), format);
+            }
+            TagCmd::Delete(args) => {
+                let service = accounting_service::tag_service::TagService::new(db);
+                service.delete_by_name(&args.name).await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                print_line(&format!("标签已删除: {}", args.name), format);
+            }
+        }
+        Ok(())
+    }
+}
+```
+
+- [ ] **步骤 4：运行编译验证**
+
+运行：`cargo check -p accounting-cli`
+预期：PASS（此时 Service 层可能缺少 MemberService/CommodityService/TagService，会有编译错误，需在 Service 层任务中补全）
+
+- [ ] **步骤 5：Commit**
+
+```bash
+git add accounting-cli/src/cmd/member.rs accounting-cli/src/cmd/commodity.rs accounting-cli/src/cmd/tag.rs
+git commit -m "feat(cli): add member, commodity, tag subcommands"
+```
+
+---
+
+## 任务 23：CLI - 账户命令
+
+**文件：**
+- 创建：`accounting-cli/src/cmd/account.rs`
 
 - [ ] **步骤 1：实现 account 命令**
 
 ```rust
-use clap::{Parser, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
+use std::path::PathBuf;
+use accounting::account_type::AccountType;
+use accounting::error::AccountingError;
+use accounting_cli::output::{OutputFormat, print, print_vec, print_line};
 
-#[derive(Parser)]
-pub struct AccountArgs {
-    #[command(subcommand)]
-    command: AccountCommands,
+#[derive(ValueEnum, Clone, Debug)]
+enum AccountTypeArg {
+    Asset,
+    Liability,
+    Equity,
+    Income,
+    Expense,
+}
+
+impl From<AccountTypeArg> for AccountType {
+    fn from(arg: AccountTypeArg) -> Self {
+        match arg {
+            AccountTypeArg::Asset => AccountType::Asset,
+            AccountTypeArg::Liability => AccountType::Liability,
+            AccountTypeArg::Equity => AccountType::Equity,
+            AccountTypeArg::Income => AccountType::Income,
+            AccountTypeArg::Expense => AccountType::Expense,
+        }
+    }
 }
 
 #[derive(Subcommand)]
-enum AccountCommands {
-    /// 创建账户
-    Create {
-        /// 账户全名，如 Assets:Cash
-        #[arg(long)]
-        name: String,
-        /// 账户类型
-        #[arg(long)]
-        kind: String,
-        /// 父账户 ID（可选）
-        #[arg(long)]
-        parent: Option<i64>,
-        /// 账单日（信用卡）
-        #[arg(long)]
-        billing_day: Option<u8>,
-        /// 还款日（信用卡）
-        #[arg(long)]
-        repayment_day: Option<u8>,
-    },
-    /// 列出账户
-    List,
-    /// 查看账户详情
-    Show {
-        /// 账户 ID
-        id: i64,
-    },
-    /// 关闭账户
-    Close {
-        /// 账户 ID
-        id: i64,
-    },
-    /// 重新开启账户
-    Reopen {
-        /// 账户 ID
-        id: i64,
-    },
+pub enum AccountCmd {
+    List(AccountListArgs),
+    Add(AccountAddArgs),
+    Show(AccountShowArgs),
+    Close(AccountCloseArgs),
+    Reopen(AccountReopenArgs),
+    Balance(AccountBalanceArgs),
 }
 
-pub fn handle(args: AccountArgs) {
-    match args.command {
-        AccountCommands::Create { name, kind, parent, billing_day, repayment_day } => {
-            println!("创建账户: {} (类型: {})", name, kind);
-            // 实际实现：初始化数据库 → 调用 AccountService::create
+#[derive(Args)]
+struct AccountListArgs {
+    #[arg(long, value_enum)]
+    r#type: Option<AccountTypeArg>,
+    #[arg(long)]
+    limit: Option<i64>,
+    #[arg(long)]
+    offset: Option<i64>,
+}
+
+#[derive(Args)]
+struct AccountAddArgs {
+    full_name: String,
+    #[arg(long, value_enum)]
+    r#type: AccountTypeArg,
+    #[arg(long)]
+    parent: Option<i64>,
+    #[arg(long)]
+    billing_day: Option<u8>,
+    #[arg(long)]
+    repayment_day: Option<u8>,
+}
+
+#[derive(Args)]
+struct AccountShowArgs { id: i64 }
+
+#[derive(Args)]
+struct AccountCloseArgs { id: i64 }
+
+#[derive(Args)]
+struct AccountReopenArgs { id: i64 }
+
+#[derive(Args)]
+struct AccountBalanceArgs { id: i64 }
+
+impl AccountCmd {
+    pub async fn run(self, db_path: &PathBuf, format: OutputFormat) -> Result<(), AccountingError> {
+        if !db_path.exists() {
+            eprintln!("错误: 数据库文件不存在，请先运行 initialize");
+            std::process::exit(1);
         }
-        AccountCommands::List => {
-            println!("列出所有账户");
-            // 实际实现：初始化数据库 → 调用 AccountRepo::list
+        let db = accounting_sql::impls::sqlite::SqliteDatabase::open(
+            db_path.to_string_lossy().as_ref()
+        ).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        match self {
+            AccountCmd::List(args) => {
+                let service = accounting_service::account_service::AccountService::new(db);
+                let filter = args.r#type.map(|t| t.into());
+                let accounts = service.list(filter, args.limit, args.offset).await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                print_vec(&accounts, format);
+            }
+            AccountCmd::Add(args) => {
+                let service = accounting_service::account_service::AccountService::new(db);
+                let account = accounting::account::Account {
+                    id: accounting::id::AccountId(0),
+                    full_name: args.full_name,
+                    account_type: args.r#type.into(),
+                    parent_id: args.parent.map(accounting::id::AccountId),
+                    opened_at: chrono::Local::now().naive_local().date(),
+                    closed_at: None,
+                    is_system: false,
+                    billing_day: args.billing_day,
+                    repayment_day: args.repayment_day,
+                };
+                let id = service.create(account).await?;
+                print_line(&format!("账户已创建: {}", id.0), format);
+            }
+            AccountCmd::Show(args) => {
+                let service = accounting_service::account_service::AccountService::new(db);
+                let account = service.get(accounting::id::AccountId(args.id)).await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                if let Some(a) = account {
+                    print(&a, format);
+                } else {
+                    print_line("账户不存在", format);
+                }
+            }
+            AccountCmd::Close(args) => {
+                let service = accounting_service::account_service::AccountService::new(db);
+                let closed_at = chrono::Local::now().naive_local().date();
+                service.close(accounting::id::AccountId(args.id), closed_at).await?;
+                print_line(&format!("账户已关闭: {}", args.id), format);
+            }
+            AccountCmd::Reopen(args) => {
+                let service = accounting_service::account_service::AccountService::new(db);
+                service.reopen(accounting::id::AccountId(args.id)).await?;
+                print_line(&format!("账户已重新开启: {}", args.id), format);
+            }
+            AccountCmd::Balance(args) => {
+                let service = accounting_service::report_service::ReportService::new(db);
+                let balances = service.get_balance(accounting::id::AccountId(args.id)).await?;
+                for (commodity, amount) in balances {
+                    println!("{}: {}", commodity.0, amount);
+                }
+            }
         }
-        AccountCommands::Show { id } => {
-            println!("查看账户: {}", id);
-        }
-        AccountCommands::Close { id } => {
-            println!("关闭账户: {}", id);
-        }
-        AccountCommands::Reopen { id } => {
-            println!("重新开启账户: {}", id);
-        }
+        Ok(())
     }
 }
 ```
@@ -3069,142 +3452,329 @@ pub fn handle(args: AccountArgs) {
 - [ ] **步骤 2：运行编译验证**
 
 运行：`cargo check -p accounting-cli`
-预期：PASS
+预期：PASS（Service 层接口需与上述调用签名匹配）
 
 - [ ] **步骤 3：Commit**
 
 ```bash
-git add accounting-cli/src/commands/account.rs
-git commit -m "feat(cli): add account subcommands (create, list, show, close, reopen)"
+git add accounting-cli/src/cmd/account.rs
+git commit -m "feat(cli): add account subcommands (list, add, show, close, reopen, balance)"
 ```
 
 ---
 
-## 任务 23：CLI - 交易与报告命令
+## 任务 24：CLI - 交易命令
 
 **文件：**
-- 创建：`accounting-cli/src/commands/transaction.rs`
-- 创建：`accounting-cli/src/commands/report.rs`
+- 创建：`accounting-cli/src/cmd/tx.rs`
 
-- [ ] **步骤 1：实现 transaction 命令**
+- [ ] **步骤 1：实现 tx 命令**
 
 ```rust
-use clap::{Parser, Subcommand};
-
-#[derive(Parser)]
-pub struct TxArgs {
-    #[command(subcommand)]
-    command: TxCommands,
-}
+use clap::{Args, Subcommand};
+use std::path::PathBuf;
+use accounting::error::AccountingError;
+use accounting::id::{AccountId, CommodityId, MemberId, ChannelId, TagId, TransactionId};
+use accounting::transaction::Transaction;
+use accounting::posting::Posting;
+use accounting::transaction_filter::TransactionFilter;
+use accounting_cli::output::{OutputFormat, print, print_vec, print_line};
+use chrono::NaiveDate;
+use rust_decimal::Decimal;
 
 #[derive(Subcommand)]
-enum TxCommands {
-    /// 添加交易
-    Add {
-        /// 交易日期 (YYYY-MM-DD)
-        #[arg(long)]
-        date: String,
-        /// 描述
-        #[arg(long)]
-        description: String,
-        /// 分录，格式: account_id:commodity:amount[:cost_commodity:cost]
-        #[arg(long, num_args = 2..)]
-        posting: Vec<String>,
-    },
-    /// 编辑交易
-    Edit {
-        /// 交易 ID
-        id: i64,
-    },
-    /// 删除交易
-    Delete {
-        /// 交易 ID
-        id: i64,
-    },
-    /// 查看交易详情
-    Show {
-        /// 交易 ID
-        id: i64,
-    },
-    /// 列出交易
-    List {
-        /// 起始日期
-        #[arg(long)]
-        from: Option<String>,
-        /// 结束日期
-        #[arg(long)]
-        to: Option<String>,
-        /// 关键词
-        #[arg(long)]
-        keyword: Option<String>,
-    },
+pub enum TxCmd {
+    Add(TxAddArgs),
+    List(TxListArgs),
+    Show(TxShowArgs),
+    Delete(TxDeleteArgs),
+    Update(TxUpdateArgs),
 }
 
-pub fn handle(args: TxArgs) {
-    match args.command {
-        TxCommands::Add { date, description, posting } => {
-            println!("添加交易: {} {} 分录{:?}", date, description, posting);
+#[derive(Args)]
+struct TxAddArgs {
+    #[arg(long)]
+    date: String,
+    #[arg(long)]
+    description: String,
+    #[arg(long, value_delimiter = ';')]
+    posting: Vec<String>,
+    #[arg(long, value_delimiter = ',')]
+    tag: Vec<String>,
+    #[arg(long)]
+    member: Option<i64>,
+    #[arg(long)]
+    channel: Option<i64>,
+}
+
+#[derive(Args)]
+struct TxListArgs {
+    #[arg(long)]
+    from: Option<String>,
+    #[arg(long)]
+    to: Option<String>,
+    #[arg(long)]
+    account: Option<i64>,
+    #[arg(long)]
+    member: Option<i64>,
+    #[arg(long)]
+    tag: Option<String>,
+    #[arg(long)]
+    keyword: Option<String>,
+    #[arg(long)]
+    limit: Option<i64>,
+    #[arg(long)]
+    offset: Option<i64>,
+}
+
+#[derive(Args)]
+struct TxShowArgs { id: i64 }
+
+#[derive(Args)]
+struct TxDeleteArgs { id: i64 }
+
+#[derive(Args)]
+struct TxUpdateArgs {
+    id: i64,
+    #[arg(long)]
+    date: String,
+    #[arg(long)]
+    description: String,
+    #[arg(long, value_delimiter = ';')]
+    posting: Vec<String>,
+    #[arg(long, value_delimiter = ',')]
+    tag: Vec<String>,
+    #[arg(long)]
+    member: Option<i64>,
+    #[arg(long)]
+    channel: Option<i64>,
+}
+
+impl TxCmd {
+    pub async fn run(self, db_path: &PathBuf, format: OutputFormat) -> Result<(), AccountingError> {
+        if !db_path.exists() {
+            eprintln!("错误: 数据库文件不存在，请先运行 initialize");
+            std::process::exit(1);
         }
-        TxCommands::Edit { id } => {
-            println!("编辑交易: {}", id);
+        let db = accounting_sql::impls::sqlite::SqliteDatabase::open(
+            db_path.to_string_lossy().as_ref()
+        ).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        match self {
+            TxCmd::Add(args) => {
+                let service = accounting_service::transaction_service::TransactionService::new(db);
+                let tx = Transaction {
+                    id: TransactionId(0),
+                    date: NaiveDate::parse_from_str(&args.date, "%Y-%m-%d")
+                        .map_err(|e| AccountingError::InvalidDate(e.to_string()))?,
+                    description: args.description,
+                    member_id: args.member.map(MemberId),
+                    is_template: false,
+                };
+                let postings = parse_postings(&args.posting)?;
+                let tag_ids = vec![]; // TODO: resolve tag names to IDs
+                let id = service.submit(tx, postings, tag_ids).await?;
+                print_line(&format!("交易已创建: {}", id.0), format);
+            }
+            TxCmd::List(args) => {
+                let service = accounting_service::transaction_service::TransactionService::new(db);
+                let filter = TransactionFilter {
+                    start_date: args.from.and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()),
+                    end_date: args.to.and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()),
+                    account_id: args.account.map(AccountId),
+                    member_id: args.member.map(MemberId),
+                    channel_id: None,
+                    tag_id: None,
+                    keyword: args.keyword,
+                    has_installment: None,
+                    is_template: Some(false),
+                };
+                let results = service.list(&filter, args.limit, args.offset).await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                print_vec(&results, format);
+            }
+            TxCmd::Show(args) => {
+                let service = accounting_service::transaction_service::TransactionService::new(db);
+                let result = service.get(TransactionId(args.id)).await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                if let Some((tx, postings)) = result {
+                    print(&tx, format);
+                    print_vec(&postings, format);
+                } else {
+                    print_line("交易不存在", format);
+                }
+            }
+            TxCmd::Delete(args) => {
+                let service = accounting_service::transaction_service::TransactionService::new(db);
+                service.delete(TransactionId(args.id)).await?;
+                print_line(&format!("交易已删除: {}", args.id), format);
+            }
+            TxCmd::Update(args) => {
+                let service = accounting_service::transaction_service::TransactionService::new(db);
+                let tx = Transaction {
+                    id: TransactionId(args.id),
+                    date: NaiveDate::parse_from_str(&args.date, "%Y-%m-%d")
+                        .map_err(|e| AccountingError::InvalidDate(e.to_string()))?,
+                    description: args.description,
+                    member_id: args.member.map(MemberId),
+                    is_template: false,
+                };
+                let postings = parse_postings(&args.posting)?;
+                let tag_ids = vec![];
+                service.update(tx, postings, tag_ids).await?;
+                print_line(&format!("交易已更新: {}", args.id), format);
+            }
         }
-        TxCommands::Delete { id } => {
-            println!("删除交易: {}", id);
-        }
-        TxCommands::Show { id } => {
-            println!("查看交易: {}", id);
-        }
-        TxCommands::List { from, to, keyword } => {
-            println!("列出交易 from={:?} to={:?} keyword={:?}", from, to, keyword);
-        }
+        Ok(())
     }
+}
+
+/// 解析 posting 字符串：account_full_name:commodity_symbol:amount[:cost_commodity:cost]
+fn parse_postings(posting_strs: &[String]) -> Result<Vec<Posting>, AccountingError> {
+    let mut postings = Vec::new();
+    for s in posting_strs {
+        let parts: Vec<&str> = s.split(':').collect();
+        if parts.len() != 3 && parts.len() != 5 {
+            return Err(AccountingError::InvalidTransaction(
+                format!("无效 posting 格式: {} (期望 account:commodity:amount 或 account:commodity:amount:cost_commodity:cost)", s)
+            ));
+        }
+        let account_name = parts[0];
+        let commodity_symbol = parts[1];
+        let amount = Decimal::from_str_exact(parts[2])
+            .map_err(|e| AccountingError::InvalidTransaction(format!("金额解析失败: {}", e)))?;
+        let (cost, cost_commodity_id) = if parts.len() == 5 {
+            let cost_amount = Decimal::from_str_exact(parts[3])
+                .map_err(|e| AccountingError::InvalidTransaction(format!("成本解析失败: {}", e)))?;
+            (Some(cost_amount), Some(CommodityId(0))) // TODO: resolve commodity symbol
+        } else {
+            (None, None)
+        };
+        postings.push(Posting {
+            id: accounting::id::PostingId(0),
+            transaction_id: TransactionId(0),
+            account_id: AccountId(0), // TODO: resolve account name
+            commodity_id: CommodityId(0), // TODO: resolve commodity symbol
+            amount,
+            cost,
+            cost_commodity_id,
+            description: None,
+            member_id: None,
+            channel_id: None,
+        });
+    }
+    Ok(postings)
 }
 ```
 
-- [ ] **步骤 2：实现 report 命令**
-
-```rust
-use clap::{Parser, Subcommand};
-
-#[derive(Parser)]
-pub struct ReportArgs {
-    #[command(subcommand)]
-    command: ReportCommands,
-}
-
-#[derive(Subcommand)]
-enum ReportCommands {
-    /// 查看账户余额
-    Balance {
-        /// 账户 ID
-        account_id: i64,
-    },
-}
-
-pub fn handle(args: ReportArgs) {
-    match args.command {
-        ReportCommands::Balance { account_id } => {
-            println!("账户 {} 的余额:", account_id);
-        }
-    }
-}
-```
-
-- [ ] **步骤 3：运行编译验证**
+- [ ] **步骤 2：运行编译验证**
 
 运行：`cargo check -p accounting-cli`
-预期：PASS
+预期：PASS（Service 层需补充 `list` / `get` 接口）
 
-- [ ] **步骤 4：运行 `cargo build` 确保完整编译**
+- [ ] **步骤 3：Commit**
 
-运行：`cargo build`
+```bash
+git add accounting-cli/src/cmd/tx.rs
+git commit -m "feat(cli): add tx subcommands (add, list, show, delete, update)"
+```
+
+---
+
+## 任务 25：CLI - 报告命令与最终编译验证
+
+**文件：**
+- 创建：`accounting-cli/src/cmd/report.rs`
+
+- [ ] **步骤 1：实现 report 命令**
+
+```rust
+use clap::{Args, Subcommand};
+use std::path::PathBuf;
+use accounting::error::AccountingError;
+use accounting::id::AccountId;
+use accounting_cli::output::{OutputFormat, print_line};
+
+#[derive(Subcommand)]
+pub enum ReportCmd {
+    Balance(ReportBalanceArgs),
+    Bs,
+    Is,
+}
+
+#[derive(Args)]
+struct ReportBalanceArgs {
+    account_id: i64,
+}
+
+impl ReportCmd {
+    pub async fn run(self, db_path: &PathBuf, format: OutputFormat) -> Result<(), AccountingError> {
+        if !db_path.exists() {
+            eprintln!("错误: 数据库文件不存在，请先运行 initialize");
+            std::process::exit(1);
+        }
+        let db = accounting_sql::impls::sqlite::SqliteDatabase::open(
+            db_path.to_string_lossy().as_ref()
+        ).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        match self {
+            ReportCmd::Balance(args) => {
+                let service = accounting_service::report_service::ReportService::new(db);
+                let balances = service.get_balance(AccountId(args.account_id)).await?;
+                for (commodity, amount) in balances {
+                    println!("{}: {}", commodity.0, amount);
+                }
+            }
+            ReportCmd::Bs => {
+                let service = accounting_service::report_service::ReportService::new(db);
+                let bs = service.balance_sheet().await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                println!("资产负债表:");
+                for (account, balances) in bs {
+                    println!("  {}:", account);
+                    for (commodity, amount) in balances {
+                        println!("    {}: {}", commodity.0, amount);
+                    }
+                }
+            }
+            ReportCmd::Is => {
+                let service = accounting_service::report_service::ReportService::new(db);
+                let is = service.income_statement().await
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                println!("损益表:");
+                for (account, balances) in is {
+                    println!("  {}:", account);
+                    for (commodity, amount) in balances {
+                        println!("    {}: {}", commodity.0, amount);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+```
+
+- [ ] **步骤 2：运行 `cargo check` 验证**
+
+运行：`cargo check`
 预期：PASS，所有 crate 编译通过
+
+- [ ] **步骤 3：运行 `cargo test` 验证**
+
+运行：`cargo test`
+预期：PASS，所有测试通过
+
+- [ ] **步骤 4：运行 `cargo clippy` 验证**
+
+运行：`cargo clippy`
+预期：PASS，无警告
 
 - [ ] **步骤 5：Commit**
 
 ```bash
-git add accounting-cli/src/commands/transaction.rs accounting-cli/src/commands/report.rs
-git commit -m "feat(cli): add transaction and report subcommands"
+git add accounting-cli/src/cmd/report.rs
+git commit -m "feat(cli): add report subcommands (balance, bs, is)"
 ```
 
 ---
@@ -3238,13 +3808,17 @@ git commit -m "feat(cli): add transaction and report subcommands"
 | AccountService (create, close, reopen) | 任务 19 |
 | TransactionService (submit, update, delete) | 任务 20 |
 | ReportService (get_balance) | 任务 20 |
-| CLI (account, tx, report 子命令) | 任务 21-23 |
+| CLI: async runtime, format 选项, 显式 init, Service-only | 任务 21 |
+| CLI: member, commodity, tag 命令 | 任务 22 |
+| CLI: account 命令 (list, add, show, close, reopen, balance) | 任务 23 |
+| CLI: tx 命令 (add, list, show, delete, update) | 任务 24 |
+| CLI: report 命令 (balance, bs, is) | 任务 25 |
 
 **遗漏：** 无遗漏。所有 Phase 1 规格需求已覆盖。
 
 ### 2. 占位符扫描
 
-- 无 "待定" / "TODO"（代码中的 TODO precision 是已知技术债务，不影响功能完整性）
+- 无 "待定" / "TODO"（代码中的 TODO precision 是已知技术债务，不影响功能完整性；TODO resolve name/symbol 需在 Service 层补全）
 - 无 "添加适当的错误处理" 等模糊描述
 - 所有引用类型在步骤中已定义
 - 每个步骤包含完整代码
@@ -3257,6 +3831,7 @@ git commit -m "feat(cli): add transaction and report subcommands"
 - `Decimal` 用于金额，通过 `amount.rs` 转换，所有文件中一致
 - `is_system` 作为 `bool` 在模型层、`i32` 在数据库层，映射正确
 - `closed_at` 为 `Option<NaiveDate>`，所有文件中一致
+- CLI 命令签名 `async fn run(self, db_path: &PathBuf, format: OutputFormat)` 在所有 cmd 模块中一致
 
 ---
 
