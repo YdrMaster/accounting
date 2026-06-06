@@ -1,4 +1,6 @@
-use accounting::id::{AccountId, CommodityId, PostingId, TransactionId};
+use accounting::id::{
+    AccountId, ChannelId, CommodityId, MemberId, PostingId, TagId, TransactionId,
+};
 use accounting::posting::Posting;
 use rusqlite::{Connection, params};
 use rust_decimal::Decimal;
@@ -41,6 +43,27 @@ pub trait PostingRepo {
         conn: &Connection,
         ancestor_id: AccountId,
     ) -> Result<Vec<(CommodityId, Decimal)>, crate::error::DbError>;
+    /// 按标签汇总分录金额（支持 TransactionFilter 过滤）
+    ///
+    /// 返回 `(TagId, CommodityId, account_type, Decimal)` 列表，
+    /// 其中 `account_type` 为 4(Income) 或 5(Expense)，用于区分收入/支出方向。
+    fn sum_by_tag(
+        &self,
+        conn: &Connection,
+        filter: &accounting::transaction_filter::TransactionFilter,
+    ) -> Result<Vec<(TagId, CommodityId, i64, Decimal)>, crate::error::DbError>;
+    /// 按成员汇总分录金额（支持 TransactionFilter 过滤）
+    fn sum_by_member(
+        &self,
+        conn: &Connection,
+        filter: &accounting::transaction_filter::TransactionFilter,
+    ) -> Result<Vec<(MemberId, CommodityId, i64, Decimal)>, crate::error::DbError>;
+    /// 按渠道汇总分录金额（支持 TransactionFilter 过滤）
+    fn sum_by_channel(
+        &self,
+        conn: &Connection,
+        filter: &accounting::transaction_filter::TransactionFilter,
+    ) -> Result<Vec<(ChannelId, CommodityId, i64, Decimal)>, crate::error::DbError>;
 }
 
 /// SQLite PostingRepo 实现
@@ -271,6 +294,30 @@ impl PostingRepo for SqlitePostingRepo {
             ));
         }
         Ok(result)
+    }
+
+    fn sum_by_tag(
+        &self,
+        _conn: &Connection,
+        _filter: &accounting::transaction_filter::TransactionFilter,
+    ) -> Result<Vec<(TagId, CommodityId, i64, Decimal)>, crate::error::DbError> {
+        todo!()
+    }
+
+    fn sum_by_member(
+        &self,
+        _conn: &Connection,
+        _filter: &accounting::transaction_filter::TransactionFilter,
+    ) -> Result<Vec<(MemberId, CommodityId, i64, Decimal)>, crate::error::DbError> {
+        todo!()
+    }
+
+    fn sum_by_channel(
+        &self,
+        _conn: &Connection,
+        _filter: &accounting::transaction_filter::TransactionFilter,
+    ) -> Result<Vec<(ChannelId, CommodityId, i64, Decimal)>, crate::error::DbError> {
+        todo!()
     }
 }
 
