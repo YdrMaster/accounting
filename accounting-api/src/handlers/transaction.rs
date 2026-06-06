@@ -1,6 +1,6 @@
 //! 交易 API handler
 
-use crate::dto::{CreateTransactionRequest, TransactionDto};
+use crate::dto::{CreateTransactionRequest, PostingDto, TransactionDetailDto, TransactionDto};
 use crate::handlers::member::AppState;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, MemberId, PostingId, TagId, TransactionId};
@@ -192,28 +192,63 @@ async fn create_transaction(
     Ok(Json(id.0))
 }
 
-/// 获取单笔交易
+/// 获取单笔交易（含分录）
 async fn get_transaction(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<Json<TransactionDto>, String> {
+) -> Result<Json<TransactionDetailDto>, String> {
     let db = state.db().map_err(|e| e.to_string())?;
-    let service = TransactionService::new(db);
-    let result = service
-        .get(TransactionId(id))
-        .await
+    let conn = db.connection();
+
+    let tx = db
+        .transaction_repo()
+        .get(&conn, TransactionId(id))
+        .map_err(|e| e.to_string())?
+        .ok_or("Transaction not found")?;
+
+    let postings = db
+        .posting_repo()
+        .list_by_transaction(&conn, TransactionId(id))
         .map_err(|e| e.to_string())?;
 
-    match result {
-        Some((tx, _)) => Ok(Json(TransactionDto {
-            id: tx.id.0,
-            date_time: tx.date_time.to_string(),
-            description: tx.description,
-            member_id: tx.member_id.map(|id| id.0),
-            is_template: tx.is_template,
-        })),
-        None => Err("Transaction not found".to_string()),
-    }
+    // 批量查询账户和商品名称
+    let accounts: std::collections::HashMap<i64, String> = db
+        .account_repo()
+        .list(&conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|a| (a.id.0, a.full_name))
+        .collect();
+
+    let commodities: std::collections::HashMap<i64, String> = db
+        .commodity_repo()
+        .list(&conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|c| (c.id.0, c.symbol))
+        .collect();
+
+    let posting_dtos: Vec<PostingDto> = postings
+        .into_iter()
+        .map(|p| PostingDto {
+            id: p.id.0,
+            account: accounts.get(&p.account_id.0).cloned().unwrap_or_default(),
+            commodity: commodities
+                .get(&p.commodity_id.0)
+                .cloned()
+                .unwrap_or_default(),
+            amount: p.amount.to_string(),
+        })
+        .collect();
+
+    Ok(Json(TransactionDetailDto {
+        id: tx.id.0,
+        date_time: tx.date_time.to_string(),
+        description: tx.description,
+        member_id: tx.member_id.map(|id| id.0),
+        is_template: tx.is_template,
+        postings: posting_dtos,
+    }))
 }
 
 /// 删除交易

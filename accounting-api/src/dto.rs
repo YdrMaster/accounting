@@ -78,6 +78,36 @@ pub struct TransactionDto {
     pub is_template: bool,
 }
 
+/// 分录响应。
+#[derive(Serialize)]
+pub struct PostingDto {
+    /// 分录 ID。
+    pub id: i64,
+    /// 账户名称。
+    pub account: String,
+    /// 货币符号。
+    pub commodity: String,
+    /// 金额字符串。
+    pub amount: String,
+}
+
+/// 交易详情响应（含分录）。
+#[derive(Serialize)]
+pub struct TransactionDetailDto {
+    /// 交易 ID。
+    pub id: i64,
+    /// 交易日期时间（ISO 8601 格式）。
+    pub date_time: String,
+    /// 交易描述。
+    pub description: String,
+    /// 成员 ID。
+    pub member_id: Option<i64>,
+    /// 是否为模板。
+    pub is_template: bool,
+    /// 分录列表。
+    pub postings: Vec<PostingDto>,
+}
+
 /// 创建交易请求。
 #[derive(Deserialize)]
 pub struct CreateTransactionRequest {

@@ -129,7 +129,12 @@ const accountTreeData = computed(() => {
 })
 
 function addPosting() {
-  postings.value.push({ commodity: 'CNY', amount: '' })
+  const sum = postings.value.reduce((acc, p) => {
+    const val = parseFloat(p.amount)
+    return acc + (isNaN(val) ? 0 : val)
+  }, 0)
+  const balancedAmount = sum === 0 ? '' : String(-sum)
+  postings.value.push({ commodity: 'CNY', amount: balancedAmount })
 }
 
 function removePosting(index: number) {
