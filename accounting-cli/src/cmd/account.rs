@@ -1,4 +1,5 @@
 use crate::cmd::{AccountRow, AccountTypeArg, BalanceRow};
+use rust_i18n::t;
 use crate::output::{OutputFormat, print, print_line, print_vec};
 use accounting::account::Account;
 use accounting::id::AccountId;
@@ -91,7 +92,7 @@ impl AccountCmd {
                     repayment_day: args.repayment_day,
                 };
                 let id = service.create(account).await?;
-                print_line(&format!("账户已创建，ID: {}", id.0), format);
+                print_line(&format!("{}", t!("account_created", id = id.0)), format);
             }
             AccountCmd::Show(args) => {
                 let service = accounting_service::account_service::AccountService::new(db);
@@ -101,18 +102,18 @@ impl AccountCmd {
                         let row: AccountRow = (&a).into();
                         print(&row, format);
                     }
-                    None => print_line(&format!("账户不存在: {}", args.id), format),
+                    None => print_line(&format!("{}", t!("account_not_found", id = args.id)), format),
                 }
             }
             AccountCmd::Close(args) => {
                 let service = accounting_service::account_service::AccountService::new(db);
                 service.close(AccountId(args.id)).await?;
-                print_line(&format!("账户已关闭，ID: {}", args.id), format);
+                print_line(&format!("{}", t!("account_closed", id = args.id)), format);
             }
             AccountCmd::Reopen(args) => {
                 let service = accounting_service::account_service::AccountService::new(db);
                 service.reopen(AccountId(args.id)).await?;
-                print_line(&format!("账户已重新开启，ID: {}", args.id), format);
+                print_line(&format!("{}", t!("account_reopened", id = args.id)), format);
             }
             AccountCmd::Balance(args) => {
                 let service = accounting_service::account_service::AccountService::new(db);
@@ -125,7 +126,7 @@ impl AccountCmd {
                     })
                     .collect();
                 if rows.is_empty() {
-                    print_line("余额为零", format);
+                    print_line(&t!("balance_zero").to_string(), format);
                 } else {
                     print_vec(&rows, format);
                 }

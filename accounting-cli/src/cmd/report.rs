@@ -1,4 +1,5 @@
 use crate::cmd::{BalanceRow, ReportBalanceRow};
+use rust_i18n::t;
 use crate::output::{OutputFormat, print_line, print_vec};
 use accounting::id::AccountId;
 use accounting_sql::impls::sqlite::SqliteDatabase;
@@ -38,7 +39,7 @@ impl ReportCmd {
                     })
                     .collect();
                 if rows.is_empty() {
-                    print_line("余额为零", format);
+                    print_line(&t!("balance_zero").to_string(), format);
                 } else {
                     print_vec(&rows, format);
                 }
@@ -79,7 +80,7 @@ impl ReportCmd {
                     }
                 }
                 if rows.is_empty() {
-                    print_line("暂无数据", format);
+                    print_line(&t!("no_data").to_string(), format);
                 } else {
                     print_vec(&rows, format);
                 }
@@ -110,7 +111,7 @@ impl ReportCmd {
                     }
                 }
                 if rows.is_empty() {
-                    print_line("暂无数据", format);
+                    print_line(&t!("no_data").to_string(), format);
                 } else {
                     print_vec(&rows, format);
                 }

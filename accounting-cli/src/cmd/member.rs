@@ -1,4 +1,5 @@
 use crate::cmd::MemberRow;
+use rust_i18n::t;
 use crate::output::{OutputFormat, print_line, print_vec};
 use accounting::id::MemberId;
 use accounting_sql::impls::sqlite::SqliteDatabase;
@@ -48,12 +49,12 @@ impl MemberCmd {
             MemberCmd::Add(args) => {
                 let service = accounting_service::member_service::MemberService::new(db);
                 let id = service.add(args.name).await?;
-                print_line(&format!("成员已创建，ID: {}", id.0), format);
+                print_line(&format!("{}", t!("member_created", id = id.0)), format);
             }
             MemberCmd::Delete(args) => {
                 let service = accounting_service::member_service::MemberService::new(db);
                 service.delete(MemberId(args.id)).await?;
-                print_line(&format!("成员已删除，ID: {}", args.id), format);
+                print_line(&format!("{}", t!("member_deleted", id = args.id)), format);
             }
         }
         Ok(())

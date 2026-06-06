@@ -1,4 +1,5 @@
 use crate::cmd::CommodityRow;
+use rust_i18n::t;
 use crate::output::{OutputFormat, print_line, print_vec};
 use accounting_sql::impls::sqlite::SqliteDatabase;
 use clap::{Args, Subcommand};
@@ -36,7 +37,7 @@ impl CommodityCmd {
             CommodityCmd::Add(args) => {
                 let service = accounting_service::commodity_service::CommodityService::new(db);
                 let id = service.add(args.symbol, args.name, args.precision).await?;
-                print_line(&format!("商品已创建，ID: {}", id.0), format);
+                print_line(&format!("{}", t!("commodity_created", id = id.0)), format);
             }
         }
         Ok(())

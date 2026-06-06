@@ -1,4 +1,5 @@
 use crate::cmd::TagRow;
+use rust_i18n::t;
 use crate::output::{OutputFormat, print_line, print_vec};
 use accounting_sql::impls::sqlite::SqliteDatabase;
 use clap::{Args, Subcommand};
@@ -41,12 +42,12 @@ impl TagCmd {
             TagCmd::Add(args) => {
                 let service = accounting_service::tag_service::TagService::new(db);
                 let id = service.add(args.name.clone(), args.description).await?;
-                print_line(&format!("标签已创建，ID: {}", id.0), format);
+                print_line(&format!("{}", t!("tag_created", id = id.0)), format);
             }
             TagCmd::Delete(args) => {
                 let service = accounting_service::tag_service::TagService::new(db);
                 service.delete(&args.name).await?;
-                print_line(&format!("标签已删除: {}", args.name), format);
+                print_line(&format!("{}", t!("tag_deleted", name = args.name)), format);
             }
         }
         Ok(())

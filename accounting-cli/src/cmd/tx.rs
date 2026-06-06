@@ -1,4 +1,5 @@
 use crate::cmd::{PostingRow, TransactionRow};
+use rust_i18n::t;
 use crate::output::{OutputFormat, print as output_print, print_line, print_vec};
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, MemberId, PostingId, TagId, TransactionId};
@@ -100,7 +101,7 @@ impl TxCmd {
                 let (tx, postings, tag_ids) = parse_tx_args(args, &db).await?;
                 let service = accounting_service::transaction_service::TransactionService::new(db);
                 let id = service.submit(tx, postings, tag_ids).await?;
-                print_line(&format!("交易已创建，ID: {}", id.0), format);
+                print_line(&format!("{}", t!("tx_created", id = id.0)), format);
             }
             TxCmd::List(args) => {
                 // 构建过滤条件并查询交易列表
@@ -126,14 +127,14 @@ impl TxCmd {
                             print_vec(&posting_rows, format);
                         }
                     }
-                    None => print_line(&format!("交易不存在: {}", args.id), format),
+                    None => print_line(&format!("{}", t!("tx_not_found", id = args.id)), format),
                 }
             }
             TxCmd::Delete(args) => {
                 // 删除指定交易
                 let service = accounting_service::transaction_service::TransactionService::new(db);
                 service.delete(TransactionId(args.id)).await?;
-                print_line(&format!("交易已删除，ID: {}", args.id), format);
+                print_line(&format!("{}", t!("tx_deleted", id = args.id)), format);
             }
             TxCmd::Update(args) => {
                 // 解析更新参数并执行全量替换
@@ -142,7 +143,7 @@ impl TxCmd {
                 tx.id = TransactionId(id);
                 let service = accounting_service::transaction_service::TransactionService::new(db);
                 service.update(tx, postings, tag_ids).await?;
-                print_line(&format!("交易已更新，ID: {}", id), format);
+                print_line(&format!("{}", t!("tx_updated", id = id)), format);
             }
         }
         Ok(())
