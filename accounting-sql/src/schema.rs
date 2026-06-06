@@ -256,10 +256,10 @@ const SEED_ACCOUNTS_ZH: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('权益:期初余额', 3, NULL, 1),
 ('收入:未分类', 4, NULL, 1),
-('费用:未分类', 5, NULL, 1),
-('费用:手续费', 5, NULL, 1),
-('费用:折扣', 5, NULL, 1),
-('费用:分期手续费', 5, NULL, 1),
+('支出:未分类', 5, NULL, 1),
+('支出:手续费', 5, NULL, 1),
+('支出:折扣', 5, NULL, 1),
+('支出:分期手续费', 5, NULL, 1),
 ('资产:返现', 1, NULL, 1);
 "#;
 
