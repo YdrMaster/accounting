@@ -22,13 +22,17 @@
           <BookOutlined />
           <span>账户</span>
         </a-menu-item>
+        <a-menu-item key="/tags">
+          <TagOutlined />
+          <span>标签</span>
+        </a-menu-item>
         <a-menu-item key="/reports">
           <BarChartOutlined />
           <span>报表</span>
         </a-menu-item>
-        <a-menu-item key="/settings">
-          <SettingOutlined />
-          <span>设置</span>
+        <a-menu-item key="/members">
+          <TeamOutlined />
+          <span>成员</span>
         </a-menu-item>
       </a-menu>
     </a-layout-sider>
@@ -63,8 +67,9 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   HomeOutlined,
   BookOutlined,
+  TagOutlined,
   BarChartOutlined,
-  SettingOutlined,
+  TeamOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -76,8 +81,9 @@ const currentRoute = computed(() => route.path)
 const tabs = [
   { path: '/', label: '首页', icon: HomeOutlined },
   { path: '/accounts', label: '账户', icon: BookOutlined },
+  { path: '/tags', label: '标签', icon: TagOutlined },
   { path: '/reports', label: '报表', icon: BarChartOutlined },
-  { path: '/settings', label: '设置', icon: SettingOutlined },
+  { path: '/members', label: '成员', icon: TeamOutlined },
 ]
 
 function handleMenuClick(info: { key: string | number }) {

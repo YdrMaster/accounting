@@ -297,7 +297,7 @@ INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
 
 const SEED_TAGS_ZH: &str = r#"
 INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
-('repayment', '分期/信用卡还款标记', 1);
+('还款', '分期/信用卡还款标记', 1);
 "#;
 
 /// 维护系统内置账户的闭包表
@@ -378,11 +378,9 @@ mod tests {
         assert_eq!(count, 12);
 
         let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM tags WHERE name='repayment'",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM tags WHERE name='还款'", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(count, 1);
     }
