@@ -10,22 +10,29 @@ use std::collections::HashMap;
 /// 账户余额项
 #[derive(Debug, Clone)]
 pub struct AccountBalance {
+    /// 账户信息
     pub account: Account,
+    /// 各商品余额列表
     pub balances: Vec<(CommodityId, Decimal)>,
 }
 
 /// 资产负债表
 #[derive(Debug, Clone)]
 pub struct BalanceSheet {
+    /// 资产类账户余额
     pub assets: Vec<AccountBalance>,
+    /// 负债类账户余额
     pub liabilities: Vec<AccountBalance>,
+    /// 权益类账户余额
     pub equity: Vec<AccountBalance>,
 }
 
 /// 损益表
 #[derive(Debug, Clone)]
 pub struct IncomeStatement {
+    /// 收入类账户余额
     pub income: Vec<AccountBalance>,
+    /// 支出类账户余额
     pub expenses: Vec<AccountBalance>,
 }
 
