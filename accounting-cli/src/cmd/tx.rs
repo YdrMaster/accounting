@@ -60,6 +60,12 @@ pub struct TxListArgs {
     pub limit: Option<i64>,
     #[arg(long)]
     pub offset: Option<i64>,
+    /// 是否只显示模板交易
+    #[arg(long)]
+    pub template: bool,
+    /// 是否只显示分期交易
+    #[arg(long)]
+    pub installment: bool,
 }
 
 #[derive(Args)]
@@ -365,5 +371,7 @@ fn build_filter(
     if let Some(ref keyword) = args.keyword {
         filter.keyword = Some(keyword.clone());
     }
+    filter.is_template = if args.template { Some(true) } else { None };
+    filter.has_installment = if args.installment { Some(true) } else { None };
     Ok(filter)
 }
