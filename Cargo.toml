@@ -1,6 +1,8 @@
-[package]
-name = "accounting"
-version = "0.0.0"
-edition = "2024"
-
-[dependencies]
+[workspace]
+members = [
+    "accounting",
+    "accounting-sql",
+    "accounting-service",
+    "accounting-cli",
+]
+resolver = "3"
