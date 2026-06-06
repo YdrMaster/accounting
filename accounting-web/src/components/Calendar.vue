@@ -36,22 +36,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import dayjs from 'dayjs'
 
-defineProps<{
+const props = defineProps<{
   data?: Record<string, { income: number; expense: number }>
+  rangeMode?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'select', date: string): void
   (e: 'selectRange', from: string, to: string): void
+  (e: 'clear'): void
 }>()
 
 const currentMonth = ref(dayjs().startOf('month'))
 const selectedDate = ref<string | null>(null)
 const rangeStart = ref<string | null>(null)
 const rangeEnd = ref<string | null>(null)
+
+watch(() => props.rangeMode, () => {
+  selectedDate.value = null
+  rangeStart.value = null
+  rangeEnd.value = null
+  emit('clear')
+})
 
 const weekdays = ['日', '一', '二', '三', '四', '五', '六']
 
@@ -136,6 +145,23 @@ function isInRange(date: string): boolean {
 }
 
 function handleClick(date: string) {
+  if (!props.rangeMode) {
+    // 单日模式：单击选单日，再次点击取消
+    if (selectedDate.value === date) {
+      selectedDate.value = null
+      rangeStart.value = null
+      rangeEnd.value = null
+      emit('clear')
+    } else {
+      selectedDate.value = date
+      rangeStart.value = date
+      rangeEnd.value = null
+      emit('select', date)
+    }
+    return
+  }
+
+  // 范围模式
   if (!rangeStart.value) {
     rangeStart.value = date
     selectedDate.value = date

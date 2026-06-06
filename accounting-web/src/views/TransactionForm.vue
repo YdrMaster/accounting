@@ -21,12 +21,19 @@
           :key="index"
           class="posting-row"
         >
-          <a-input v-model:value="posting.account" placeholder="账户" />
+          <a-tree-select
+            v-model:value="posting.accountId"
+            :tree-data="accountTreeData"
+            :field-names="{ children: 'children', label: 'title', value: 'key' }"
+            placeholder="选择账户"
+            style="flex: 1"
+            tree-default-expand-all
+          />
           <a-select v-model:value="posting.commodity" style="width: 100px">
             <a-select-option value="CNY">CNY</a-select-option>
             <a-select-option value="USD">USD</a-select-option>
           </a-select>
-          <a-input v-model:value="posting.amount" placeholder="金额" />
+          <a-input v-model:value="posting.amount" placeholder="金额" style="width: 120px" />
           <a-button type="link" danger @click="removePosting(index)">删除</a-button>
         </div>
         <a-button type="dashed" block @click="addPosting">
@@ -37,46 +44,91 @@
 
       <a-form-item label="标签">
         <a-select
-          v-model:value="tags"
-          mode="tags"
-          placeholder="输入标签"
+          v-model:value="selectedTagNames"
+          mode="multiple"
+          placeholder="选择标签"
           style="width: 100%"
-        />
+          allow-clear
+        >
+          <a-select-option
+            v-for="t in tags"
+            :key="t.id"
+            :value="t.name"
+          >
+            {{ t.name }}
+          </a-select-option>
+        </a-select>
       </a-form-item>
 
       <a-form-item>
-        <a-button type="primary" html-type="submit" block :loading="submitting">
-          确认
-        </a-button>
+        <div class="btn-row">
+          <a-button class="btn-cancel" @click="handleCancel">
+            取消
+          </a-button>
+          <a-button type="primary" html-type="submit" class="btn-submit" :loading="submitting">
+            确认
+          </a-button>
+        </div>
       </a-form-item>
     </a-form>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { useTransactionStore } from '@/stores/transaction'
 import { useMemberStore } from '@/stores/member'
+import { useAccountStore } from '@/stores/account'
+import api from '@/api/client'
 
 const route = useRoute()
 const router = useRouter()
 const transactionStore = useTransactionStore()
 const memberStore = useMemberStore()
+const accountStore = useAccountStore()
 
 const dateTime = ref<Dayjs>(dayjs())
 const description = ref('')
-const postings = ref<{ account: string; commodity: string; amount: string }[]>([
-  { account: '', commodity: 'CNY', amount: '' },
+const postings = ref<{ accountId?: number; commodity: string; amount: string }[]>([
+  { commodity: 'CNY', amount: '' },
 ])
-const tags = ref<string[]>([])
+const selectedTagNames = ref<string[]>([])
+const tags = ref<{ id: number; name: string }[]>([])
 const submitting = ref(false)
 
+const accountTreeData = computed(() => {
+  const accounts = accountStore.accounts
+  const map = new Map<number, any>()
+  const roots: any[] = []
+
+  accounts.forEach((acc) => {
+    const segments = acc.full_name.split(':')
+    map.set(acc.id, {
+      title: segments[segments.length - 1],
+      key: acc.id,
+      children: [],
+    })
+  })
+
+  accounts.forEach((acc) => {
+    const node = map.get(acc.id)
+    if (!node) return
+    if (acc.parent_id && map.has(acc.parent_id)) {
+      map.get(acc.parent_id)!.children.push(node)
+    } else {
+      roots.push(node)
+    }
+  })
+
+  return roots
+})
+
 function addPosting() {
-  postings.value.push({ account: '', commodity: 'CNY', amount: '' })
+  postings.value.push({ commodity: 'CNY', amount: '' })
 }
 
 function removePosting(index: number) {
@@ -84,18 +136,42 @@ function removePosting(index: number) {
 }
 
 async function handleSubmit() {
+  const validPostings = postings.value.filter((p) => p.accountId && p.amount)
+  if (validPostings.length < 2) {
+    // 至少需要两个分录才能平衡
+  }
+
+  const accountMap = new Map(accountStore.accounts.map((a) => [a.id, a.full_name]))
+
   submitting.value = true
   try {
     await transactionStore.createTransaction({
       date_time: dateTime.value.format('YYYY-MM-DD HH:mm:ss'),
       description: description.value,
       member_id: memberStore.currentMember?.id,
-      postings: postings.value.filter((p) => p.account && p.amount),
-      tags: tags.value,
+      postings: validPostings.map((p) => ({
+        account: accountMap.get(p.accountId!) || '',
+        commodity: p.commodity,
+        amount: p.amount,
+      })),
+      tags: selectedTagNames.value,
     })
     router.push('/')
   } finally {
     submitting.value = false
+  }
+}
+
+function handleCancel() {
+  router.push('/')
+}
+
+async function fetchTags() {
+  try {
+    const res = await api.get<{ id: number; name: string }[]>('/tags')
+    tags.value = res.data
+  } catch (e) {
+    console.error('获取标签失败', e)
   }
 }
 
@@ -105,6 +181,8 @@ onMounted(() => {
     dateTime.value = dayjs(dateParam).startOf('day')
   }
   memberStore.fetchMe()
+  accountStore.fetchAccounts()
+  fetchTags()
 })
 </script>
 
@@ -122,5 +200,18 @@ onMounted(() => {
   gap: 8px;
   margin-bottom: 8px;
   align-items: center;
+}
+
+.btn-row {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-cancel {
+  flex: 1;
+}
+
+.btn-submit {
+  flex: 2;
 }
 </style>

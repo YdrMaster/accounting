@@ -48,8 +48,9 @@ const treeData = computed<TreeNode[]>(() => {
   const roots: TreeNode[] = []
 
   accounts.forEach((acc) => {
+    const segments = acc.full_name.split(':')
     map.set(acc.id, {
-      title: acc.full_name,
+      title: segments[segments.length - 1],
       key: String(acc.id),
       children: [],
     })
