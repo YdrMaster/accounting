@@ -5,6 +5,7 @@
 ## 1. 背景与目标
 
 Phase 1 已实现基础记账功能（账户、交易、成员、标签等），但报表统计能力较弱：
+
 - `report bs` / `report is` 已实现，但停留在 `accounting-service` 中
 - 缺少按标签、成员、渠道等维度的收入/支出汇总
 - `tx list` 已支持多条件过滤，但 CLI 参数未完全暴露
@@ -16,6 +17,7 @@ Phase 1 已实现基础记账功能（账户、交易、成员、标签等），
 **选择方案 B：并入 `accounting-service`**。
 
 不新建 `accounting-stat` crate，原因：
+
 - Web UI 和 CLI 等价，都需要读写功能，不存在"只读查询独立复用"的场景
 - 少维护一个 crate，降低复杂度
 - `Database` trait 已统一读写接口，拆分 crate 的隔离收益有限
@@ -23,6 +25,7 @@ Phase 1 已实现基础记账功能（账户、交易、成员、标签等），
 ## 3. 已有功能迁移
 
 `accounting-service/src/report_service.rs` 中已有：
+
 - `AccountBalance`、`BalanceSheet`、`IncomeStatement` 类型
 - `ReportService::get_balance()` — 账户余额（含子账户聚合）
 - `ReportService::balance_sheet()` — 资产负债表
@@ -59,6 +62,7 @@ impl<D: Database> ReportService<D> {
 ```
 
 **过滤语义**：
+
 - `stats_by_tag` 忽略 `filter.tag_id`（维度自身不用于过滤自身）
 - `stats_by_member` 忽略 `filter.member_id`
 - `stats_by_channel` 忽略 `filter.channel_id`
