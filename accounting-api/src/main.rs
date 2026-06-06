@@ -1,12 +1,15 @@
 //! accounting-api: axum HTTP 服务入口
 
-use accounting::error::AccountingError;
-use axum::{Json, Router, http::StatusCode, response::IntoResponse, routing::get};
-
 mod dto;
-use dto::ErrorResponse;
+mod handlers;
+mod router;
 
-/// 将 AccountingError 转换为 HTTP 响应。
+use accounting::error::AccountingError;
+use axum::{Json, http::StatusCode, response::IntoResponse};
+use dto::ErrorResponse;
+use std::sync::Arc;
+
+/// 将 AccountingError 转换为 HTTP 响应
 pub fn account_error(err: AccountingError) -> impl IntoResponse {
     let msg = err.to_string();
     (
@@ -17,7 +20,10 @@ pub fn account_error(err: AccountingError) -> impl IntoResponse {
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route("/api/health", get(|| async { "ok" }));
+    let state = Arc::new(handlers::member::AppState {
+        db_path: "my.db".to_string(),
+    });
+    let app = router::create_app(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
         .await
