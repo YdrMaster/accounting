@@ -1,0 +1,281 @@
+use accounting::error::AccountingError;
+use accounting::id::{TagId, TransactionId};
+use accounting::posting::Posting;
+use accounting::transaction::Transaction;
+use accounting::validation::validate_transaction;
+use accounting_sql::database::Database;
+use accounting_sql::transaction::Transaction as DbTransaction;
+
+/// 交易服务
+pub struct TransactionService<D: Database> {
+    db: D,
+}
+
+impl<D: Database> TransactionService<D> {
+    /// 创建服务实例
+    pub fn new(db: D) -> Self {
+        Self { db }
+    }
+
+    /// 提交交易：验证 → 插入交易 + 分录 → 提交
+    pub async fn submit(
+        &self,
+        transaction: Transaction,
+        mut postings: Vec<Posting>,
+        tag_ids: Vec<TagId>,
+    ) -> Result<TransactionId, AccountingError> {
+        validate_transaction(&postings)?;
+
+        let tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        let tx_id = tx
+            .transaction_repo()
+            .insert(&tx.conn(), &transaction, &tag_ids)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        for posting in &mut postings {
+            posting.transaction_id = tx_id;
+            tx.posting_repo()
+                .insert(&tx.conn(), posting)
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        Ok(tx_id)
+    }
+
+    /// 更新交易（全量替换）：删除旧分录 → 更新交易 → 插入新分录 → 提交
+    pub async fn update(
+        &self,
+        transaction: Transaction,
+        mut postings: Vec<Posting>,
+        tag_ids: Vec<TagId>,
+    ) -> Result<(), AccountingError> {
+        validate_transaction(&postings)?;
+
+        let tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        // 删除旧分录
+        tx.posting_repo()
+            .delete_by_transaction(&tx.conn(), transaction.id)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        // 更新交易
+        tx.transaction_repo()
+            .update(&tx.conn(), &transaction, &tag_ids)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        // 插入新分录
+        for posting in &mut postings {
+            posting.transaction_id = transaction.id;
+            tx.posting_repo()
+                .insert(&tx.conn(), posting)
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        Ok(())
+    }
+
+    /// 删除交易（级联删除分录、附件、标签关联由外键约束处理）
+    pub async fn delete(&self, id: TransactionId) -> Result<(), AccountingError> {
+        let tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        tx.transaction_repo()
+            .delete(&tx.conn(), id)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use accounting::account::Account;
+    use accounting::account_type::AccountType;
+    use accounting::id::{AccountId, CommodityId, PostingId, TransactionId};
+    use accounting::posting::Posting;
+    use accounting::transaction::Transaction;
+    use accounting_sql::impls::sqlite::SqliteDatabase;
+    use chrono::NaiveDate;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+
+    fn sample_account(name: &str, account_type: AccountType) -> Account {
+        Account {
+            id: AccountId(0),
+            full_name: name.to_string(),
+            account_type,
+            parent_id: None,
+            opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        }
+    }
+
+    fn sample_posting(account_id: AccountId, amount: &str) -> Posting {
+        Posting {
+            id: PostingId(0),
+            transaction_id: TransactionId(0),
+            account_id,
+            commodity_id: CommodityId(1), // CNY seed
+            amount: Decimal::from_str(amount).unwrap(),
+            cost: None,
+            cost_commodity_id: None,
+            description: None,
+            member_id: None,
+            channel_id: None,
+        }
+    }
+
+    fn create_test_account(db: &SqliteDatabase, name: &str, ty: AccountType) -> AccountId {
+        let account = sample_account(name, ty);
+        db.account_repo()
+            .create(&db.connection(), &account)
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_submit_transaction() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        let tx_service = TransactionService::new(db);
+
+        let id1 = create_test_account(&tx_service.db, "Assets:A", AccountType::Asset);
+        let id2 = create_test_account(&tx_service.db, "Assets:B", AccountType::Asset);
+
+        let tx = Transaction {
+            id: TransactionId(0),
+            date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            description: "Test".to_string(),
+            member_id: None,
+            is_template: false,
+        };
+        let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
+
+        let tx_id = tx_service.submit(tx, postings, vec![]).await.unwrap();
+        assert!(tx_id.0 > 0);
+    }
+
+    #[tokio::test]
+    async fn test_submit_unbalanced_fails() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        let tx_service = TransactionService::new(db);
+
+        let id1 = create_test_account(&tx_service.db, "Assets:C", AccountType::Asset);
+        let id2 = create_test_account(&tx_service.db, "Assets:D", AccountType::Asset);
+
+        let tx = Transaction {
+            id: TransactionId(0),
+            date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            description: "Bad".to_string(),
+            member_id: None,
+            is_template: false,
+        };
+        let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-50")];
+
+        let result = tx_service.submit(tx, postings, vec![]).await;
+        assert!(matches!(
+            result,
+            Err(AccountingError::InvalidTransaction(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_update_transaction() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        let tx_service = TransactionService::new(db);
+
+        let id1 = create_test_account(&tx_service.db, "Assets:E", AccountType::Asset);
+        let id2 = create_test_account(&tx_service.db, "Assets:F", AccountType::Asset);
+
+        let tx = Transaction {
+            id: TransactionId(0),
+            date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            description: "Original".to_string(),
+            member_id: None,
+            is_template: false,
+        };
+        let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
+
+        let tx_id = tx_service
+            .submit(tx.clone(), postings, vec![])
+            .await
+            .unwrap();
+
+        // 更新交易
+        let updated_tx = Transaction {
+            id: tx_id,
+            date: tx.date,
+            description: "Updated".to_string(),
+            member_id: None,
+            is_template: false,
+        };
+        let new_postings = vec![sample_posting(id1, "200"), sample_posting(id2, "-200")];
+
+        tx_service
+            .update(updated_tx, new_postings, vec![])
+            .await
+            .unwrap();
+
+        // 验证更新后的分录
+        let list = tx_service
+            .db
+            .posting_repo()
+            .list_by_transaction(&tx_service.db.connection(), tx_id)
+            .unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].amount, Decimal::from_str("200").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_delete_transaction() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        let tx_service = TransactionService::new(db);
+
+        let id1 = create_test_account(&tx_service.db, "Assets:G", AccountType::Asset);
+        let id2 = create_test_account(&tx_service.db, "Assets:H", AccountType::Asset);
+
+        let tx = Transaction {
+            id: TransactionId(0),
+            date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            description: "ToDelete".to_string(),
+            member_id: None,
+            is_template: false,
+        };
+        let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
+
+        let tx_id = tx_service.submit(tx, postings, vec![]).await.unwrap();
+        tx_service.delete(tx_id).await.unwrap();
+
+        assert!(
+            tx_service
+                .db
+                .transaction_repo()
+                .get(&tx_service.db.connection(), tx_id)
+                .unwrap()
+                .is_none()
+        );
+    }
+}

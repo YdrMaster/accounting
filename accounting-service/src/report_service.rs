@@ -1,0 +1,156 @@
+use accounting::error::AccountingError;
+use accounting::id::{AccountId, CommodityId};
+use accounting_sql::database::Database;
+use accounting_sql::transaction::Transaction;
+use rust_decimal::Decimal;
+use std::collections::HashMap;
+
+/// 报告服务
+pub struct ReportService<D: Database> {
+    db: D,
+}
+
+impl<D: Database> ReportService<D> {
+    /// 创建服务实例
+    pub fn new(db: D) -> Self {
+        Self { db }
+    }
+
+    /// 获取账户余额（含子账户聚合）
+    pub async fn get_balance(
+        &self,
+        account_id: AccountId,
+    ) -> Result<HashMap<CommodityId, Decimal>, AccountingError> {
+        let tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        // 通过闭包表获取所有后代账户 ID（含自身）
+        let account_ids: Vec<i64> = {
+            let conn = tx.conn();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT account_id FROM account_ancestors WHERE ancestor_id = ?1 UNION SELECT ?1",
+                )
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            let rows = stmt
+                .query_map(rusqlite::params![account_id.0], |row| row.get::<_, i64>(0))
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            rows.collect::<Result<_, _>>()
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?
+        };
+
+        let mut totals: HashMap<CommodityId, Decimal> = HashMap::new();
+        for id in account_ids {
+            let balances = tx
+                .posting_repo()
+                .sum_by_account(&tx.conn(), AccountId(id))
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            for (commodity, amount) in balances {
+                *totals.entry(commodity).or_insert_with(|| Decimal::ZERO) += amount;
+            }
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        Ok(totals)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use accounting::account::Account;
+    use accounting::account_type::AccountType;
+    use accounting::id::{AccountId, CommodityId, PostingId, TransactionId};
+    use accounting::posting::Posting;
+    use accounting::transaction::Transaction;
+    use accounting_sql::impls::sqlite::SqliteDatabase;
+    use chrono::NaiveDate;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+
+    fn sample_account(name: &str, account_type: AccountType) -> Account {
+        Account {
+            id: AccountId(0),
+            full_name: name.to_string(),
+            account_type,
+            parent_id: None,
+            opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        }
+    }
+
+    fn sample_posting(account_id: AccountId, amount: &str) -> Posting {
+        Posting {
+            id: PostingId(0),
+            transaction_id: TransactionId(0),
+            account_id,
+            commodity_id: CommodityId(1), // CNY seed
+            amount: Decimal::from_str(amount).unwrap(),
+            cost: None,
+            cost_commodity_id: None,
+            description: None,
+            member_id: None,
+            channel_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_balance() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        let report_service = ReportService::new(db);
+
+        let a1 = sample_account("Assets:I", AccountType::Asset);
+        let a2 = sample_account("Assets:J", AccountType::Asset);
+        let id1 = report_service
+            .db
+            .account_repo()
+            .create(&report_service.db.connection(), &a1)
+            .unwrap();
+        let id2 = report_service
+            .db
+            .account_repo()
+            .create(&report_service.db.connection(), &a2)
+            .unwrap();
+
+        // 直接通过 repo 插入交易和分录
+        let tx = Transaction {
+            id: TransactionId(0),
+            date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            description: "Report test".to_string(),
+            member_id: None,
+            is_template: false,
+        };
+        let tx_id = report_service
+            .db
+            .transaction_repo()
+            .insert(&report_service.db.connection(), &tx, &[])
+            .unwrap();
+
+        let mut p1 = sample_posting(id1, "100");
+        p1.transaction_id = tx_id;
+        let mut p2 = sample_posting(id2, "-100");
+        p2.transaction_id = tx_id;
+
+        report_service
+            .db
+            .posting_repo()
+            .insert(&report_service.db.connection(), &p1)
+            .unwrap();
+        report_service
+            .db
+            .posting_repo()
+            .insert(&report_service.db.connection(), &p2)
+            .unwrap();
+
+        let balance = report_service.get_balance(id1).await.unwrap();
+        assert_eq!(balance[&CommodityId(1)], Decimal::from_str("100").unwrap());
+    }
+}
