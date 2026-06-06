@@ -82,6 +82,14 @@
           </template>
         </a-select>
       </div>
+
+      <!-- 设置按钮 -->
+      <div class="sider-settings">
+        <a-button type="text" block @click="drawerOpen = true">
+          <SettingOutlined />
+          <span style="margin-left: 4px">设置</span>
+        </a-button>
+      </div>
     </a-layout-sider>
 
     <!-- 内容区 -->
@@ -89,56 +97,61 @@
       class="layout-content"
       :class="{ 'mobile-content': isMobile }"
     >
-      <!-- 移动端顶部成员栏 -->
-      <div v-if="isMobile" class="mobile-member-bar">
-        <span class="member-label">当前成员</span>
-        <a-select
-          v-model:value="currentId"
-          style="width: 140px"
-          size="small"
-          :bordered="false"
-          :dropdown-match-select-width="false"
-          @update:value="handleChange"
-        >
-          <a-select-option
-            v-for="m in memberStore.members"
-            :key="m.id"
-            :value="m.id"
+      <!-- 移动端顶部栏 -->
+      <div v-if="isMobile" class="mobile-top-bar">
+        <div class="mobile-member">
+          <span class="member-label">当前成员</span>
+          <a-select
+            v-model:value="currentId"
+            style="width: 120px"
+            size="small"
+            :bordered="false"
+            :dropdown-match-select-width="false"
+            @update:value="handleChange"
           >
-            {{ m.name }}
-          </a-select-option>
-          <template #dropdownRender="{ menuNode: menu }">
-            <div>
-              <component :is="menu" />
-              <a-divider style="margin: 4px 0" />
-              <div
-                v-if="!adding"
-                style="padding: 4px 12px; cursor: pointer"
-                @mousedown.prevent
-                @click="adding = true"
-              >
-                <PlusOutlined />
-                <span style="margin-left: 4px">添加成员</span>
+            <a-select-option
+              v-for="m in memberStore.members"
+              :key="m.id"
+              :value="m.id"
+            >
+              {{ m.name }}
+            </a-select-option>
+            <template #dropdownRender="{ menuNode: menu }">
+              <div>
+                <component :is="menu" />
+                <a-divider style="margin: 4px 0" />
+                <div
+                  v-if="!adding"
+                  style="padding: 4px 12px; cursor: pointer"
+                  @mousedown.prevent
+                  @click="adding = true"
+                >
+                  <PlusOutlined />
+                  <span style="margin-left: 4px">添加成员</span>
+                </div>
+                <div
+                  v-else
+                  style="padding: 4px 12px; display: flex; gap: 4px"
+                >
+                  <a-input
+                    v-model:value="newName"
+                    ref="addInputRef"
+                    size="small"
+                    placeholder="成员名"
+                    style="flex: 1"
+                    @press-enter="handleAdd"
+                  />
+                  <a-button size="small" type="primary" @click="handleAdd">
+                    确认
+                  </a-button>
+                </div>
               </div>
-              <div
-                v-else
-                style="padding: 4px 12px; display: flex; gap: 4px"
-              >
-                <a-input
-                  v-model:value="newName"
-                  ref="addInputRef"
-                  size="small"
-                  placeholder="成员名"
-                  style="flex: 1"
-                  @press-enter="handleAdd"
-                />
-                <a-button size="small" type="primary" @click="handleAdd">
-                  确认
-                </a-button>
-              </div>
-            </div>
-          </template>
-        </a-select>
+            </template>
+          </a-select>
+        </div>
+        <a-button type="text" size="small" @click="drawerOpen = true">
+          <SettingOutlined />
+        </a-button>
       </div>
       <router-view />
     </a-layout-content>
@@ -156,6 +169,23 @@
         <span>{{ tab.label }}</span>
       </div>
     </div>
+
+    <!-- 设置抽屉 -->
+    <a-drawer
+      v-model:open="drawerOpen"
+      title="设置"
+      placement="right"
+      :width="280"
+    >
+      <div class="drawer-section">
+        <h4>外观</h4>
+        <a-radio-group v-model:value="themeStore.theme" @change="handleThemeChange">
+          <a-radio-button value="auto">跟随系统</a-radio-button>
+          <a-radio-button value="light">明亮</a-radio-button>
+          <a-radio-button value="dark">暗色</a-radio-button>
+        </a-radio-group>
+      </div>
+    </a-drawer>
   </a-layout>
 </template>
 
@@ -168,17 +198,21 @@ import {
   TagOutlined,
   BarChartOutlined,
   PlusOutlined,
+  SettingOutlined,
 } from '@ant-design/icons-vue'
 import { useMemberStore } from '@/stores/member'
+import { useThemeStore } from '@/stores/theme'
 import api from '@/api/client'
 
 const route = useRoute()
 const router = useRouter()
 const memberStore = useMemberStore()
+const themeStore = useThemeStore()
 const isMobile = ref(window.innerWidth < 768)
 const adding = ref(false)
 const newName = ref('')
 const addInputRef = ref<HTMLInputElement | null>(null)
+const drawerOpen = ref(false)
 
 const currentRoute = computed(() => route.path)
 const currentId = computed({
@@ -199,6 +233,10 @@ function handleMenuClick(info: { key: string | number }) {
 
 function handleResize() {
   isMobile.value = window.innerWidth < 768
+}
+
+function handleThemeChange() {
+  themeStore.setTheme(themeStore.theme)
 }
 
 async function handleChange(value: number) {
@@ -266,7 +304,7 @@ onUnmounted(() => {
 
 .sider-member {
   position: absolute;
-  bottom: 16px;
+  bottom: 48px;
   left: 16px;
   right: 16px;
 }
@@ -284,15 +322,36 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.6) !important;
 }
 
-.mobile-member-bar {
+.sider-settings {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+}
+
+.sider-settings :deep(.ant-btn) {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.sider-settings :deep(.ant-btn:hover) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mobile-top-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: space-between;
   padding: 8px 16px;
   background: #fff;
   border-bottom: 1px solid #f0f0f0;
   margin: -16px -16px 12px;
+}
+
+.mobile-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .member-label {
@@ -328,5 +387,11 @@ onUnmounted(() => {
 
 .tab-item.active {
   color: #1890ff;
+}
+
+.drawer-section h4 {
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: #666;
 }
 </style>

@@ -12,7 +12,7 @@ async fn get_me(State(state): State<Arc<AppState>>) -> Result<Json<MeDto>, Strin
     let conn = db.connection();
 
     // 尝试读取已保存的 current_member_id
-    let saved_id: Option<i64> = conn
+    let saved_id_str: Option<String> = conn
         .query_row(
             "SELECT value FROM settings WHERE key = 'current_member_id'",
             [],
@@ -20,8 +20,16 @@ async fn get_me(State(state): State<Arc<AppState>>) -> Result<Json<MeDto>, Strin
         )
         .ok();
 
-    let member_id = if let Some(id) = saved_id {
-        id
+    let member_id = if let Some(s) = saved_id_str {
+        match s.parse::<i64>() {
+            Ok(id) => id,
+            Err(e) => {
+                eprintln!("无法解析 current_member_id '{}': {}", s, e);
+                let members = db.member_repo().list(&conn).map_err(|e| e.to_string())?;
+                let first = members.into_iter().next().ok_or("没有成员")?;
+                first.id.0
+            }
+        }
     } else {
         // 未设置时返回第一个成员
         let members = db.member_repo().list(&conn).map_err(|e| e.to_string())?;

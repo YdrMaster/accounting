@@ -1,6 +1,6 @@
 <template>
   <div class="transaction-form">
-    <h2>记一笔</h2>
+    <h2>{{ isEdit ? '编辑交易' : '记一笔' }}</h2>
     <a-form layout="vertical">
       <a-form-item label="日期时间" required>
         <a-date-picker
@@ -66,7 +66,7 @@
             取消
           </a-button>
           <a-button type="primary" class="btn-submit" :loading="submitting" @click="handleSubmit">
-            确认
+            {{ isEdit ? '保存' : '确认' }}
           </a-button>
         </div>
       </a-form-item>
@@ -81,7 +81,7 @@ import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { useTransactionStore } from '@/stores/transaction'
+import { useTransactionStore, type CreateTransactionData } from '@/stores/transaction'
 import { useMemberStore } from '@/stores/member'
 import { useAccountStore } from '@/stores/account'
 import api from '@/api/client'
@@ -91,6 +91,9 @@ const router = useRouter()
 const transactionStore = useTransactionStore()
 const memberStore = useMemberStore()
 const accountStore = useAccountStore()
+
+const isEdit = computed(() => !!route.query.id)
+const editId = computed(() => Number(route.query.id))
 
 const dateTime = ref<Dayjs>(dayjs())
 const description = ref('')
@@ -165,23 +168,31 @@ async function handleSubmit() {
 
   const accountMap = new Map(accountStore.accounts.map((a) => [a.id, a.full_name]))
 
+  const data: CreateTransactionData = {
+    date_time: dateTime.value.format('YYYY-MM-DD HH:mm:ss'),
+    description: description.value,
+    member_id: memberStore.currentMember?.id,
+    postings: validPostings.map((p) => ({
+      account: accountMap.get(p.accountId!) || '',
+      commodity: p.commodity,
+      amount: p.amount.trim(),
+    })),
+    tags: selectedTagNames.value,
+  }
+
   submitting.value = true
   try {
-    await transactionStore.createTransaction({
-      date_time: dateTime.value.format('YYYY-MM-DD HH:mm:ss'),
-      description: description.value,
-      member_id: memberStore.currentMember?.id,
-      postings: validPostings.map((p) => ({
-        account: accountMap.get(p.accountId!) || '',
-        commodity: p.commodity,
-        amount: p.amount.trim(),
-      })),
-      tags: selectedTagNames.value,
-    })
-    message.success('记账成功')
+    if (isEdit.value) {
+      await transactionStore.updateTransaction(editId.value, data)
+      message.success('更新成功')
+    } else {
+      await transactionStore.createTransaction(data)
+      message.success('记账成功')
+    }
+    router.push('/')
     router.push('/')
   } catch (err: any) {
-    const msg = err?.response?.data?.error || err?.message || '记账失败'
+    const msg = err?.response?.data?.error || err?.message || (isEdit.value ? '更新失败' : '记账失败')
     message.error(msg)
   } finally {
     submitting.value = false
@@ -201,13 +212,43 @@ async function fetchTags() {
   }
 }
 
+async function loadTransaction(id: number) {
+  try {
+    const res = await api.get(`/transactions/${id}`)
+    const tx = res.data
+    dateTime.value = dayjs(tx.date_time)
+    description.value = tx.description || ''
+    if (tx.member_id) {
+      // 不强制切换当前成员，仅填充表单
+    }
+
+    const accountMap = new Map(accountStore.accounts.map((a) => [a.full_name, a.id]))
+    postings.value = (tx.postings || []).map((p: any) => ({
+      accountId: accountMap.get(p.account),
+      commodity: p.commodity,
+      amount: String(p.amount),
+    }))
+
+    if (tx.tags) {
+      selectedTagNames.value = tx.tags
+    }
+  } catch (e) {
+    console.error('加载交易失败', e)
+    message.error('加载交易失败')
+  }
+}
+
 onMounted(() => {
   const dateParam = route.query.date as string | undefined
   if (dateParam) {
     dateTime.value = dayjs(dateParam).startOf('day')
   }
   memberStore.fetchMe()
-  accountStore.fetchAccounts()
+  accountStore.fetchAccounts().then(() => {
+    if (isEdit.value) {
+      loadTransaction(editId.value)
+    }
+  })
   fetchTags()
 })
 </script>

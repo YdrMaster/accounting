@@ -56,6 +56,7 @@
               v-for="tx in group.transactions"
               :key="tx.id"
               :tx="tx"
+              @deleted="handleDeleted"
             />
           </div>
         </div>
@@ -366,6 +367,10 @@ function goToTransaction() {
   if (selectedDate.value) {
     router.push(`/transaction?date=${selectedDate.value}`)
   }
+}
+
+function handleDeleted() {
+  fetchData()
 }
 
 onMounted(() => {

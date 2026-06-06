@@ -1,5 +1,12 @@
 <template>
-  <div class="transaction-item" @click="toggleExpand">
+  <div
+    class="transaction-item"
+    @click="toggleExpand"
+    @dblclick="handleDblClick"
+    @contextmenu.prevent="handleContextMenu"
+    @touchstart="handleTouchStart"
+    @touchend="handleTouchEnd"
+  >
     <div class="transaction-header">
       <div class="transaction-info">
         <span class="transaction-date">{{ formattedDate }}</span>
@@ -28,14 +35,23 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { Modal } from 'ant-design-vue'
 import type { Transaction } from '@/stores/transaction'
 import { useMemberStore } from '@/stores/member'
+import { useTransactionStore } from '@/stores/transaction'
 
 const props = defineProps<{
   tx: Transaction
 }>()
 
+const emit = defineEmits<{
+  (e: 'deleted', id: number): void
+}>()
+
+const router = useRouter()
 const memberStore = useMemberStore()
+const transactionStore = useTransactionStore()
 const expanded = ref(false)
 const postings = computed(() => props.tx.postings || [])
 
@@ -67,6 +83,70 @@ const totalAmount = computed(() => {
 function toggleExpand() {
   expanded.value = !expanded.value
 }
+
+function handleDblClick() {
+  if (window.innerWidth >= 768) {
+    router.push(`/transaction?id=${props.tx.id}`)
+  }
+}
+
+function handleContextMenu() {
+  if (window.innerWidth >= 768) {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除这条交易吗？\n${props.tx.description || '无备注'}`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      async onOk() {
+        try {
+          await transactionStore.deleteTransaction(props.tx.id)
+          emit('deleted', props.tx.id)
+        } catch (e) {
+          console.error('删除失败', e)
+        }
+      },
+    })
+  }
+}
+
+let touchStartX = 0
+let touchStartY = 0
+const SWIPE_THRESHOLD = 60
+
+function handleTouchStart(e: TouchEvent) {
+  touchStartX = e.changedTouches[0].screenX
+  touchStartY = e.changedTouches[0].screenY
+}
+
+function handleTouchEnd(e: TouchEvent) {
+  const dx = e.changedTouches[0].screenX - touchStartX
+  const dy = e.changedTouches[0].screenY - touchStartY
+  if (Math.abs(dy) > Math.abs(dx)) return
+  if (Math.abs(dx) < SWIPE_THRESHOLD) return
+
+  if (dx < 0) {
+    // 左滑编辑
+    router.push(`/transaction?id=${props.tx.id}`)
+  } else {
+    // 右滑删除
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除这条交易吗？`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      async onOk() {
+        try {
+          await transactionStore.deleteTransaction(props.tx.id)
+          emit('deleted', props.tx.id)
+        } catch (err: any) {
+          console.error('删除失败', err)
+        }
+      },
+    })
+  }
+}
 </script>
 
 <style scoped>
@@ -77,6 +157,9 @@ function toggleExpand() {
   margin-bottom: 8px;
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
 }
 
 .transaction-header {

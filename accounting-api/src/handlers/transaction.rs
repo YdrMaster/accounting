@@ -282,6 +282,92 @@ async fn get_transaction(
     }))
 }
 
+/// 更新交易
+async fn update_transaction(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<CreateTransactionRequest>,
+) -> Result<String, String> {
+    let db = state.db().map_err(|e| e.to_string())?;
+    let date_time = parse_date_time(&req.date_time).map_err(|e| e.to_string())?;
+    let member_id = req.member_id.map(MemberId);
+
+    let (postings, tag_ids) = {
+        let conn = db.connection();
+
+        let mut postings = Vec::new();
+        for posting_req in req.postings {
+            let account = db
+                .account_repo()
+                .get_by_name(&conn, &posting_req.account)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("Account not found: {}", posting_req.account))?;
+
+            let commodity = db
+                .commodity_repo()
+                .get_by_symbol(&conn, &posting_req.commodity)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("Commodity not found: {}", posting_req.commodity))?;
+
+            let amount =
+                Decimal::from_str(&posting_req.amount).map_err(|e| format!("Invalid amount: {}", e))?;
+
+            postings.push(Posting {
+                id: PostingId(0),
+                transaction_id: TransactionId(id),
+                account_id: account.id,
+                commodity_id: commodity.id,
+                amount,
+                cost: None,
+                cost_commodity_id: None,
+                description: None,
+                member_id,
+                channel_id: None,
+            });
+        }
+
+        let mut tag_ids = Vec::new();
+        for tag_name in req.tags {
+            let tag = db
+                .tag_repo()
+                .get_by_name(&conn, &tag_name)
+                .map_err(|e| e.to_string())?;
+            let tag_id = match tag {
+                Some(t) => t.id,
+                None => {
+                    let new_tag = Tag {
+                        id: TagId(0),
+                        name: tag_name.clone(),
+                        description: None,
+                        is_system: false,
+                    };
+                    db.tag_repo()
+                        .create(&conn, &new_tag)
+                        .map_err(|e| e.to_string())?
+                }
+            };
+            tag_ids.push(tag_id);
+        }
+
+        (postings, tag_ids)
+    };
+
+    let transaction = Transaction {
+        id: TransactionId(id),
+        date_time,
+        description: req.description,
+        member_id,
+        is_template: false,
+    };
+
+    let service = TransactionService::new(db);
+    service
+        .update(transaction, postings, tag_ids)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok("updated".to_string())
+}
+
 /// 删除交易
 async fn delete_transaction(
     State(state): State<Arc<AppState>>,
@@ -305,6 +391,6 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route(
             "/api/transactions/:id",
-            get(get_transaction).delete(delete_transaction),
+            get(get_transaction).put(update_transaction).delete(delete_transaction),
         )
 }

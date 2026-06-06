@@ -52,9 +52,13 @@ export const useTransactionStore = defineStore('transaction', () => {
     await api.post('/transactions', data)
   }
 
+  async function updateTransaction(id: number, data: CreateTransactionData) {
+    await api.put(`/transactions/${id}`, data)
+  }
+
   async function deleteTransaction(id: number) {
     await api.delete(`/transactions/${id}`)
   }
 
-  return { transactions, loading, fetchTransactions, createTransaction, deleteTransaction }
+  return { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction }
 })
