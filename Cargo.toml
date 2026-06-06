@@ -4,5 +4,6 @@ members = [
     "accounting-sql",
     "accounting-service",
     "accounting-cli",
+    "accounting-api",
 ]
 resolver = "3"
