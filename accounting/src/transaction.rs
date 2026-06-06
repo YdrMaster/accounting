@@ -4,9 +4,14 @@ use chrono::NaiveDate;
 /// 交易
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transaction {
+    /// 交易唯一标识符
     pub id: TransactionId,
+    /// 交易日期
     pub date: NaiveDate,
+    /// 交易描述
     pub description: String,
+    /// 关联成员 ID
     pub member_id: Option<MemberId>,
+    /// 是否为模板交易
     pub is_template: bool,
 }

@@ -4,8 +4,11 @@ use std::collections::HashMap;
 /// 用于闭包计算的账户节点（简化视图）
 #[derive(Debug, Clone)]
 pub struct AccountNode {
+    /// 账户唯一标识符
     pub id: AccountId,
+    /// 父账户 ID，根账户为 None
     pub parent_id: Option<AccountId>,
+    /// 账户全名
     pub full_name: String,
 }
 

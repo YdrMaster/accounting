@@ -3,6 +3,7 @@ use std::fmt;
 macro_rules! define_id {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[doc = concat!(stringify!($name), " 类型标识符")]
         pub struct $name(pub i64);
 
         impl fmt::Display for $name {

@@ -1,18 +1,25 @@
 /// 账户类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AccountType {
+    /// 资产类账户
     Asset = 1,
+    /// 负债类账户
     Liability = 2,
+    /// 权益类账户
     Equity = 3,
+    /// 收入类账户
     Income = 4,
+    /// 支出类账户
     Expense = 5,
 }
 
 impl AccountType {
+    /// 是否为永久账户（Asset / Liability）
     pub fn is_permanent(self) -> bool {
         matches!(self, AccountType::Asset | AccountType::Liability)
     }
 
+    /// 返回该类型账户的关闭条件说明
     pub fn close_conditions(self) -> &'static str {
         match self {
             AccountType::Asset | AccountType::Liability => "余额为零",
@@ -25,9 +32,13 @@ impl AccountType {
 /// 分期方式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InstallmentMethod {
+    /// 等额本息
     EqualPrincipalAndInterest = 1,
+    /// 等额本金
     EqualPrincipal = 2,
+    /// 免息分期
     InterestFree = 3,
+    /// 自定义分期
     Custom = 4,
 }
 

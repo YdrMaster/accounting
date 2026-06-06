@@ -3,9 +3,13 @@ use crate::id::CommodityId;
 /// 商品/货币
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Commodity {
+    /// 商品唯一标识符
     pub id: CommodityId,
+    /// 符号，如 CNY、USD
     pub symbol: String,
+    /// 商品名称
     pub name: String,
+    /// 小数精度
     pub precision: u8,
 }
 
