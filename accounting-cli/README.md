@@ -13,15 +13,21 @@ accounting <DB_PATH> <COMMAND> [OPTIONS]
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
 | `--format` | 输出格式：`table`（表格）或 `json`（JSON） | `table` |
+| `--lang` | 界面语言，如 `zh-CN`、`en` | 数据库配置 / 系统环境 |
 
 ## 初始化
 
 ```bash
 # 创建新的数据库文件并初始化 schema
 accounting my.db initialize
+
+# 指定初始语言（影响内置账户名和界面语言）
+accounting my.db initialize --lang zh-CN
 ```
 
 > 数据库文件必须已存在才能执行其他命令。若文件不存在且命令不是 `initialize`，CLI 会直接报错退出。
+>
+> `initialize` 时指定的语言会持久化到数据库配置中，后续命令默认沿用该语言。`--lang` 临时覆盖仅影响当前命令的界面提示，不会修改已写入的内置账户名。
 
 ## 成员管理
 
