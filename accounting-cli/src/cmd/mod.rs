@@ -19,7 +19,7 @@ pub struct Cli {
     #[arg(long, value_enum, default_value = "table")]
     pub format: OutputFormat,
     /// 语言（如 zh-CN、en）
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub lang: Option<String>,
     #[command(subcommand)]
     pub command: Commands,
