@@ -7,6 +7,7 @@
 Phase 1-2 已完成核心记账功能（CLI + 数据库 + 统计报表）。Phase 3 目标是为同一 SQLite 数据库提供 Web UI 访问方式，实现与 CLI 等价的功能。
 
 **核心原则**：
+
 - Web UI 和 CLI 共享同一 SQLite 数据库文件
 - Web UI 支持的所有功能，CLI 也支持（反之亦然）
 - 响应式布局，适配 PC、平板、手机
@@ -15,12 +16,21 @@ Phase 1-2 已完成核心记账功能（CLI + 数据库 + 统计报表）。Phas
 
 ### 2.1 整体架构
 
-```
-┌─────────────────┐      HTTP/JSON      ┌─────────────────┐      ┌─────────────────┐
-│  accounting-web │  ←──────────────→  │  accounting-api │  →   │     SQLite      │
-│  Vue 3 + AntDV  │                     │  axum + tokio   │      │  accounting-sql │
-│  Pinia + axios  │                     │  REST API       │      │  accounting-svc │
-└─────────────────┘                     └─────────────────┘      └─────────────────┘
+```mermaid
+flowchart LR
+    subgraph frontend["前端"]
+        web["accounting-web<br/>Vue 3 + AntDV + Pinia"]
+    end
+    subgraph backend["后端"]
+        api["accounting-api<br/>axum + tokio"]
+    end
+    subgraph data["数据层"]
+        svc["accounting-service"]
+        sql["accounting-sql<br/>SQLite"]
+    end
+    web <-->|HTTP/JSON| api
+    api --> svc
+    svc --> sql
 ```
 
 ### 2.2 新增组件
@@ -56,6 +66,7 @@ cd accounting-web && npm run dev
 ### 3.2 路由表
 
 #### 成员
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/members` | 成员列表 |
@@ -63,6 +74,7 @@ cd accounting-web && npm run dev
 | DELETE | `/api/members/:id` | 删除成员 |
 
 #### 账户
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/accounts` | 账户列表（含余额） |
@@ -71,6 +83,7 @@ cd accounting-web && npm run dev
 | GET | `/api/accounts/:id/balance` | 账户余额（含子账户聚合） |
 
 #### 交易
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/transactions` | 交易列表（支持 `?from=&to=&account=&member=&tag=&keyword=&limit=&offset=`） |
@@ -79,6 +92,7 @@ cd accounting-web && npm run dev
 | DELETE | `/api/transactions/:id` | 删除交易 |
 
 **POST /api/transactions 请求体**：
+
 ```json
 {
   "date_time": "2024-06-04 12:30:00",
@@ -93,6 +107,7 @@ cd accounting-web && npm run dev
 ```
 
 #### 标签
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/tags` | 标签列表 |
@@ -100,11 +115,13 @@ cd accounting-web && npm run dev
 | DELETE | `/api/tags/:name` | 删除标签 |
 
 #### 货币
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/commodities` | 货币列表 |
 
 #### 报表
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/reports/balance-sheet` | 资产负债表 |
@@ -112,6 +129,7 @@ cd accounting-web && npm run dev
 | GET | `/api/reports/stats?by=tag&from=&to=&...` | 按维度统计（`by=tag/member/channel`） |
 
 #### 当前用户
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/me` | 当前成员信息（前端状态） |
@@ -130,42 +148,55 @@ cd accounting-web && npm run dev
 
 | 优先级 | 页面 | 说明 |
 |--------|------|------|
-| 1 | 交易列表 | 按时间倒序，支持筛选 |
+| 1 | 首页（日历） | 日历 + 范围选择 + 筛选 + 交易详情列表 + 记账入口 |
 | 2 | 记账表单 | 录入交易（弹窗/全屏） |
 | 3 | 账户树 | 层级结构 + 余额 |
 | 4 | 设置 | 成员/标签/货币管理 + 当前成员切换 |
-| 5 | 首页仪表盘 | 日历 + 月报表/日详情 |
-| 6 | 统计报表 | 资产负债表、损益表、维度统计 |
+| 5 | 统计报表 | 资产负债表、损益表、维度统计 |
 
-### 4.2 首页（Dashboard）
+### 4.2 首页（日历 + 交易）
 
 **默认状态**：
-- 顶部：月份选择器（◀ 2024年6月 ▶）
+
+- 顶部：月份选择器（◀ 2024年6月 ▶）+ **范围选择按钮** + **筛选按钮**
 - 中部：当月日历网格
   - 每个格子显示日期 + 当日收支小计（收入绿色/支出红色）
   - 当天高亮显示
 - 底部：当月统计报表（总收入、总支出、结余）
 
-**交互**：
-- 点击日历格子 → 底部切换为当日交易列表
-  - 列表第一项：`+ 记一笔` 按钮
-  - 后续项：当日交易明细（描述、账户、金额）
+**范围选择模式**：
+
+- 点击「范围选择」按钮进入范围选择模式
+- 在日历上点击第一个日期 → 标记为起始日
+- 再点击第二个日期 → 标记为结束日
+- 选好范围后自动退出范围选择模式
+- 底部显示该日期范围内的交易详情列表
+
+**筛选**：
+
+- 点击「筛选」按钮 → PC 弹出 Modal / 移动端切换全屏页面
+- 筛选条件：账户、成员、标签、关键词
+- 确认后返回首页，按日期范围 + 筛选条件显示交易详情
+
+**交易详情列表**（底部区域）：
+
+- 整个页面可滚动，日历随滚动向上移出视口（不做冻结）
+- 交易按日期分组显示
+- 每项交易显示：时间、注释、交易额、标签、分录数量
+- 点击交易项 → 展开分录详情（只能有一个交易处于展开状态）
+- 列表顶部：`+ 记一笔` 按钮
+
+**记账入口**：
+
 - 点击 `+ 记一笔` → 打开记账表单
   - PC：Modal 弹窗
   - 移动端：路由切换全屏页面
-  - 预填字段：日期 = 选中日期，记录者 = 当前成员
-- 再次点击已选中的日期格子 → 回到月报表视图
+  - 预填字段：日期 = 范围起始日（或当天），记录者 = 当前成员
 
-### 4.3 交易列表页
-
-- 顶部筛选栏：日期范围、账户、成员、标签、关键词
-- 主体：交易卡片列表（按日期分组）
-- 每条交易显示：日期时间、描述、各分录（账户 + 金额）、标签
-- 支持分页或无限滚动
-
-### 4.4 记账表单
+### 4.3 记账表单
 
 **字段**：
+
 - 日期（DatePicker，默认选中日期/当天）
 - 时间（TimePicker，可选）
 - 记录者（Select，默认当前成员）
@@ -177,6 +208,7 @@ cd accounting-web && npm run dev
 - 附件（上传，可选）
 
 **校验**：
+
 - 分录金额总和为零
 - 账户存在
 - 货币存在
@@ -208,18 +240,20 @@ cd accounting-web && npm run dev
 ### 5.2 导航结构
 
 **PC/平板侧边导航**：
-```
-📊 首页
-📋 交易
-  └─ 交易列表
-  └─ 记一笔
-🏦 账户
-⚙️ 设置
+
+```mermaid
+graph TD
+    A[📊 首页] --> A1[日历/交易/记账]
+    B[🏦 账户] --> B1[账户树]
+    C[📈 报表] --> C1[资产负债表/损益表/统计]
+    D[⚙️ 设置] --> D1[成员/标签/货币]
 ```
 
 **手机底部标签栏**：
-```
-[首页] [交易] [账户] [设置]
+
+```mermaid
+graph LR
+    A[首页] --- B[账户] --- C[报表] --- D[设置]
 ```
 
 ### 5.3 记账表单响应式
@@ -256,8 +290,9 @@ export const useAccountStore = defineStore('account', {
 export const useTransactionStore = defineStore('transaction', {
   state: () => ({
     transactions: [],
-    filter: {},
-    selectedDate: null,  // 首页选中的日期
+    dateRange: { start: null, end: null },  // 选中的日期范围
+    filters: { account: null, member: null, tag: null, keyword: null },
+    expandedTxId: null,  // 当前展开分录详情的交易 ID
   }),
 })
 ```
@@ -318,8 +353,7 @@ accounting/
 │       ├── api/             # axios 封装
 │       │   └── client.ts
 │       ├── views/           # 页面组件
-│       │   ├── Dashboard.vue
-│       │   ├── TransactionList.vue
+│       │   ├── Dashboard.vue      # 日历首页（含交易列表）
 │       │   ├── TransactionForm.vue
 │       │   ├── AccountTree.vue
 │       │   ├── Settings.vue
@@ -336,18 +370,39 @@ accounting/
 
 ### 9.1 创建交易
 
-```
-用户填写表单 → Pinia store → axios POST /api/transactions
-→ axum handler → TransactionService.submit() → SQLite
-→ 响应 201 + tx_id → store 刷新交易列表 → UI 更新
+```mermaid
+sequenceDiagram
+    participant UI as 用户/前端
+    participant Store as Pinia Store
+    participant API as axum API
+    participant Svc as TransactionService
+    participant DB as SQLite
+    UI ->> Store: 填写表单
+    Store ->> API: axios POST /api/transactions
+    API ->> Svc: submit(tx, postings, tags)
+    Svc ->> DB: INSERT transactions/postings
+    DB -->> Svc: Ok
+    Svc -->> API: Ok(tx_id)
+    API -->> Store: 201 + tx_id
+    Store ->> API: GET /api/transactions (刷新列表)
+    Store -->> UI: UI 更新
 ```
 
 ### 9.2 加载首页日历
 
-```
-页面挂载 → Pinia 加载当前成员 + 账户列表
-→ axios GET /api/transactions?from=2024-06-01&to=2024-06-30
-→ 按日期分组计算每日收支 → 渲染日历
+```mermaid
+sequenceDiagram
+    participant UI as Dashboard.vue
+    participant Store as transactionStore
+    participant API as axum API
+    participant DB as SQLite
+    UI ->> Store: loadCalendar(month)
+    Store ->> API: GET /api/transactions?from=...&to=...
+    API ->> DB: SELECT * FROM transactions
+    DB -->> API: transactions[]
+    API -->> Store: transactions[]
+    Store ->> Store: 按日期分组计算每日收支
+    Store -->> UI: 渲染日历 + 统计
 ```
 
 ## 10. 边界与限制
