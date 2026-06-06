@@ -1,9 +1,33 @@
+use accounting::account::Account;
+use accounting::account_type::AccountType;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, CommodityId};
 use accounting_sql::database::Database;
 use accounting_sql::transaction::Transaction;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+
+/// 账户余额项
+#[derive(Debug, Clone)]
+pub struct AccountBalance {
+    pub account: Account,
+    pub balances: Vec<(CommodityId, Decimal)>,
+}
+
+/// 资产负债表
+#[derive(Debug, Clone)]
+pub struct BalanceSheet {
+    pub assets: Vec<AccountBalance>,
+    pub liabilities: Vec<AccountBalance>,
+    pub equity: Vec<AccountBalance>,
+}
+
+/// 损益表
+#[derive(Debug, Clone)]
+pub struct IncomeStatement {
+    pub income: Vec<AccountBalance>,
+    pub expenses: Vec<AccountBalance>,
+}
 
 /// 报告服务
 pub struct ReportService<D: Database> {
@@ -57,6 +81,82 @@ impl<D: Database> ReportService<D> {
             .await
             .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         Ok(totals)
+    }
+
+    /// 资产负债表
+    pub async fn balance_sheet(&self) -> Result<BalanceSheet, AccountingError> {
+        let conn = self.db.connection();
+        let accounts = self
+            .db
+            .account_repo()
+            .list(&conn)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        let mut assets = Vec::new();
+        let mut liabilities = Vec::new();
+        let mut equity = Vec::new();
+
+        for account in accounts {
+            let balances = self
+                .db
+                .posting_repo()
+                .sum_by_account(&conn, account.id)
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            if balances.iter().all(|(_, b)| b.is_zero()) {
+                continue;
+            }
+            let item = AccountBalance {
+                account: account.clone(),
+                balances,
+            };
+            match account.account_type {
+                AccountType::Asset => assets.push(item),
+                AccountType::Liability => liabilities.push(item),
+                AccountType::Equity => equity.push(item),
+                _ => {}
+            }
+        }
+
+        Ok(BalanceSheet {
+            assets,
+            liabilities,
+            equity,
+        })
+    }
+
+    /// 损益表
+    pub async fn income_statement(&self) -> Result<IncomeStatement, AccountingError> {
+        let conn = self.db.connection();
+        let accounts = self
+            .db
+            .account_repo()
+            .list(&conn)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        let mut income = Vec::new();
+        let mut expenses = Vec::new();
+
+        for account in accounts {
+            let balances = self
+                .db
+                .posting_repo()
+                .sum_by_account(&conn, account.id)
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            if balances.iter().all(|(_, b)| b.is_zero()) {
+                continue;
+            }
+            let item = AccountBalance {
+                account: account.clone(),
+                balances,
+            };
+            match account.account_type {
+                AccountType::Income => income.push(item),
+                AccountType::Expense => expenses.push(item),
+                _ => {}
+            }
+        }
+
+        Ok(IncomeStatement { income, expenses })
     }
 }
 

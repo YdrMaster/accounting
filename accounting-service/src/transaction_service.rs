@@ -2,6 +2,7 @@ use accounting::error::AccountingError;
 use accounting::id::{TagId, TransactionId};
 use accounting::posting::Posting;
 use accounting::transaction::Transaction;
+use accounting::transaction_filter::TransactionFilter;
 use accounting::validation::validate_transaction;
 use accounting_sql::database::Database;
 use accounting_sql::transaction::Transaction as DbTransaction;
@@ -105,6 +106,54 @@ impl<D: Database> TransactionService<D> {
             .await
             .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         Ok(())
+    }
+
+    /// 列出交易（含分录）
+    pub async fn list(
+        &self,
+        filter: TransactionFilter,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<(Transaction, Vec<Posting>)>, AccountingError> {
+        let conn = self.db.connection();
+        let limit = limit.map(|l| l as usize).unwrap_or(100);
+        let offset = offset.map(|o| o as usize).unwrap_or(0);
+        let transactions = self
+            .db
+            .transaction_repo()
+            .list(&conn, &filter, limit, offset)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        let mut result = Vec::new();
+        for tx in transactions {
+            let postings = self
+                .db
+                .posting_repo()
+                .list_by_transaction(&conn, tx.id)
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            result.push((tx, postings));
+        }
+        Ok(result)
+    }
+
+    /// 查询单笔交易（含分录）
+    pub async fn get(&self, id: TransactionId) -> Result<Option<(Transaction, Vec<Posting>)>, AccountingError> {
+        let conn = self.db.connection();
+        let transaction = self
+            .db
+            .transaction_repo()
+            .get(&conn, id)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        match transaction {
+            Some(tx) => {
+                let postings = self
+                    .db
+                    .posting_repo()
+                    .list_by_transaction(&conn, tx.id)
+                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                Ok(Some((tx, postings)))
+            }
+            None => Ok(None),
+        }
     }
 }
 

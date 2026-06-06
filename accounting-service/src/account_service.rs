@@ -1,10 +1,13 @@
 use accounting::account::Account;
+use accounting::account_type::AccountType;
 use accounting::error::AccountingError;
-use accounting::id::AccountId;
+use accounting::id::{AccountId, CommodityId};
 use accounting::validation::validate_account_close;
 use accounting_sql::database::Database;
 use accounting_sql::transaction::Transaction;
 use chrono::NaiveDate;
+use rust_decimal::Decimal;
+use std::collections::HashMap;
 
 /// 账户服务
 pub struct AccountService<D: Database> {
@@ -181,6 +184,81 @@ impl<D: Database> AccountService<D> {
             .await
             .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         Ok(())
+    }
+
+    /// 列出账户
+    pub async fn list(
+        &self,
+        account_type: Option<AccountType>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<Account>, AccountingError> {
+        let conn = self.db.connection();
+        let mut accounts = self
+            .db
+            .account_repo()
+            .list(&conn)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        if let Some(ty) = account_type {
+            accounts.retain(|a| a.account_type == ty);
+        }
+        let offset = offset.unwrap_or(0) as usize;
+        let limit = limit.map(|l| l as usize).unwrap_or(accounts.len());
+        if offset >= accounts.len() {
+            accounts.clear();
+        } else {
+            let end = (offset + limit).min(accounts.len());
+            accounts = accounts[offset..end].to_vec();
+        }
+        Ok(accounts)
+    }
+
+    /// 根据 ID 查询账户
+    pub async fn get(&self, id: AccountId) -> Result<Option<Account>, AccountingError> {
+        let conn = self.db.connection();
+        self.db
+            .account_repo()
+            .get(&conn, id)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))
+    }
+
+    /// 查询账户余额（含子账户聚合）
+    pub async fn balance(&self, id: AccountId) -> Result<HashMap<CommodityId, Decimal>, AccountingError> {
+        let tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+
+        let account_ids: Vec<i64> = {
+            let conn = tx.conn();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT account_id FROM account_ancestors WHERE ancestor_id = ?1 UNION SELECT ?1",
+                )
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            let rows = stmt
+                .query_map(rusqlite::params![id.0], |row| row.get::<_, i64>(0))
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            rows.collect::<Result<_, _>>()
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?
+        };
+
+        let mut totals: HashMap<CommodityId, Decimal> = HashMap::new();
+        for account_id in account_ids {
+            let balances = tx
+                .posting_repo()
+                .sum_by_account(&tx.conn(), AccountId(account_id))
+                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            for (commodity, amount) in balances {
+                *totals.entry(commodity).or_insert_with(|| Decimal::ZERO) += amount;
+            }
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        Ok(totals)
     }
 }
 
