@@ -17,12 +17,20 @@ impl<D: Database> TagService<D> {
     /// 列出所有标签
     pub async fn list(&self) -> Result<Vec<Tag>, AccountingError> {
         let conn = self.db.connection();
-        let tags = self.db.tag_repo().list(&conn).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        let tags = self
+            .db
+            .tag_repo()
+            .list(&conn)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         Ok(tags)
     }
 
     /// 添加标签
-    pub async fn add(&self, name: String, description: Option<String>) -> Result<TagId, AccountingError> {
+    pub async fn add(
+        &self,
+        name: String,
+        description: Option<String>,
+    ) -> Result<TagId, AccountingError> {
         let conn = self.db.connection();
         let tag = Tag {
             id: TagId(0),
@@ -30,14 +38,21 @@ impl<D: Database> TagService<D> {
             description,
             is_system: false,
         };
-        let id = self.db.tag_repo().create(&conn, &tag).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        let id = self
+            .db
+            .tag_repo()
+            .create(&conn, &tag)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         Ok(id)
     }
 
     /// 删除标签
     pub async fn delete(&self, name: &str) -> Result<(), AccountingError> {
         let conn = self.db.connection();
-        self.db.tag_repo().delete(&conn, name).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        self.db
+            .tag_repo()
+            .delete(&conn, name)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         Ok(())
     }
 }
@@ -52,7 +67,10 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().unwrap();
         let service = TagService::new(db);
 
-        let id = service.add("travel".to_string(), Some("旅行".to_string())).await.unwrap();
+        let id = service
+            .add("travel".to_string(), Some("旅行".to_string()))
+            .await
+            .unwrap();
         assert!(id.0 > 0);
 
         let list = service.list().await.unwrap();

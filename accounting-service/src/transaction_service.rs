@@ -136,7 +136,10 @@ impl<D: Database> TransactionService<D> {
     }
 
     /// 查询单笔交易（含分录）
-    pub async fn get(&self, id: TransactionId) -> Result<Option<(Transaction, Vec<Posting>)>, AccountingError> {
+    pub async fn get(
+        &self,
+        id: TransactionId,
+    ) -> Result<Option<(Transaction, Vec<Posting>)>, AccountingError> {
         let conn = self.db.connection();
         let transaction = self
             .db

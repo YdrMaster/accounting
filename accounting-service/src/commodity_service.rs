@@ -17,12 +17,21 @@ impl<D: Database> CommodityService<D> {
     /// 列出所有商品
     pub async fn list(&self) -> Result<Vec<Commodity>, AccountingError> {
         let conn = self.db.connection();
-        let commodities = self.db.commodity_repo().list(&conn).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        let commodities = self
+            .db
+            .commodity_repo()
+            .list(&conn)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         Ok(commodities)
     }
 
     /// 添加商品
-    pub async fn add(&self, symbol: String, name: String, precision: u8) -> Result<CommodityId, AccountingError> {
+    pub async fn add(
+        &self,
+        symbol: String,
+        name: String,
+        precision: u8,
+    ) -> Result<CommodityId, AccountingError> {
         let conn = self.db.connection();
         let commodity = Commodity {
             id: CommodityId(0),
@@ -30,7 +39,11 @@ impl<D: Database> CommodityService<D> {
             name,
             precision,
         };
-        let id = self.db.commodity_repo().create(&conn, &commodity).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        let id = self
+            .db
+            .commodity_repo()
+            .create(&conn, &commodity)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         Ok(id)
     }
 }
@@ -45,7 +58,10 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().unwrap();
         let service = CommodityService::new(db);
 
-        let id = service.add("USD".to_string(), "美元".to_string(), 2).await.unwrap();
+        let id = service
+            .add("USD".to_string(), "美元".to_string(), 2)
+            .await
+            .unwrap();
         assert!(id.0 > 0);
 
         let list = service.list().await.unwrap();

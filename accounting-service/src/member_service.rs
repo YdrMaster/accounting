@@ -15,9 +15,17 @@ impl<D: Database> MemberService<D> {
     }
 
     /// 列出所有成员
-    pub async fn list(&self, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Member>, AccountingError> {
+    pub async fn list(
+        &self,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<Member>, AccountingError> {
         let conn = self.db.connection();
-        let mut members = self.db.member_repo().list(&conn).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        let mut members = self
+            .db
+            .member_repo()
+            .list(&conn)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         let offset = offset.unwrap_or(0) as usize;
         let limit = limit.map(|l| l as usize).unwrap_or(members.len());
         if offset >= members.len() {
@@ -30,21 +38,32 @@ impl<D: Database> MemberService<D> {
     }
 
     /// 添加成员
-    pub async fn add(&self, name: String, description: Option<String>) -> Result<MemberId, AccountingError> {
+    pub async fn add(
+        &self,
+        name: String,
+        description: Option<String>,
+    ) -> Result<MemberId, AccountingError> {
         let conn = self.db.connection();
         let member = Member {
             id: MemberId(0),
             name,
             description,
         };
-        let id = self.db.member_repo().create(&conn, &member).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        let id = self
+            .db
+            .member_repo()
+            .create(&conn, &member)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         Ok(id)
     }
 
     /// 删除成员
     pub async fn delete(&self, id: MemberId) -> Result<(), AccountingError> {
         let conn = self.db.connection();
-        self.db.member_repo().delete(&conn, id).map_err(|e| AccountingError::Unknown(e.to_string()))?;
+        self.db
+            .member_repo()
+            .delete(&conn, id)
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         Ok(())
     }
 }
@@ -59,7 +78,10 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().unwrap();
         let service = MemberService::new(db);
 
-        let id = service.add("Alice".to_string(), Some("Tester".to_string())).await.unwrap();
+        let id = service
+            .add("Alice".to_string(), Some("Tester".to_string()))
+            .await
+            .unwrap();
         assert!(id.0 > 0);
 
         let list = service.list(None, None).await.unwrap();

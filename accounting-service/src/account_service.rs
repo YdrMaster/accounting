@@ -223,7 +223,10 @@ impl<D: Database> AccountService<D> {
     }
 
     /// 查询账户余额（含子账户聚合）
-    pub async fn balance(&self, id: AccountId) -> Result<HashMap<CommodityId, Decimal>, AccountingError> {
+    pub async fn balance(
+        &self,
+        id: AccountId,
+    ) -> Result<HashMap<CommodityId, Decimal>, AccountingError> {
         let tx = self
             .db
             .transaction()
