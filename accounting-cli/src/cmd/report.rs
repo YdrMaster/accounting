@@ -1,9 +1,9 @@
 use crate::cmd::{BalanceRow, ReportBalanceRow};
-use rust_i18n::t;
 use crate::output::{OutputFormat, print_line, print_vec};
 use accounting::id::AccountId;
 use accounting_sql::impls::sqlite::SqliteDatabase;
 use clap::{Args, Subcommand};
+use rust_i18n::t;
 
 #[derive(Subcommand)]
 pub enum ReportCmd {
@@ -39,7 +39,7 @@ impl ReportCmd {
                     })
                     .collect();
                 if rows.is_empty() {
-                    print_line(&t!("balance_zero").to_string(), format);
+                    print_line(t!("balance_zero").as_ref(), format);
                 } else {
                     print_vec(&rows, format);
                 }
@@ -80,7 +80,7 @@ impl ReportCmd {
                     }
                 }
                 if rows.is_empty() {
-                    print_line(&t!("no_data").to_string(), format);
+                    print_line(t!("no_data").as_ref(), format);
                 } else {
                     print_vec(&rows, format);
                 }
@@ -111,7 +111,7 @@ impl ReportCmd {
                     }
                 }
                 if rows.is_empty() {
-                    print_line(&t!("no_data").to_string(), format);
+                    print_line(t!("no_data").as_ref(), format);
                 } else {
                     print_vec(&rows, format);
                 }

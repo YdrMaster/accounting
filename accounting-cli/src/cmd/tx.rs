@@ -1,5 +1,4 @@
 use crate::cmd::{PostingRow, TransactionRow};
-use rust_i18n::t;
 use crate::output::{OutputFormat, print as output_print, print_line, print_vec};
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, MemberId, PostingId, TagId, TransactionId};
@@ -10,6 +9,7 @@ use accounting_sql::database::Database;
 use accounting_sql::impls::sqlite::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use std::str::FromStr;
 
 #[derive(Subcommand)]

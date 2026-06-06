@@ -73,4 +73,18 @@ mod tests {
         let err = AccountingError::InvalidTransaction("unbalanced".to_string());
         assert!(err.to_string().contains("unbalanced"));
     }
+
+    #[test]
+    fn test_error_display_en() {
+        rust_i18n::set_locale("en");
+        let err = AccountingError::DbNotInitialized;
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_error_display_zh() {
+        rust_i18n::set_locale("zh-CN");
+        let err = AccountingError::DbNotInitialized;
+        assert!(err.to_string().contains("不存在"));
+    }
 }

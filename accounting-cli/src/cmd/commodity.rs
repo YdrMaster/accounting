@@ -1,8 +1,8 @@
 use crate::cmd::CommodityRow;
-use rust_i18n::t;
 use crate::output::{OutputFormat, print_line, print_vec};
 use accounting_sql::impls::sqlite::SqliteDatabase;
 use clap::{Args, Subcommand};
+use rust_i18n::t;
 
 #[derive(Subcommand)]
 pub enum CommodityCmd {

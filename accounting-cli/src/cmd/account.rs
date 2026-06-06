@@ -1,10 +1,10 @@
 use crate::cmd::{AccountRow, AccountTypeArg, BalanceRow};
-use rust_i18n::t;
 use crate::output::{OutputFormat, print, print_line, print_vec};
 use accounting::account::Account;
 use accounting::id::AccountId;
 use accounting_sql::impls::sqlite::SqliteDatabase;
 use clap::{Args, Subcommand};
+use rust_i18n::t;
 
 #[derive(Subcommand)]
 pub enum AccountCmd {
@@ -102,7 +102,10 @@ impl AccountCmd {
                         let row: AccountRow = (&a).into();
                         print(&row, format);
                     }
-                    None => print_line(&format!("{}", t!("account_not_found", id = args.id)), format),
+                    None => print_line(
+                        &format!("{}", t!("account_not_found", id = args.id)),
+                        format,
+                    ),
                 }
             }
             AccountCmd::Close(args) => {
@@ -126,7 +129,7 @@ impl AccountCmd {
                     })
                     .collect();
                 if rows.is_empty() {
-                    print_line(&t!("balance_zero").to_string(), format);
+                    print_line(t!("balance_zero").as_ref(), format);
                 } else {
                     print_vec(&rows, format);
                 }
