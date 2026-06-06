@@ -8,14 +8,14 @@
 
 **技术栈：** Rust Edition 2024, rusqlite, rust_decimal, chrono, clap, thiserror, tokio
 
----
-
 ## 文件结构
 
 ### `Cargo.toml`（根 workspace）
+
 定义 workspace members。
 
 ### `accounting/`（核心库）
+
 - `Cargo.toml` — 依赖：rust_decimal, chrono, thiserror
 - `src/lib.rs` — 模块导出
 - `src/id.rs` — AccountId, TransactionId, PostingId, CommodityId, MemberId, ChannelId, TagId, AttachmentId
@@ -37,6 +37,7 @@
 - `src/amount.rs` — to_db_amount, from_db_amount
 
 ### `accounting-sql/`（数据库层）
+
 - `Cargo.toml` — 依赖：rusqlite, accounting, rust_decimal, chrono
 - `src/lib.rs` — 模块导出
 - `src/pool.rs` — ConnectionPool
@@ -55,6 +56,7 @@
 - `src/impls/sqlite.rs` — SqliteDatabase, SqliteTransaction
 
 ### `accounting-service/`（业务层）
+
 - `Cargo.toml` — 依赖：accounting, accounting-sql, chrono
 - `src/lib.rs` — 模块导出
 - `src/account_service.rs` — AccountService
@@ -62,6 +64,7 @@
 - `src/report_service.rs` — ReportService
 
 ### `accounting-cli/`（CLI）
+
 - `Cargo.toml` — 依赖：accounting, accounting-sql, accounting-service, clap, chrono
 - `src/main.rs` — main 入口
 - `src/commands/mod.rs` — 命令模块
@@ -69,11 +72,10 @@
 - `src/commands/transaction.rs` — 交易子命令
 - `src/commands/report.rs` — 报告子命令
 
----
-
 ## 任务 1：Workspace 配置
 
 **文件：**
+
 - 修改：`Cargo.toml`
 - 创建：`accounting/Cargo.toml`, `accounting/src/lib.rs`
 - 创建：`accounting-sql/Cargo.toml`, `accounting-sql/src/lib.rs`
@@ -226,11 +228,10 @@ git add Cargo.toml accounting/ accounting-sql/ accounting-service/ accounting-cl
 git commit -m "chore: setup workspace crates for Phase 1"
 ```
 
----
-
 ## 任务 2：核心库 - ID Newtypes
 
 **文件：**
+
 - 创建：`accounting/src/id.rs`
 
 - [ ] **步骤 1：编写失败的测试**
@@ -314,11 +315,10 @@ git add accounting/src/id.rs
 git commit -m "feat(core): add ID newtypes for all entities"
 ```
 
----
-
 ## 任务 3：核心库 - AccountType 与 InstallmentMethod
 
 **文件：**
+
 - 创建：`accounting/src/account_type.rs`
 
 - [ ] **步骤 1：编写失败的测试**
@@ -399,11 +399,10 @@ git add accounting/src/account_type.rs
 git commit -m "feat(core): add AccountType enum with permanence and close conditions"
 ```
 
----
-
 ## 任务 4：核心库 - 错误类型
 
 **文件：**
+
 - 创建：`accounting/src/error.rs`
 
 - [ ] **步骤 1：编写失败的测试**
@@ -463,11 +462,10 @@ git add accounting/src/error.rs
 git commit -m "feat(core): add AccountingError type"
 ```
 
----
-
 ## 任务 5：核心库 - 数据模型（上）
 
 **文件：**
+
 - 创建：`accounting/src/commodity.rs`
 - 创建：`accounting/src/account.rs`
 
@@ -576,11 +574,10 @@ git add accounting/src/commodity.rs accounting/src/account.rs
 git commit -m "feat(core): add Commodity and Account data models"
 ```
 
----
-
 ## 任务 6：核心库 - 数据模型（中）
 
 **文件：**
+
 - 创建：`accounting/src/member.rs`
 - 创建：`accounting/src/channel.rs`
 - 创建：`accounting/src/tag.rs`
@@ -640,11 +637,10 @@ git add accounting/src/member.rs accounting/src/channel.rs accounting/src/tag.rs
 git commit -m "feat(core): add Member, Channel, Tag models"
 ```
 
----
-
 ## 任务 7：核心库 - 数据模型（下）
 
 **文件：**
+
 - 创建：`accounting/src/attachment.rs`
 - 创建：`accounting/src/transaction_filter.rs`
 
@@ -695,11 +691,10 @@ git add accounting/src/attachment.rs accounting/src/transaction_filter.rs
 git commit -m "feat(core): add Attachment and TransactionFilter models"
 ```
 
----
-
 ## 任务 8：核心库 - Posting 与 Transaction
 
 **文件：**
+
 - 创建：`accounting/src/posting.rs`
 - 创建：`accounting/src/transaction.rs`
 
@@ -756,11 +751,10 @@ git add accounting/src/posting.rs accounting/src/transaction.rs
 git commit -m "feat(core): add Posting and Transaction models"
 ```
 
----
-
 ## 任务 9：核心库 - 金额转换
 
 **文件：**
+
 - 创建：`accounting/src/amount.rs`
 
 - [ ] **步骤 1：编写失败的测试**
@@ -834,11 +828,10 @@ git add accounting/src/amount.rs
 git commit -m "feat(core): add amount conversion utilities"
 ```
 
----
-
 ## 任务 10：核心库 - 交易验证
 
 **文件：**
+
 - 创建：`accounting/src/validation.rs`
 
 - [ ] **步骤 1：编写失败的测试**
@@ -993,11 +986,10 @@ git add accounting/src/validation.rs
 git commit -m "feat(core): add transaction validation with bilateral cost support"
 ```
 
----
-
 ## 任务 11：核心库 - 余额计算
 
 **文件：**
+
 - 创建：`accounting/src/balance.rs`
 
 - [ ] **步骤 1：编写失败的测试**
@@ -1101,11 +1093,10 @@ git add accounting/src/balance.rs
 git commit -m "feat(core): add balance calculation functions"
 ```
 
----
-
 ## 任务 12：核心库 - 闭包计算
 
 **文件：**
+
 - 创建：`accounting/src/closure.rs`
 
 - [ ] **步骤 1：编写失败的测试**
@@ -1226,11 +1217,10 @@ git add accounting/src/closure.rs
 git commit -m "feat(core): add closure table computation"
 ```
 
----
-
 ## 任务 13：核心库 - 分期索引与账户关闭验证
 
 **文件：**
+
 - 创建：`accounting/src/installment.rs`
 - 修改：`accounting/src/account_type.rs`（添加 InstallmentMethod）
 
@@ -1376,11 +1366,10 @@ git add accounting/src/installment.rs accounting/src/account_type.rs accounting/
 git commit -m "feat(core): add installment index inference and account close validation"
 ```
 
----
-
 ## 任务 14：数据库层 - Schema 与连接池
 
 **文件：**
+
 - 创建：`accounting-sql/src/pool.rs`
 - 创建：`accounting-sql/src/schema.rs`
 - 创建：`accounting-sql/src/error.rs`
@@ -1626,11 +1615,10 @@ git add accounting-sql/src/pool.rs accounting-sql/src/schema.rs accounting-sql/s
 git commit -m "feat(sql): add ConnectionPool, schema initialization and seed data"
 ```
 
----
-
 ## 任务 15：数据库层 - AccountRepo
 
 **文件：**
+
 - 创建：`accounting-sql/src/repo/account.rs`
 - 创建：`accounting-sql/src/repo/mod.rs`
 
@@ -1855,11 +1843,10 @@ git add accounting-sql/src/repo/
 git commit -m "feat(sql): add AccountRepo with CRUD, close, reopen"
 ```
 
----
-
 ## 任务 16：数据库层 - 其余简单 Repo
 
 **文件：**
+
 - 创建：`accounting-sql/src/repo/commodity.rs`
 - 创建：`accounting-sql/src/repo/member.rs`
 - 创建：`accounting-sql/src/repo/channel.rs`
@@ -2116,11 +2103,10 @@ git add accounting-sql/src/repo/commodity.rs accounting-sql/src/repo/member.rs a
 git commit -m "feat(sql): add Commodity, Member, Channel, Tag, Attachment repos"
 ```
 
----
-
 ## 任务 17：数据库层 - TransactionRepo 与 PostingRepo
 
 **文件：**
+
 - 创建：`accounting-sql/src/repo/transaction.rs`
 - 创建：`accounting-sql/src/repo/posting.rs`
 
@@ -2385,11 +2371,10 @@ git add accounting-sql/src/repo/transaction.rs accounting-sql/src/repo/posting.r
 git commit -m "feat(sql): add TransactionRepo and PostingRepo"
 ```
 
----
-
 ## 任务 18：数据库层 - Database 与 Transaction traits
 
 **文件：**
+
 - 创建：`accounting-sql/src/database.rs`
 - 创建：`accounting-sql/src/transaction.rs`
 - 创建：`accounting-sql/src/impls/mod.rs`
@@ -2604,11 +2589,10 @@ git add accounting-sql/src/database.rs accounting-sql/src/transaction.rs account
 git commit -m "feat(sql): add Database and Transaction traits with SQLite implementation"
 ```
 
----
-
 ## 任务 19：业务层 - AccountService
 
 **文件：**
+
 - 创建：`accounting-service/src/account_service.rs`
 
 - [ ] **步骤 1：编写失败的测试**
@@ -2764,11 +2748,10 @@ git add accounting-service/src/account_service.rs
 git commit -m "feat(service): add AccountService with create, close, reopen"
 ```
 
----
-
 ## 任务 20：业务层 - TransactionService 与 ReportService
 
 **文件：**
+
 - 创建：`accounting-service/src/transaction_service.rs`
 - 创建：`accounting-service/src/report_service.rs`
 
@@ -2924,11 +2907,10 @@ git add accounting-service/src/transaction_service.rs accounting-service/src/rep
 git commit -m "feat(service): add TransactionService and ReportService"
 ```
 
----
-
 ## 任务 21：CLI - 基础框架
 
 **文件：**
+
 - 修改：`accounting-cli/Cargo.toml`（添加 tokio, tabled, serde, serde_json）
 - 创建：`accounting-cli/src/output.rs`
 - 创建：`accounting-cli/src/cmd/mod.rs`
@@ -3098,11 +3080,10 @@ rm -rf accounting-cli/src/commands/
 git commit -m "feat(cli): add async CLI framework with output format, explicit init, cmd/mod structure"
 ```
 
----
-
 ## 任务 22：CLI - 成员、商品、标签命令
 
 **文件：**
+
 - 创建：`accounting-cli/src/cmd/member.rs`
 - 创建：`accounting-cli/src/cmd/commodity.rs`
 - 创建：`accounting-cli/src/cmd/tag.rs`
@@ -3299,11 +3280,10 @@ git add accounting-cli/src/cmd/member.rs accounting-cli/src/cmd/commodity.rs acc
 git commit -m "feat(cli): add member, commodity, tag subcommands"
 ```
 
----
-
 ## 任务 23：CLI - 账户命令
 
 **文件：**
+
 - 创建：`accounting-cli/src/cmd/account.rs`
 
 - [ ] **步骤 1：实现 account 命令**
@@ -3461,11 +3441,10 @@ git add accounting-cli/src/cmd/account.rs
 git commit -m "feat(cli): add account subcommands (list, add, show, close, reopen, balance)"
 ```
 
----
-
 ## 任务 24：CLI - 交易命令
 
 **文件：**
+
 - 创建：`accounting-cli/src/cmd/tx.rs`
 
 - [ ] **步骤 1：实现 tx 命令**
@@ -3679,11 +3658,10 @@ git add accounting-cli/src/cmd/tx.rs
 git commit -m "feat(cli): add tx subcommands (add, list, show, delete, update)"
 ```
 
----
-
 ## 任务 25：CLI - 报告命令与最终编译验证
 
 **文件：**
+
 - 创建：`accounting-cli/src/cmd/report.rs`
 
 - [ ] **步骤 1：实现 report 命令**
@@ -3777,8 +3755,6 @@ git add accounting-cli/src/cmd/report.rs
 git commit -m "feat(cli): add report subcommands (balance, bs, is)"
 ```
 
----
-
 ## 自检
 
 ### 1. 规格覆盖度
@@ -3832,17 +3808,3 @@ git commit -m "feat(cli): add report subcommands (balance, bs, is)"
 - `is_system` 作为 `bool` 在模型层、`i32` 在数据库层，映射正确
 - `closed_at` 为 `Option<NaiveDate>`，所有文件中一致
 - CLI 命令签名 `async fn run(self, db_path: &PathBuf, format: OutputFormat)` 在所有 cmd 模块中一致
-
----
-
-## 执行选项
-
-计划已完成并保存到 `plan/phase1.md`。
-
-**两种执行方式：**
-
-**1. 子代理驱动（推荐）** — 每个任务调度一个新的子代理，任务间进行审查，快速迭代
-
-**2. 内联执行** — 在当前会话中使用 executing-plans 执行任务，批量执行并设有检查点供审查
-
-选哪种方式？

@@ -2,8 +2,6 @@
 
 > Crate 职责、依赖关系、数据库抽象、技术栈与分阶段实现路线。
 
----
-
 ## 1. Workspace 结构
 
 ```mermaid
@@ -29,8 +27,6 @@ flowchart TD
     budget --> svc
 ```
 
----
-
 ## 2. Crate 职责与边界
 
 ### 2.1 `accounting` — 核心库
@@ -44,8 +40,6 @@ flowchart TD
 - 验证算法、余额计算、闭包表计算、分期期数推断
 
 **不依赖**：任何 workspace 内 crate、任何数据库驱动
-
----
 
 ### 2.2 `accounting-sql` — 数据库层
 
@@ -62,8 +56,6 @@ flowchart TD
 
 **可替换性**：更换 `Database` trait 的实现即可切换底层数据库（如 SQLite → PostgreSQL）
 
----
-
 ### 2.3 `accounting-service` — 业务层
 
 **职责**：事务编排 + 业务逻辑
@@ -75,8 +67,6 @@ flowchart TD
 - 业务验证：在事务开始前调用核心库的验证算法
 - 不涉及具体 SQL，只通过 Repository trait 调用
 
----
-
 ### 2.4 `accounting-stat` — 查询统计
 
 **职责**：只读查询、报表生成、核对
@@ -86,13 +76,9 @@ flowchart TD
 - 通过 `Database` trait 只读访问数据库
 - 不依赖 `accounting-service`
 
----
-
 ### 2.5 `accounting-pta` — PTA 文本解析
 
 **职责**：解析 `.beancount`/`.ledger` 文本，通过 `Database` trait 写入数据库
-
----
 
 ### 2.6 `accounting-budget` — 预算预警
 
@@ -100,13 +86,9 @@ flowchart TD
 
 **外部依赖**：`accounting-stat`（查询统计）、`accounting-service`（写入预算配置）
 
----
-
 ### 2.7 `accounting-cli` — CLI 入口
 
 **职责**：命令行界面，初始化 `SqliteDatabase` 并注入到 `accounting-service`
-
----
 
 ## 3. 依赖关系图
 
@@ -135,8 +117,6 @@ flowchart TD
     style sql fill:#2ecc71,color:#fff
     style cli fill:#e74c3c,color:#fff
 ```
-
----
 
 ## 4. 数据流
 
@@ -190,8 +170,6 @@ sequenceDiagram
     cli-->>user: Assets:Bank 余额: 5000 CNY
 ```
 
----
-
 ## 5. 技术栈
 
 | 用途 | 选型 | 说明 |
@@ -205,8 +183,6 @@ sequenceDiagram
 | CLI 框架 | `clap` | 命令行解析 |
 | 错误处理 | `thiserror` + `anyhow` | 结构化错误 |
 | 测试 | 内置 `cargo test` | 单元测试 + 集成测试 |
-
----
 
 ## 6. 路线图
 
@@ -230,8 +206,6 @@ sequenceDiagram
 
 **周期**：4-6 周
 
----
-
 ### Phase 2：查询、统计、预算 + PTA 导入
 
 **目标**：报表统计、预算、PTA 文本导入，全部通过 CLI 调用
@@ -253,8 +227,6 @@ sequenceDiagram
 
 **周期**：3-4 周
 
----
-
 ### Phase 3：Web UI
 
 **目标**：设计和实现 Web 用户界面
@@ -267,8 +239,6 @@ sequenceDiagram
 - 预算仪表盘
 
 **周期**：待定
-
----
 
 ## 7. 关键设计原则
 

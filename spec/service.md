@@ -2,8 +2,6 @@
 
 > 事务编排、业务验证、服务接口。
 
----
-
 ## 1. 设计原则
 
 - Service 层持有 `Database` trait 实例，通过泛型参数注入
@@ -11,8 +9,6 @@
 - 核心库验证（复式记账恒等式、账户关闭条件等）在 `BEGIN` 之后、`Repository` 操作之前执行
 - 事务回滚由 `Transaction` 的 `Drop` 自动处理（未 commit 即回滚）
 - 读操作可直接通过 `db.account_repo()` 等调用，不走事务
-
----
 
 ## 2. 事务编排模式
 
@@ -33,8 +29,6 @@ sequenceDiagram
     svc->>tx: commit().await
     tx-->>svc: Ok(())
 ```
-
----
 
 ## 3. 服务接口
 
@@ -180,8 +174,6 @@ impl<D: Database> ReportService<D> {
 }
 ```
 
----
-
 ## 4. 事务编排的典型模式
 
 ### 4.1 写操作（必须走事务）
@@ -206,8 +198,6 @@ flowchart TD
     B --> C["直接返回结果"]
 ```
 
----
-
 ## 5. 错误处理
 
 Service 层错误类型：
@@ -218,8 +208,6 @@ Service 层错误类型：
 | `RepositoryError` | SQL 执行失败 | 事务内失败，Drop 时自动回滚 |
 | `CommitError` | COMMIT 失败 | 事务已执行，数据未持久化 |
 | `NotFound` | 查询无结果 | 直接返回 |
-
----
 
 ## 6. 测试策略
 

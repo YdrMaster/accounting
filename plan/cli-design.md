@@ -3,8 +3,6 @@
 > 范围：accounting-cli 命令行工具
 > 参考：~/repos/accounting-last/docs/superpowers/specs/2026-06-04-cli-design.md
 
----
-
 ## 1. 设计目标
 
 1. **架构正确**：CLI 只依赖 Service 和 Domain 层，不直接调用 Repository。
@@ -12,8 +10,6 @@
 3. **输出友好**：支持 JSON（管道友好）和 对齐表格（人类可读）两种格式，表格使用 `tabled` crate。
 4. **显式初始化**：数据库文件通过 `initialize` 子命令显式创建，避免隐式行为。
 5. **Async Runtime**：Service 层所有函数均为 `async fn`，CLI 使用 `tokio::main`。
-
----
 
 ## 2. 架构概述
 
@@ -62,8 +58,6 @@ if let Err(e) = result {
 }
 ```
 
----
-
 ## 3. 数据库路径与初始化
 
 ### 3.1 路径规则
@@ -83,11 +77,10 @@ accounting <DB_PATH> initialize
 ```
 
 **行为**：
+
 1. 若文件已存在，报错（防止覆盖）。
 2. 创建 SQLite 文件并执行 schema + seed data。
 3. 输出 `"数据库已初始化"`。
-
----
 
 ## 4. 全局命令结构
 
@@ -128,8 +121,6 @@ enum Commands {
     Report(ReportCmd),
 }
 ```
-
----
 
 ## 5. 各实体命令设计
 
@@ -393,8 +384,6 @@ struct ReportBalanceArgs {
 }
 ```
 
----
-
 ## 6. Service 层需新增的 CLI 查询接口
 
 | 模块 | 新增函数 | 说明 |
@@ -407,8 +396,6 @@ struct ReportBalanceArgs {
 | `TransactionService` | `get(db, id) -> Option<(Transaction, Vec<Posting>)>` | 查询单笔交易含分录 |
 | `ReportService` | `balance_sheet(db) -> ...` | 资产负债表 |
 | `ReportService` | `income_statement(db) -> ...` | 损益表 |
-
----
 
 ## 7. 输出模块
 
@@ -467,8 +454,6 @@ impl Tabled for Member {
 
 对于 `Account` 等字段较多的实体，可精简输出列（如省略 `billing_day`、`repayment_day`）。
 
----
-
 ## 8. Cargo.toml 依赖
 
 ```toml
@@ -492,8 +477,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 ```
-
----
 
 ## 9. 与现有代码的关系
 
@@ -522,8 +505,6 @@ accounting-cli
 ├── serde
 └── serde_json
 ```
-
----
 
 ## 10. 规格自检
 

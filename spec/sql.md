@@ -297,8 +297,6 @@ erDiagram
 10. attachments -- 依赖 transactions
 11. transaction_tags -- 依赖 transactions, tags
 
----
-
 ## 7. Repository 设计
 
 ### 7.1 设计原则
