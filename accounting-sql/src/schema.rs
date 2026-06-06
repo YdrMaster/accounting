@@ -249,13 +249,13 @@ INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) V
 ('Equity', 3, NULL, 1),
 ('Income', 4, NULL, 1),
 ('Expenses', 5, NULL, 1),
-('Equity:OpeningBalances', 3, NULL, 1),
-('Income:Uncategorized', 4, NULL, 1),
-('Expenses:Uncategorized', 5, NULL, 1),
-('Expenses:Fees', 5, NULL, 1),
-('Expenses:Discounts', 5, NULL, 1),
-('Expenses:InstallmentFees', 5, NULL, 1),
-('Assets:Cashback', 1, NULL, 1);
+('Equity:OpeningBalances', 3, (SELECT id FROM accounts WHERE full_name = 'Equity'), 1),
+('Income:Uncategorized', 4, (SELECT id FROM accounts WHERE full_name = 'Income'), 1),
+('Expenses:Uncategorized', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
+('Expenses:Fees', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
+('Expenses:Discounts', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
+('Expenses:InstallmentFees', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
+('Assets:Cashback', 1, (SELECT id FROM accounts WHERE full_name = 'Assets'), 1);
 "#;
 
 const SEED_ACCOUNTS_ZH: &str = r#"
@@ -265,13 +265,13 @@ INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) V
 ('权益', 3, NULL, 1),
 ('收入', 4, NULL, 1),
 ('支出', 5, NULL, 1),
-('权益:期初余额', 3, NULL, 1),
-('收入:未分类', 4, NULL, 1),
-('支出:未分类', 5, NULL, 1),
-('支出:手续费', 5, NULL, 1),
-('支出:折扣', 5, NULL, 1),
-('支出:分期手续费', 5, NULL, 1),
-('资产:返现', 1, NULL, 1);
+('权益:期初余额', 3, (SELECT id FROM accounts WHERE full_name = '权益'), 1),
+('收入:未分类', 4, (SELECT id FROM accounts WHERE full_name = '收入'), 1),
+('支出:未分类', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
+('支出:手续费', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
+('支出:折扣', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
+('支出:分期手续费', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
+('资产:返现', 1, (SELECT id FROM accounts WHERE full_name = '资产'), 1);
 "#;
 
 const SEED_COMMODITIES: &str = r#"
