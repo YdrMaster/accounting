@@ -166,7 +166,6 @@ mod tests {
             full_name: name.to_string(),
             account_type,
             parent_id: None,
-            opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             closed_at: None,
             is_system: false,
             billing_day: None,
@@ -210,7 +209,10 @@ mod tests {
         // 直接通过 repo 插入交易和分录
         let tx = Transaction {
             id: TransactionId(0),
-            date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             description: "Report test".to_string(),
             member_id: None,
             is_template: false,

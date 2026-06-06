@@ -78,7 +78,6 @@ use tabled::Tabled;
 pub struct MemberRow {
     pub id: i64,
     pub name: String,
-    pub description: String,
 }
 
 impl From<&accounting::member::Member> for MemberRow {
@@ -86,7 +85,6 @@ impl From<&accounting::member::Member> for MemberRow {
         Self {
             id: m.id.0,
             name: m.name.clone(),
-            description: m.description.clone().unwrap_or_default(),
         }
     }
 }
@@ -138,7 +136,6 @@ pub struct AccountRow {
     pub full_name: String,
     pub account_type: String,
     pub parent_id: String,
-    pub opened_at: String,
     pub closed_at: String,
     pub is_system: bool,
 }
@@ -150,7 +147,6 @@ impl From<&accounting::account::Account> for AccountRow {
             full_name: a.full_name.clone(),
             account_type: format!("{:?}", a.account_type),
             parent_id: a.parent_id.map(|id| id.0.to_string()).unwrap_or_default(),
-            opened_at: a.opened_at.to_string(),
             closed_at: a.closed_at.map(|d| d.to_string()).unwrap_or_default(),
             is_system: a.is_system,
         }
@@ -161,7 +157,7 @@ impl From<&accounting::account::Account> for AccountRow {
 #[derive(Tabled, Serialize)]
 pub struct TransactionRow {
     pub id: i64,
-    pub date: String,
+    pub date_time: String,
     pub description: String,
     pub member_id: String,
     pub is_template: bool,
@@ -171,7 +167,7 @@ impl From<&accounting::transaction::Transaction> for TransactionRow {
     fn from(t: &accounting::transaction::Transaction) -> Self {
         Self {
             id: t.id.0,
-            date: t.date.to_string(),
+            date_time: t.date_time.to_string(),
             description: t.description.clone(),
             member_id: t.member_id.map(|id| id.0.to_string()).unwrap_or_default(),
             is_template: t.is_template,

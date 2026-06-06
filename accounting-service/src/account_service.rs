@@ -5,7 +5,6 @@ use accounting::id::{AccountId, CommodityId};
 use accounting::validation::validate_account_close;
 use accounting_sql::database::Database;
 use accounting_sql::transaction::Transaction;
-use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -66,7 +65,7 @@ impl<D: Database> AccountService<D> {
     }
 
     /// 关闭账户（含余额验证 + 级联关闭子账户）
-    pub async fn close(&self, id: AccountId, closed_at: NaiveDate) -> Result<(), AccountingError> {
+    pub async fn close(&self, id: AccountId) -> Result<(), AccountingError> {
         let tx = self
             .db
             .transaction()
@@ -89,7 +88,7 @@ impl<D: Database> AccountService<D> {
 
         // 关闭目标账户
         tx.account_repo()
-            .close(&tx.conn(), id, closed_at)
+            .close(&tx.conn(), id)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 级联关闭子账户
@@ -99,7 +98,7 @@ impl<D: Database> AccountService<D> {
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         for child in children {
             tx.account_repo()
-                .close(&tx.conn(), child.id, closed_at)
+                .close(&tx.conn(), child.id)
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
@@ -204,7 +203,6 @@ mod tests {
     use accounting::account_type::AccountType;
     use accounting::id::AccountId;
     use accounting_sql::impls::sqlite::SqliteDatabase;
-    use chrono::NaiveDate;
 
     fn sample_account(name: &str, account_type: AccountType) -> Account {
         Account {
@@ -212,7 +210,6 @@ mod tests {
             full_name: name.to_string(),
             account_type,
             parent_id: None,
-            opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             closed_at: None,
             is_system: false,
             billing_day: None,
@@ -284,21 +281,18 @@ mod tests {
         let account = sample_account("Assets:Cash", AccountType::Asset);
         let id = service.create(account).await.unwrap();
 
-        service
-            .close(id, NaiveDate::from_ymd_opt(2024, 12, 31).unwrap())
-            .await
-            .unwrap();
+        service.close(id).await.unwrap();
 
         {
             let conn = service.db.connection();
-            let closed: String = conn
+            let closed: Option<String> = conn
                 .query_row(
                     "SELECT closed_at FROM accounts WHERE id = ?1",
                     rusqlite::params![id.0],
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert_eq!(closed, "2024-12-31");
+            assert!(closed.is_some());
         }
 
         service.reopen(id).await.unwrap();

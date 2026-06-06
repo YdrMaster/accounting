@@ -85,7 +85,6 @@ impl AccountCmd {
                     full_name: args.full_name,
                     account_type: args.r#type.into(),
                     parent_id: args.parent.map(AccountId),
-                    opened_at: chrono::Local::now().date_naive(),
                     closed_at: None,
                     is_system: false,
                     billing_day: args.billing_day,
@@ -107,9 +106,7 @@ impl AccountCmd {
             }
             AccountCmd::Close(args) => {
                 let service = accounting_service::account_service::AccountService::new(db);
-                service
-                    .close(AccountId(args.id), chrono::Local::now().date_naive())
-                    .await?;
+                service.close(AccountId(args.id)).await?;
                 print_line(&format!("账户已关闭，ID: {}", args.id), format);
             }
             AccountCmd::Reopen(args) => {

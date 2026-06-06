@@ -25,8 +25,6 @@ pub struct MemberListArgs {
 #[derive(Args)]
 pub struct MemberAddArgs {
     pub name: String,
-    #[arg(long)]
-    pub description: Option<String>,
 }
 
 #[derive(Args)]
@@ -49,7 +47,7 @@ impl MemberCmd {
             }
             MemberCmd::Add(args) => {
                 let service = accounting_service::member_service::MemberService::new(db);
-                let id = service.add(args.name, args.description).await?;
+                let id = service.add(args.name).await?;
                 print_line(&format!("成员已创建，ID: {}", id.0), format);
             }
             MemberCmd::Delete(args) => {

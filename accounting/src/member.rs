@@ -7,6 +7,4 @@ pub struct Member {
     pub id: MemberId,
     /// 成员名称
     pub name: String,
-    /// 成员描述
-    pub description: Option<String>,
 }

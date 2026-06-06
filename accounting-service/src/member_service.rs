@@ -38,16 +38,11 @@ impl<D: Database> MemberService<D> {
     }
 
     /// 添加成员
-    pub async fn add(
-        &self,
-        name: String,
-        description: Option<String>,
-    ) -> Result<MemberId, AccountingError> {
+    pub async fn add(&self, name: String) -> Result<MemberId, AccountingError> {
         let conn = self.db.connection();
         let member = Member {
             id: MemberId(0),
             name,
-            description,
         };
         let id = self
             .db
@@ -78,10 +73,7 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().unwrap();
         let service = MemberService::new(db);
 
-        let id = service
-            .add("Alice".to_string(), Some("Tester".to_string()))
-            .await
-            .unwrap();
+        let id = service.add("Alice".to_string()).await.unwrap();
         assert!(id.0 > 0);
 
         let list = service.list(None, None).await.unwrap();

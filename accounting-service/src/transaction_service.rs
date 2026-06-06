@@ -179,7 +179,6 @@ mod tests {
             full_name: name.to_string(),
             account_type,
             parent_id: None,
-            opened_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             closed_at: None,
             is_system: false,
             billing_day: None,
@@ -219,7 +218,10 @@ mod tests {
 
         let tx = Transaction {
             id: TransactionId(0),
-            date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             description: "Test".to_string(),
             member_id: None,
             is_template: false,
@@ -240,7 +242,10 @@ mod tests {
 
         let tx = Transaction {
             id: TransactionId(0),
-            date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             description: "Bad".to_string(),
             member_id: None,
             is_template: false,
@@ -264,7 +269,10 @@ mod tests {
 
         let tx = Transaction {
             id: TransactionId(0),
-            date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             description: "Original".to_string(),
             member_id: None,
             is_template: false,
@@ -279,7 +287,7 @@ mod tests {
         // 更新交易
         let updated_tx = Transaction {
             id: tx_id,
-            date: tx.date,
+            date_time: tx.date_time,
             description: "Updated".to_string(),
             member_id: None,
             is_template: false,
@@ -311,7 +319,10 @@ mod tests {
 
         let tx = Transaction {
             id: TransactionId(0),
-            date: NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
             description: "ToDelete".to_string(),
             member_id: None,
             is_template: false,

@@ -153,12 +153,12 @@ async fn parse_tx_args(
     args: TxAddArgs,
     db: &SqliteDatabase,
 ) -> Result<(Transaction, Vec<Posting>, Vec<TagId>), AccountingError> {
-    let date = parse_date(&args.date)?;
+    let date_time = parse_date_time(&args.date)?;
     let postings = parse_postings(&args.posting, db).await?;
     let tag_ids = resolve_tags(&args.tag, db).await?;
     let tx = Transaction {
         id: TransactionId(0),
-        date,
+        date_time,
         description: args.description,
         member_id: args.member.map(MemberId),
         is_template: false,
@@ -170,12 +170,12 @@ async fn parse_tx_args_for_update(
     args: &TxUpdateArgs,
     db: &SqliteDatabase,
 ) -> Result<(Transaction, Vec<Posting>, Vec<TagId>), AccountingError> {
-    let date = parse_date(&args.date)?;
+    let date_time = parse_date_time(&args.date)?;
     let postings = parse_postings(&args.posting, db).await?;
     let tag_ids = resolve_tags(&args.tag, db).await?;
     let tx = Transaction {
         id: TransactionId(0),
-        date,
+        date_time,
         description: args.description.clone(),
         member_id: args.member.map(MemberId),
         is_template: false,
@@ -183,9 +183,18 @@ async fn parse_tx_args_for_update(
     Ok((tx, postings, tag_ids))
 }
 
-fn parse_date(s: &str) -> Result<chrono::NaiveDate, AccountingError> {
+fn parse_date_time(s: &str) -> Result<chrono::NaiveDateTime, AccountingError> {
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return Ok(dt);
+    }
     chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
-        .map_err(|_| AccountingError::InvalidDate(format!("日期格式应为 YYYY-MM-DD: {}", s)))
+        .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+        .map_err(|_| {
+            AccountingError::InvalidDate(format!(
+                "时间格式应为 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS: {}",
+                s
+            ))
+        })
 }
 
 async fn parse_postings(
@@ -326,10 +335,10 @@ fn build_filter(
 ) -> Result<TransactionFilter, AccountingError> {
     let mut filter = TransactionFilter::default();
     if let Some(ref from) = args.from {
-        filter.start_date = Some(parse_date(from)?);
+        filter.start_date = Some(parse_date_time(from)?.date());
     }
     if let Some(ref to) = args.to {
-        filter.end_date = Some(parse_date(to)?);
+        filter.end_date = Some(parse_date_time(to)?.date());
     }
     if let Some(account) = args.account {
         filter.account_id = Some(AccountId(account));
