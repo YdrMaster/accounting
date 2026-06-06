@@ -3,32 +3,56 @@
 use crate::dto::{MeDto, SetMeRequest};
 use crate::handlers::member::AppState;
 use accounting_sql::database::Database;
-use axum::{
-    Json, Router,
-    extract::State,
-    routing::get,
-};
+use axum::{Json, Router, extract::State, routing::get};
 use std::sync::Arc;
 
-/// 获取当前用户（返回第一个成员作为默认）
+/// 从 settings 表读取 current_member_id
 async fn get_me(State(state): State<Arc<AppState>>) -> Result<Json<MeDto>, String> {
     let db = state.db().map_err(|e| e.to_string())?;
-    let members = db
+    let conn = db.connection();
+
+    // 尝试读取已保存的 current_member_id
+    let saved_id: Option<i64> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'current_member_id'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+
+    let member_id = if let Some(id) = saved_id {
+        id
+    } else {
+        // 未设置时返回第一个成员
+        let members = db.member_repo().list(&conn).map_err(|e| e.to_string())?;
+        let first = members.into_iter().next().ok_or("没有成员")?;
+        first.id.0
+    };
+
+    let member = db
         .member_repo()
-        .list(&db.connection())
-        .map_err(|e| e.to_string())?;
-    let first = members.into_iter().next().ok_or("没有成员")?;
+        .get(&conn, accounting::id::MemberId(member_id))
+        .map_err(|e| e.to_string())?
+        .ok_or("成员不存在")?;
+
     Ok(Json(MeDto {
-        member_id: first.id.0,
-        member_name: first.name,
+        member_id: member.id.0,
+        member_name: member.name,
     }))
 }
 
-/// 设置当前用户（暂时只返回 ok，等待 settings 表持久化）
+/// 将 current_member_id 写入 settings 表
 async fn set_me(
-    State(_state): State<Arc<AppState>>,
-    Json(_req): Json<SetMeRequest>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SetMeRequest>,
 ) -> Result<String, String> {
+    let db = state.db().map_err(|e| e.to_string())?;
+    let conn = db.connection();
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('current_member_id', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [req.member_id.to_string()],
+    )
+    .map_err(|e| e.to_string())?;
     Ok("ok".to_string())
 }
 
