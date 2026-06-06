@@ -39,6 +39,26 @@ impl AccountType {
         };
         rust_i18n::t!(key).to_string()
     }
+
+    /// 根据账户名前缀解析账户类型（支持中英文、单复数）
+    pub fn from_prefix(prefix: &str) -> Option<Self> {
+        let lower = prefix.to_lowercase();
+        match lower.as_str() {
+            // 英文（单复数兼容）
+            "asset" | "assets" => Some(Self::Asset),
+            "liability" | "liabilities" => Some(Self::Liability),
+            "equity" => Some(Self::Equity),
+            "income" => Some(Self::Income),
+            "expense" | "expenses" => Some(Self::Expense),
+            // 中文（与 seed 数据和 display_name 一致）
+            "资产" => Some(Self::Asset),
+            "负债" => Some(Self::Liability),
+            "权益" => Some(Self::Equity),
+            "收入" => Some(Self::Income),
+            "支出" => Some(Self::Expense),
+            _ => None,
+        }
+    }
 }
 
 /// 分期方式

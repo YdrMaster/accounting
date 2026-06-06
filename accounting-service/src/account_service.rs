@@ -19,7 +19,7 @@ impl<D: Database> AccountService<D> {
         Self { db }
     }
 
-    /// 创建账户并维护闭包表
+    /// 创建账户并维护闭包表（保留原始接口）
     pub async fn create(&self, account: Account) -> Result<AccountId, AccountingError> {
         let tx = self
             .db
@@ -62,6 +62,92 @@ impl<D: Database> AccountService<D> {
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(id)
+    }
+
+    /// 根据 full_name 级联创建账户
+    ///
+    /// 解析 `:` 分隔的层级结构，自动推导 account_type（第一段），
+    /// 逐级查找/创建父账户，最后创建目标账户。
+    /// 返回目标账户的 ID。
+    pub async fn create_cascading(
+        &self,
+        full_name: &str,
+        billing_day: Option<u8>,
+        repayment_day: Option<u8>,
+    ) -> Result<AccountId, AccountingError> {
+        let segments: Vec<&str> = full_name.split(':').collect();
+        if segments.is_empty() {
+            return Err(AccountingError::InvalidTransaction(
+                "账户名不能为空".to_string(),
+            ));
+        }
+
+        // 从第一段推导 account_type
+        let account_type = AccountType::from_prefix(segments[0]).ok_or_else(|| {
+            AccountingError::InvalidTransaction(format!("无法识别账户类型前缀: {}", segments[0]))
+        })?;
+
+        let tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        let mut parent_id: Option<AccountId> = None;
+        let mut current_path = String::new();
+        let mut last_id: Option<AccountId> = None;
+
+        for (i, segment) in segments.iter().enumerate() {
+            if i > 0 {
+                current_path.push(':');
+            }
+            current_path.push_str(segment);
+
+            // 检查是否已存在
+            if let Some(existing) = tx
+                .account_repo()
+                .get_by_name(&tx.conn(), &current_path)
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+            {
+                // 验证类型一致
+                if existing.account_type != account_type {
+                    return Err(AccountingError::InvalidTransaction(format!(
+                        "账户 {} 已存在但类型不一致: 期望 {:?}, 实际 {:?}",
+                        current_path, account_type, existing.account_type
+                    )));
+                }
+                parent_id = Some(existing.id);
+                last_id = Some(existing.id);
+                continue;
+            }
+
+            // 检查 full_name 唯一性（理论上已通过 get_by_name 检查）
+
+            let is_leaf = i == segments.len() - 1;
+            let account = Account {
+                id: AccountId(0),
+                full_name: current_path.clone(),
+                account_type,
+                parent_id,
+                closed_at: None,
+                is_system: false,
+                billing_day: if is_leaf { billing_day } else { None },
+                repayment_day: if is_leaf { repayment_day } else { None },
+            };
+
+            let id = tx
+                .account_repo()
+                .create_with_closure(&tx.conn(), &account)
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+            parent_id = Some(id);
+            last_id = Some(id);
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        last_id.ok_or_else(|| AccountingError::InvalidTransaction("级联创建失败".to_string()))
     }
 
     /// 关闭账户（含余额验证 + 级联关闭子账户）

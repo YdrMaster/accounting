@@ -1,6 +1,5 @@
 use crate::cmd::{AccountRow, AccountTypeArg, BalanceRow};
 use crate::output::{OutputFormat, print, print_line, print_vec};
-use accounting::account::Account;
 use accounting::id::AccountId;
 use accounting_sql::impls::sqlite::SqliteDatabase;
 use clap::{Args, Subcommand};
@@ -34,11 +33,8 @@ pub struct AccountListArgs {
 
 #[derive(Args)]
 pub struct AccountAddArgs {
+    /// 账户全名，第一段自动解析为账户类型（如 Assets:Cash、支出:餐饮）
     pub full_name: String,
-    #[arg(long, value_enum)]
-    pub r#type: AccountTypeArg,
-    #[arg(long)]
-    pub parent: Option<i64>,
     #[arg(long)]
     pub billing_day: Option<u8>,
     #[arg(long)]
@@ -81,17 +77,9 @@ impl AccountCmd {
             }
             AccountCmd::Add(args) => {
                 let service = accounting_service::account_service::AccountService::new(db);
-                let account = Account {
-                    id: AccountId(0),
-                    full_name: args.full_name,
-                    account_type: args.r#type.into(),
-                    parent_id: args.parent.map(AccountId),
-                    closed_at: None,
-                    is_system: false,
-                    billing_day: args.billing_day,
-                    repayment_day: args.repayment_day,
-                };
-                let id = service.create(account).await?;
+                let id = service
+                    .create_cascading(&args.full_name, args.billing_day, args.repayment_day)
+                    .await?;
                 print_line(&format!("{}", t!("account_created", id = id.0)), format);
             }
             AccountCmd::Show(args) => {

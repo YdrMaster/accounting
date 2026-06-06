@@ -48,9 +48,9 @@ accounting my.db member delete <ID>
 # 列出账户
 accounting my.db account list [--type <TYPE>] [--limit <N>] [--offset <N>]
 
-# 添加账户
-accounting my.db account add <FULL_NAME> --type <TYPE> \
-  [--parent <ID>] [--billing-day <D>] [--repayment-day <D>]
+# 添加账户（full_name 第一段自动解析为账户类型，: 分隔符自动级联创建父级）
+accounting my.db account add <FULL_NAME> \
+  [--billing-day <D>] [--repayment-day <D>]
 
 # 查看账户详情
 accounting my.db account show <ID>
