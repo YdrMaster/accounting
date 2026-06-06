@@ -244,8 +244,13 @@ END;
 
 const SEED_ACCOUNTS_EN: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
+('Assets', 1, NULL, 1),
+('Liabilities', 2, NULL, 1),
+('Equity', 3, NULL, 1),
 ('Equity:OpeningBalances', 3, NULL, 1),
+('Income', 4, NULL, 1),
 ('Income:Uncategorized', 4, NULL, 1),
+('Expenses', 5, NULL, 1),
 ('Expenses:Uncategorized', 5, NULL, 1),
 ('Expenses:Fees', 5, NULL, 1),
 ('Expenses:Discounts', 5, NULL, 1),
@@ -255,8 +260,13 @@ INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) V
 
 const SEED_ACCOUNTS_ZH: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
+('资产', 1, NULL, 1),
+('负债', 2, NULL, 1),
+('权益', 3, NULL, 1),
 ('权益:期初余额', 3, NULL, 1),
+('收入', 4, NULL, 1),
 ('收入:未分类', 4, NULL, 1),
+('支出', 5, NULL, 1),
 ('支出:未分类', 5, NULL, 1),
 ('支出:手续费', 5, NULL, 1),
 ('支出:折扣', 5, NULL, 1),
@@ -332,7 +342,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 7);
+        assert_eq!(count, 12);
 
         let count: i64 = conn
             .query_row(

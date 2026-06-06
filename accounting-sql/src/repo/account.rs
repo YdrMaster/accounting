@@ -271,7 +271,7 @@ mod tests {
         let (conn, repo) = setup();
         let parent = Account {
             id: AccountId(0),
-            full_name: "Assets".to_string(),
+            full_name: "TestParent".to_string(),
             account_type: AccountType::Asset,
             parent_id: None,
             closed_at: None,
@@ -283,7 +283,7 @@ mod tests {
 
         let child = Account {
             id: AccountId(0),
-            full_name: "Assets:Bank".to_string(),
+            full_name: "TestParent:Child".to_string(),
             account_type: AccountType::Asset,
             parent_id: Some(parent_id),
             closed_at: None,
@@ -295,7 +295,7 @@ mod tests {
 
         let children = repo.list_children(&conn, parent_id).unwrap();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].full_name, "Assets:Bank");
+        assert_eq!(children[0].full_name, "TestParent:Child");
     }
 
     #[test]
