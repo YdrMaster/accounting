@@ -25,7 +25,7 @@ impl<D: Database> MemberService<D> {
             .db
             .member_repo()
             .list(&conn)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         let offset = offset.unwrap_or(0) as usize;
         let limit = limit.map(|l| l as usize).unwrap_or(members.len());
         if offset >= members.len() {
@@ -53,7 +53,7 @@ impl<D: Database> MemberService<D> {
             .db
             .member_repo()
             .create(&conn, &member)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(id)
     }
 
@@ -63,7 +63,7 @@ impl<D: Database> MemberService<D> {
         self.db
             .member_repo()
             .delete(&conn, id)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 }

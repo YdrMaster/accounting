@@ -35,6 +35,12 @@ pub trait PostingRepo {
         conn: &Connection,
         transaction_id: TransactionId,
     ) -> Result<(), crate::error::DbError>;
+    /// 通过闭包表聚合查询某账户及其所有后代的余额
+    fn sum_with_ancestors(
+        &self,
+        conn: &Connection,
+        ancestor_id: AccountId,
+    ) -> Result<Vec<(CommodityId, Decimal)>, crate::error::DbError>;
 }
 
 /// SQLite PostingRepo 实现
@@ -46,8 +52,16 @@ impl PostingRepo for SqlitePostingRepo {
         conn: &Connection,
         posting: &Posting,
     ) -> Result<PostingId, crate::error::DbError> {
-        let amount_i64 = accounting::amount::to_db_amount(posting.amount, 2);
-        let cost_i64 = posting.cost.map(|c| accounting::amount::to_db_amount(c, 2));
+        let precision = get_precision(conn, posting.commodity_id)?;
+        let amount_i64 = accounting::amount::to_db_amount(posting.amount, precision);
+        let cost_precision = posting
+            .cost_commodity_id
+            .map(|id| get_precision(conn, id))
+            .transpose()?
+            .unwrap_or(precision);
+        let cost_i64 = posting
+            .cost
+            .map(|c| accounting::amount::to_db_amount(c, cost_precision));
         conn.execute(
             "INSERT INTO postings
              (transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id)
@@ -76,8 +90,55 @@ impl PostingRepo for SqlitePostingRepo {
             "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id
              FROM postings WHERE transaction_id = ?1"
         )?;
-        let rows = stmt.query_map(params![transaction_id.0], map_posting)?;
-        rows.collect::<Result<_, _>>().map_err(Into::into)
+        let raw_rows: Vec<_> = stmt
+            .query_map(params![transaction_id.0], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<i64>>(8)?,
+                    row.get::<_, Option<i64>>(9)?,
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+        let mut postings = Vec::new();
+        for (
+            id,
+            tx_id,
+            account_id,
+            commodity_id,
+            amount,
+            cost,
+            cost_commodity_id,
+            description,
+            member_id,
+            channel_id,
+        ) in raw_rows
+        {
+            let precision = get_precision(conn, CommodityId(commodity_id))?;
+            let cost_precision = cost_commodity_id
+                .map(|cid| get_precision(conn, CommodityId(cid)))
+                .transpose()?
+                .unwrap_or(precision);
+            postings.push(Posting {
+                id: PostingId(id),
+                transaction_id: TransactionId(tx_id),
+                account_id: AccountId(account_id),
+                commodity_id: CommodityId(commodity_id),
+                amount: accounting::amount::from_db_amount(amount, precision),
+                cost: cost.map(|c| accounting::amount::from_db_amount(c, cost_precision)),
+                cost_commodity_id: cost_commodity_id.map(CommodityId),
+                description,
+                member_id: member_id.map(accounting::id::MemberId),
+                channel_id: channel_id.map(accounting::id::ChannelId),
+            });
+        }
+        Ok(postings)
     }
 
     fn list_by_account(
@@ -89,8 +150,55 @@ impl PostingRepo for SqlitePostingRepo {
             "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id
              FROM postings WHERE account_id = ?1 ORDER BY transaction_id"
         )?;
-        let rows = stmt.query_map(params![account_id.0], map_posting)?;
-        rows.collect::<Result<_, _>>().map_err(Into::into)
+        let raw_rows: Vec<_> = stmt
+            .query_map(params![account_id.0], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<i64>>(8)?,
+                    row.get::<_, Option<i64>>(9)?,
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+        let mut postings = Vec::new();
+        for (
+            id,
+            tx_id,
+            account_id,
+            commodity_id,
+            amount,
+            cost,
+            cost_commodity_id,
+            description,
+            member_id,
+            channel_id,
+        ) in raw_rows
+        {
+            let precision = get_precision(conn, CommodityId(commodity_id))?;
+            let cost_precision = cost_commodity_id
+                .map(|cid| get_precision(conn, CommodityId(cid)))
+                .transpose()?
+                .unwrap_or(precision);
+            postings.push(Posting {
+                id: PostingId(id),
+                transaction_id: TransactionId(tx_id),
+                account_id: AccountId(account_id),
+                commodity_id: CommodityId(commodity_id),
+                amount: accounting::amount::from_db_amount(amount, precision),
+                cost: cost.map(|c| accounting::amount::from_db_amount(c, cost_precision)),
+                cost_commodity_id: cost_commodity_id.map(CommodityId),
+                description,
+                member_id: member_id.map(accounting::id::MemberId),
+                channel_id: channel_id.map(accounting::id::ChannelId),
+            });
+        }
+        Ok(postings)
     }
 
     fn sum_by_account(
@@ -101,13 +209,20 @@ impl PostingRepo for SqlitePostingRepo {
         let mut stmt = conn.prepare(
             "SELECT commodity_id, SUM(amount) FROM postings WHERE account_id = ?1 GROUP BY commodity_id"
         )?;
-        let rows = stmt.query_map(params![account_id.0], |row| {
-            let commodity_id = CommodityId(row.get(0)?);
-            let amount: i64 = row.get(1)?;
-            let decimal = accounting::amount::from_db_amount(amount, 2);
-            Ok((commodity_id, decimal))
-        })?;
-        rows.collect::<Result<_, _>>().map_err(Into::into)
+        let raw_rows: Vec<_> = stmt
+            .query_map(params![account_id.0], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        let mut result = Vec::new();
+        for (commodity_id, amount) in raw_rows {
+            let precision = get_precision(conn, CommodityId(commodity_id))?;
+            result.push((
+                CommodityId(commodity_id),
+                accounting::amount::from_db_amount(amount, precision),
+            ));
+        }
+        Ok(result)
     }
 
     fn delete_by_transaction(
@@ -121,23 +236,49 @@ impl PostingRepo for SqlitePostingRepo {
         )?;
         Ok(())
     }
+
+    fn sum_with_ancestors(
+        &self,
+        conn: &Connection,
+        ancestor_id: AccountId,
+    ) -> Result<Vec<(CommodityId, Decimal)>, crate::error::DbError> {
+        let mut stmt = conn.prepare(
+            "SELECT p.commodity_id, SUM(p.amount)
+             FROM postings p
+             WHERE p.account_id IN (
+                 SELECT account_id FROM account_ancestors WHERE ancestor_id = ?1
+                 UNION SELECT ?1
+             )
+             GROUP BY p.commodity_id",
+        )?;
+        let raw_rows: Vec<_> = stmt
+            .query_map(params![ancestor_id.0], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        let mut result = Vec::new();
+        for (commodity_id, amount) in raw_rows {
+            let precision = get_precision(conn, CommodityId(commodity_id))?;
+            result.push((
+                CommodityId(commodity_id),
+                accounting::amount::from_db_amount(amount, precision),
+            ));
+        }
+        Ok(result)
+    }
 }
 
-fn map_posting(row: &rusqlite::Row) -> Result<Posting, rusqlite::Error> {
-    let amount: i64 = row.get(4)?;
-    let cost: Option<i64> = row.get(5)?;
-    Ok(Posting {
-        id: PostingId(row.get(0)?),
-        transaction_id: TransactionId(row.get(1)?),
-        account_id: AccountId(row.get(2)?),
-        commodity_id: CommodityId(row.get(3)?),
-        amount: accounting::amount::from_db_amount(amount, 2),
-        cost: cost.map(|c| accounting::amount::from_db_amount(c, 2)),
-        cost_commodity_id: row.get::<_, Option<i64>>(6)?.map(CommodityId),
-        description: row.get(7)?,
-        member_id: row.get::<_, Option<i64>>(8)?.map(accounting::id::MemberId),
-        channel_id: row.get::<_, Option<i64>>(9)?.map(accounting::id::ChannelId),
-    })
+/// 查询商品的精度
+fn get_precision(
+    conn: &Connection,
+    commodity_id: CommodityId,
+) -> Result<u8, crate::error::DbError> {
+    let precision: i32 = conn.query_row(
+        "SELECT precision FROM commodities WHERE id = ?1",
+        params![commodity_id.0],
+        |row| row.get(0),
+    )?;
+    Ok(precision as u8)
 }
 
 #[cfg(test)]

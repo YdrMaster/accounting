@@ -49,38 +49,18 @@ impl<D: Database> ReportService<D> {
             .db
             .transaction()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        // 通过闭包表获取所有后代账户 ID（含自身）
-        let account_ids: Vec<i64> = {
-            let conn = tx.conn();
-            let mut stmt = conn
-                .prepare(
-                    "SELECT account_id FROM account_ancestors WHERE ancestor_id = ?1 UNION SELECT ?1",
-                )
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-            let rows = stmt
-                .query_map(rusqlite::params![account_id.0], |row| row.get::<_, i64>(0))
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-            rows.collect::<Result<_, _>>()
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?
-        };
-
-        let mut totals: HashMap<CommodityId, Decimal> = HashMap::new();
-        for id in account_ids {
-            let balances = tx
-                .posting_repo()
-                .sum_by_account(&tx.conn(), AccountId(id))
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-            for (commodity, amount) in balances {
-                *totals.entry(commodity).or_insert_with(|| Decimal::ZERO) += amount;
-            }
-        }
+        // 通过闭包表聚合查询余额
+        let totals = tx
+            .posting_repo()
+            .sum_with_ancestors(&tx.conn(), account_id)
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.commit()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-        Ok(totals)
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        Ok(totals.into_iter().collect())
     }
 
     /// 资产负债表
@@ -90,7 +70,7 @@ impl<D: Database> ReportService<D> {
             .db
             .account_repo()
             .list(&conn)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         let mut assets = Vec::new();
         let mut liabilities = Vec::new();
@@ -101,7 +81,7 @@ impl<D: Database> ReportService<D> {
                 .db
                 .posting_repo()
                 .sum_by_account(&conn, account.id)
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             if balances.iter().all(|(_, b)| b.is_zero()) {
                 continue;
             }
@@ -131,7 +111,7 @@ impl<D: Database> ReportService<D> {
             .db
             .account_repo()
             .list(&conn)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         let mut income = Vec::new();
         let mut expenses = Vec::new();
@@ -141,7 +121,7 @@ impl<D: Database> ReportService<D> {
                 .db
                 .posting_repo()
                 .sum_by_account(&conn, account.id)
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             if balances.iter().all(|(_, b)| b.is_zero()) {
                 continue;
             }

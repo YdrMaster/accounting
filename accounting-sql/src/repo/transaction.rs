@@ -258,7 +258,9 @@ impl TransactionRepo for SqliteTransactionRepo {
 
 fn map_transaction(row: &rusqlite::Row) -> Result<Transaction, rusqlite::Error> {
     let date_str: String = row.get(1)?;
-    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d").unwrap_or_default();
+    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d").map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
+    })?;
 
     Ok(Transaction {
         id: TransactionId(row.get(0)?),

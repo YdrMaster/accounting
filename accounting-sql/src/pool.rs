@@ -3,13 +3,13 @@ use std::sync::{Arc, Mutex};
 
 use crate::error::DbError;
 
-/// SQLite 连接池
+/// SQLite 数据库连接句柄（包装单个 Connection 的同步访问）
 #[derive(Clone)]
-pub struct ConnectionPool {
+pub struct ConnectionHandle {
     conn: Arc<Mutex<Connection>>,
 }
 
-impl ConnectionPool {
+impl ConnectionHandle {
     /// 打开文件数据库
     pub fn open(path: &str) -> Result<Self, DbError> {
         let conn = Connection::open(path)?;

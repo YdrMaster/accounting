@@ -21,7 +21,7 @@ impl<D: Database> CommodityService<D> {
             .db
             .commodity_repo()
             .list(&conn)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(commodities)
     }
 
@@ -43,7 +43,7 @@ impl<D: Database> CommodityService<D> {
             .db
             .commodity_repo()
             .create(&conn, &commodity)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(id)
     }
 }

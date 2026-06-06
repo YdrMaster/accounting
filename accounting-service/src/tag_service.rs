@@ -21,7 +21,7 @@ impl<D: Database> TagService<D> {
             .db
             .tag_repo()
             .list(&conn)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(tags)
     }
 
@@ -42,7 +42,7 @@ impl<D: Database> TagService<D> {
             .db
             .tag_repo()
             .create(&conn, &tag)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(id)
     }
 
@@ -52,7 +52,7 @@ impl<D: Database> TagService<D> {
         self.db
             .tag_repo()
             .delete(&conn, name)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 }

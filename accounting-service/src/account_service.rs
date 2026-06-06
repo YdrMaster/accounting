@@ -21,19 +21,19 @@ impl<D: Database> AccountService<D> {
     }
 
     /// 创建账户并维护闭包表
-    pub async fn create(&self, mut account: Account) -> Result<AccountId, AccountingError> {
+    pub async fn create(&self, account: Account) -> Result<AccountId, AccountingError> {
         let tx = self
             .db
             .transaction()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 验证父账户存在
         if let Some(parent_id) = account.parent_id {
             let parent = tx
                 .account_repo()
                 .get(&tx.conn(), parent_id)
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             if parent.is_none() {
                 return Err(AccountingError::AccountNotFound(format!(
                     "父账户 {} 不存在",
@@ -46,70 +46,22 @@ impl<D: Database> AccountService<D> {
         let existing = tx
             .account_repo()
             .get_by_name(&tx.conn(), &account.full_name)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         if existing.is_some() {
             return Err(AccountingError::AccountAlreadyExists(
                 account.full_name.clone(),
             ));
         }
 
-        // 插入账户
+        // 创建账户并维护闭包表
         let id = tx
             .account_repo()
-            .create(&tx.conn(), &account)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-        account.id = id;
-
-        // 维护闭包表
-        tx.conn()
-            .execute(
-                "INSERT INTO account_ancestors (account_id, ancestor_id, depth) VALUES (?1, ?1, 0)",
-                rusqlite::params![id.0],
-            )
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-
-        if let Some(parent_id) = account.parent_id {
-            // 直接父节点
-            tx.conn()
-                .execute(
-                    "INSERT INTO account_ancestors (account_id, ancestor_id, depth) VALUES (?1, ?2, 1)",
-                    rusqlite::params![id.0, parent_id.0],
-                )
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-
-            // 继承父节点的祖先
-            let ancestors: Vec<(i64, i32)> = {
-                let conn = tx.conn();
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT ancestor_id, depth FROM account_ancestors WHERE account_id = ?1",
-                    )
-                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-                let rows = stmt
-                    .query_map(rusqlite::params![parent_id.0], |row| {
-                        Ok((row.get::<_, i64>(0)?, row.get::<_, i32>(1)?))
-                    })
-                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-                rows.collect::<Result<_, _>>()
-                    .map_err(|e| AccountingError::Unknown(e.to_string()))?
-            };
-
-            for (ancestor_id, depth) in ancestors {
-                if ancestor_id == parent_id.0 {
-                    continue; // 已在上面插入
-                }
-                tx.conn()
-                    .execute(
-                        "INSERT INTO account_ancestors (account_id, ancestor_id, depth) VALUES (?1, ?2, ?3)",
-                        rusqlite::params![id.0, ancestor_id, depth + 1],
-                    )
-                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-            }
-        }
+            .create_with_closure(&tx.conn(), &account)
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.commit()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(id)
     }
 
@@ -119,12 +71,12 @@ impl<D: Database> AccountService<D> {
             .db
             .transaction()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         let account = tx
             .account_repo()
             .get(&tx.conn(), id)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         let account = account
             .ok_or_else(|| AccountingError::AccountNotFound(format!("账户 {} 不存在", id)))?;
 
@@ -132,28 +84,28 @@ impl<D: Database> AccountService<D> {
         let balances = tx
             .posting_repo()
             .sum_by_account(&tx.conn(), id)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         validate_account_close(account.account_type, &balances)?;
 
         // 关闭目标账户
         tx.account_repo()
             .close(&tx.conn(), id, closed_at)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 级联关闭子账户
         let children = tx
             .account_repo()
             .list_children(&tx.conn(), id)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         for child in children {
             tx.account_repo()
                 .close(&tx.conn(), child.id, closed_at)
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
         tx.commit()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 
@@ -163,26 +115,26 @@ impl<D: Database> AccountService<D> {
             .db
             .transaction()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 级联恢复子账户
         let children = tx
             .account_repo()
             .list_children(&tx.conn(), id)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         for child in children {
             tx.account_repo()
                 .reopen(&tx.conn(), child.id)
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
         tx.account_repo()
             .reopen(&tx.conn(), id)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.commit()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 
@@ -198,7 +150,7 @@ impl<D: Database> AccountService<D> {
             .db
             .account_repo()
             .list(&conn)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         if let Some(ty) = account_type {
             accounts.retain(|a| a.account_type == ty);
         }
@@ -219,7 +171,7 @@ impl<D: Database> AccountService<D> {
         self.db
             .account_repo()
             .get(&conn, id)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
 
     /// 查询账户余额（含子账户聚合）
@@ -231,37 +183,17 @@ impl<D: Database> AccountService<D> {
             .db
             .transaction()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        let account_ids: Vec<i64> = {
-            let conn = tx.conn();
-            let mut stmt = conn
-                .prepare(
-                    "SELECT account_id FROM account_ancestors WHERE ancestor_id = ?1 UNION SELECT ?1",
-                )
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-            let rows = stmt
-                .query_map(rusqlite::params![id.0], |row| row.get::<_, i64>(0))
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-            rows.collect::<Result<_, _>>()
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?
-        };
-
-        let mut totals: HashMap<CommodityId, Decimal> = HashMap::new();
-        for account_id in account_ids {
-            let balances = tx
-                .posting_repo()
-                .sum_by_account(&tx.conn(), AccountId(account_id))
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-            for (commodity, amount) in balances {
-                *totals.entry(commodity).or_insert_with(|| Decimal::ZERO) += amount;
-            }
-        }
+        let totals = tx
+            .posting_repo()
+            .sum_with_ancestors(&tx.conn(), id)
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.commit()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-        Ok(totals)
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        Ok(totals.into_iter().collect())
     }
 }
 

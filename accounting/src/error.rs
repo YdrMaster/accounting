@@ -14,6 +14,8 @@ pub enum AccountingError {
     AccountAlreadyExists(String),
     #[error("日期格式错误: {0}")]
     InvalidDate(String),
+    #[error("数据库错误: {0}")]
+    DatabaseError(String),
     #[error("未知错误: {0}")]
     Unknown(String),
 }

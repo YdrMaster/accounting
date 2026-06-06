@@ -41,6 +41,12 @@ pub trait AccountRepo {
     ) -> Result<(), crate::error::DbError>;
     /// 重新开启账户（清除 closed_at）
     fn reopen(&self, conn: &Connection, id: AccountId) -> Result<(), crate::error::DbError>;
+    /// 创建账户并自动维护闭包表
+    fn create_with_closure(
+        &self,
+        conn: &Connection,
+        account: &Account,
+    ) -> Result<AccountId, crate::error::DbError>;
 }
 
 /// SQLite AccountRepo 实现
@@ -146,6 +152,48 @@ impl AccountRepo for SqliteAccountRepo {
         )?;
         Ok(())
     }
+
+    fn create_with_closure(
+        &self,
+        conn: &Connection,
+        account: &Account,
+    ) -> Result<AccountId, crate::error::DbError> {
+        let id = self.create(conn, account)?;
+
+        // 维护闭包表：自身 depth=0
+        conn.execute(
+            "INSERT INTO account_ancestors (account_id, ancestor_id, depth) VALUES (?1, ?1, 0)",
+            params![id.0],
+        )?;
+
+        if let Some(parent_id) = account.parent_id {
+            // 直接父节点 depth=1
+            conn.execute(
+                "INSERT INTO account_ancestors (account_id, ancestor_id, depth) VALUES (?1, ?2, 1)",
+                params![id.0, parent_id.0],
+            )?;
+
+            // 继承父节点的祖先
+            let mut stmt = conn.prepare(
+                "SELECT ancestor_id, depth FROM account_ancestors WHERE account_id = ?1",
+            )?;
+            let rows = stmt.query_map(params![parent_id.0], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, i32>(1)?))
+            })?;
+            for result in rows {
+                let (ancestor_id, depth) = result?;
+                if ancestor_id == parent_id.0 {
+                    continue; // 已在上面插入
+                }
+                conn.execute(
+                    "INSERT INTO account_ancestors (account_id, ancestor_id, depth) VALUES (?1, ?2, ?3)",
+                    params![id.0, ancestor_id, depth + 1],
+                )?;
+            }
+        }
+
+        Ok(id)
+    }
 }
 
 fn map_account(row: &rusqlite::Row) -> Result<Account, rusqlite::Error> {
@@ -160,10 +208,17 @@ fn map_account(row: &rusqlite::Row) -> Result<Account, rusqlite::Error> {
     };
 
     let opened_str: String = row.get(4)?;
-    let opened_at = NaiveDate::parse_from_str(&opened_str, "%Y-%m-%d").unwrap_or_default();
+    let opened_at = NaiveDate::parse_from_str(&opened_str, "%Y-%m-%d").map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e))
+    })?;
 
     let closed_at: Option<String> = row.get(5)?;
-    let closed_at = closed_at.and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok());
+    let closed_at = match closed_at {
+        Some(s) => Some(NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(e))
+        })?),
+        None => None,
+    };
 
     Ok(Account {
         id: AccountId(row.get(0)?),

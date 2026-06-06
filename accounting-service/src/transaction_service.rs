@@ -31,23 +31,23 @@ impl<D: Database> TransactionService<D> {
             .db
             .transaction()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         let tx_id = tx
             .transaction_repo()
             .insert(&tx.conn(), &transaction, &tag_ids)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         for posting in &mut postings {
             posting.transaction_id = tx_id;
             tx.posting_repo()
                 .insert(&tx.conn(), posting)
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
         tx.commit()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(tx_id)
     }
 
@@ -64,29 +64,29 @@ impl<D: Database> TransactionService<D> {
             .db
             .transaction()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 删除旧分录
         tx.posting_repo()
             .delete_by_transaction(&tx.conn(), transaction.id)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 更新交易
         tx.transaction_repo()
             .update(&tx.conn(), &transaction, &tag_ids)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 插入新分录
         for posting in &mut postings {
             posting.transaction_id = transaction.id;
             tx.posting_repo()
                 .insert(&tx.conn(), posting)
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
         tx.commit()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 
@@ -96,15 +96,15 @@ impl<D: Database> TransactionService<D> {
             .db
             .transaction()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.transaction_repo()
             .delete(&tx.conn(), id)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.commit()
             .await
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 
@@ -122,14 +122,14 @@ impl<D: Database> TransactionService<D> {
             .db
             .transaction_repo()
             .list(&conn, &filter, limit, offset)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         let mut result = Vec::new();
         for tx in transactions {
             let postings = self
                 .db
                 .posting_repo()
                 .list_by_transaction(&conn, tx.id)
-                .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             result.push((tx, postings));
         }
         Ok(result)
@@ -145,14 +145,14 @@ impl<D: Database> TransactionService<D> {
             .db
             .transaction_repo()
             .get(&conn, id)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         match transaction {
             Some(tx) => {
                 let postings = self
                     .db
                     .posting_repo()
                     .list_by_transaction(&conn, tx.id)
-                    .map_err(|e| AccountingError::Unknown(e.to_string()))?;
+                    .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
                 Ok(Some((tx, postings)))
             }
             None => Ok(None),

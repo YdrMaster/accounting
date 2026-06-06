@@ -1,6 +1,6 @@
 use crate::database::Database;
 use crate::error::DbError;
-use crate::pool::ConnectionPool;
+use crate::pool::ConnectionHandle;
 use crate::repo::account::{AccountRepo, SqliteAccountRepo};
 use crate::repo::attachment::{AttachmentRepo, SqliteAttachmentRepo};
 use crate::repo::channel::{ChannelRepo, SqliteChannelRepo};
@@ -13,7 +13,7 @@ use crate::transaction::Transaction;
 
 /// SQLite 数据库实现
 pub struct SqliteDatabase {
-    pool: ConnectionPool,
+    pool: ConnectionHandle,
     account_repo: SqliteAccountRepo,
     commodity_repo: SqliteCommodityRepo,
     member_repo: SqliteMemberRepo,
@@ -27,7 +27,7 @@ pub struct SqliteDatabase {
 impl SqliteDatabase {
     /// 打开文件数据库并自动初始化 schema 与 seed 数据
     pub fn open(path: &str) -> Result<Self, DbError> {
-        let pool = ConnectionPool::open(path)?;
+        let pool = ConnectionHandle::open(path)?;
         {
             let conn = pool.get();
             crate::schema::initialize_schema(&conn)?;
@@ -38,7 +38,7 @@ impl SqliteDatabase {
 
     /// 打开内存数据库并自动初始化 schema 与 seed 数据
     pub fn open_in_memory() -> Result<Self, DbError> {
-        let pool = ConnectionPool::open_in_memory()?;
+        let pool = ConnectionHandle::open_in_memory()?;
         {
             let conn = pool.get();
             crate::schema::initialize_schema(&conn)?;
@@ -47,7 +47,7 @@ impl SqliteDatabase {
         Ok(Self::new(pool))
     }
 
-    fn new(pool: ConnectionPool) -> Self {
+    fn new(pool: ConnectionHandle) -> Self {
         Self {
             pool,
             account_repo: SqliteAccountRepo,
@@ -114,7 +114,7 @@ impl Database for SqliteDatabase {
 
 /// SQLite 事务实现
 pub struct SqliteTransaction {
-    pool: ConnectionPool,
+    pool: ConnectionHandle,
     committed: bool,
     account_repo: SqliteAccountRepo,
     commodity_repo: SqliteCommodityRepo,
