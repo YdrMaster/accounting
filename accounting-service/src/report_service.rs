@@ -1,7 +1,8 @@
 use accounting::account::Account;
 use accounting::account_type::AccountType;
 use accounting::error::AccountingError;
-use accounting::id::{AccountId, CommodityId};
+use accounting::id::{AccountId, ChannelId, CommodityId, MemberId, TagId};
+use accounting::transaction_filter::TransactionFilter;
 use accounting_sql::database::Database;
 use accounting_sql::transaction::Transaction;
 use rust_decimal::Decimal;
@@ -36,11 +37,45 @@ pub struct IncomeStatement {
     pub expenses: Vec<AccountBalance>,
 }
 
+/// 标签统计项
+#[derive(Debug, Clone)]
+pub struct TagStat {
+    /// 标签信息
+    pub tag: accounting::tag::Tag,
+    /// 该标签下 Income 类账户的汇总（收入）
+    pub income: Vec<(CommodityId, Decimal)>,
+    /// 该标签下 Expense 类账户的汇总（支出）
+    pub expense: Vec<(CommodityId, Decimal)>,
+}
+
+/// 成员统计项
+#[derive(Debug, Clone)]
+pub struct MemberStat {
+    /// 成员信息
+    pub member: accounting::member::Member,
+    /// 收入汇总
+    pub income: Vec<(CommodityId, Decimal)>,
+    /// 支出汇总
+    pub expense: Vec<(CommodityId, Decimal)>,
+}
+
+/// 渠道统计项
+#[derive(Debug, Clone)]
+pub struct ChannelStat {
+    /// 渠道信息
+    pub channel: accounting::channel::Channel,
+    /// 收入汇总
+    pub income: Vec<(CommodityId, Decimal)>,
+    /// 支出汇总
+    pub expense: Vec<(CommodityId, Decimal)>,
+}
+
 /// 报告服务
 pub struct ReportService<D: Database> {
     db: D,
 }
 
+#[allow(clippy::type_complexity)]
 impl<D: Database> ReportService<D> {
     /// 创建服务实例
     pub fn new(db: D) -> Self {
@@ -145,6 +180,155 @@ impl<D: Database> ReportService<D> {
 
         Ok(IncomeStatement { income, expenses })
     }
+
+    /// 按标签统计收入与支出
+    pub async fn stats_by_tag(
+        &self,
+        filter: &TransactionFilter,
+    ) -> Result<Vec<TagStat>, AccountingError> {
+        let mut filter = filter.clone();
+        filter.tag_id = None; // 忽略维度自身过滤
+
+        let conn = self.db.connection();
+        let raw = self
+            .db
+            .posting_repo()
+            .sum_by_tag(&conn, &filter)
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        // 按 TagId 分组，区分 Income(4) 和 Expense(5)
+        let mut groups: HashMap<TagId, (Vec<(CommodityId, Decimal)>, Vec<(CommodityId, Decimal)>)> =
+            HashMap::new();
+        for (tag_id, commodity_id, account_type, amount) in raw {
+            let entry = groups.entry(tag_id).or_default();
+            match account_type {
+                4 => entry.0.push((commodity_id, amount)), // Income
+                5 => entry.1.push((commodity_id, amount)), // Expense
+                _ => {}
+            }
+        }
+
+        let tags: HashMap<TagId, accounting::tag::Tag> = self
+            .db
+            .tag_repo()
+            .list(&conn)
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+            .into_iter()
+            .map(|t| (t.id, t))
+            .collect();
+
+        let mut result = Vec::new();
+        for (tag_id, (income, expense)) in groups {
+            let tag = tags.get(&tag_id).cloned().ok_or_else(|| {
+                AccountingError::DatabaseError(format!("标签 {} 不存在", tag_id.0))
+            })?;
+            result.push(TagStat {
+                tag,
+                income,
+                expense,
+            });
+        }
+
+        Ok(result)
+    }
+
+    /// 按成员统计收入与支出
+    pub async fn stats_by_member(
+        &self,
+        filter: &TransactionFilter,
+    ) -> Result<Vec<MemberStat>, AccountingError> {
+        let mut filter = filter.clone();
+        filter.member_id = None; // 忽略维度自身过滤
+
+        let conn = self.db.connection();
+        let raw = self
+            .db
+            .posting_repo()
+            .sum_by_member(&conn, &filter)
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        // 按 MemberId 分组，区分 Income(4) 和 Expense(5)
+        let mut groups: HashMap<
+            MemberId,
+            (Vec<(CommodityId, Decimal)>, Vec<(CommodityId, Decimal)>),
+        > = HashMap::new();
+        for (member_id, commodity_id, account_type, amount) in raw {
+            let entry = groups.entry(member_id).or_default();
+            match account_type {
+                4 => entry.0.push((commodity_id, amount)), // Income
+                5 => entry.1.push((commodity_id, amount)), // Expense
+                _ => {}
+            }
+        }
+
+        let mut result = Vec::new();
+        for (member_id, (income, expense)) in groups {
+            let member = self
+                .db
+                .member_repo()
+                .get(&conn, member_id)
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+                .ok_or_else(|| {
+                    AccountingError::DatabaseError(format!("成员 {} 不存在", member_id.0))
+                })?;
+            result.push(MemberStat {
+                member,
+                income,
+                expense,
+            });
+        }
+
+        Ok(result)
+    }
+
+    /// 按渠道统计收入与支出
+    pub async fn stats_by_channel(
+        &self,
+        filter: &TransactionFilter,
+    ) -> Result<Vec<ChannelStat>, AccountingError> {
+        let mut filter = filter.clone();
+        filter.channel_id = None; // 忽略维度自身过滤
+
+        let conn = self.db.connection();
+        let raw = self
+            .db
+            .posting_repo()
+            .sum_by_channel(&conn, &filter)
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        // 按 ChannelId 分组，区分 Income(4) 和 Expense(5)
+        let mut groups: HashMap<
+            ChannelId,
+            (Vec<(CommodityId, Decimal)>, Vec<(CommodityId, Decimal)>),
+        > = HashMap::new();
+        for (channel_id, commodity_id, account_type, amount) in raw {
+            let entry = groups.entry(channel_id).or_default();
+            match account_type {
+                4 => entry.0.push((commodity_id, amount)), // Income
+                5 => entry.1.push((commodity_id, amount)), // Expense
+                _ => {}
+            }
+        }
+
+        let mut result = Vec::new();
+        for (channel_id, (income, expense)) in groups {
+            let channel = self
+                .db
+                .channel_repo()
+                .get(&conn, channel_id)
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+                .ok_or_else(|| {
+                    AccountingError::DatabaseError(format!("渠道 {} 不存在", channel_id.0))
+                })?;
+            result.push(ChannelStat {
+                channel,
+                income,
+                expense,
+            });
+        }
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -152,8 +336,11 @@ mod tests {
     use super::*;
     use accounting::account::Account;
     use accounting::account_type::AccountType;
-    use accounting::id::{AccountId, CommodityId, PostingId, TransactionId};
+    use accounting::channel::Channel;
+    use accounting::id::{AccountId, CommodityId, MemberId, PostingId, TagId, TransactionId};
+    use accounting::member::Member;
     use accounting::posting::Posting;
+    use accounting::tag::Tag;
     use accounting::transaction::Transaction;
     use accounting_sql::impls::sqlite::SqliteDatabase;
     use chrono::NaiveDate;
@@ -242,5 +429,240 @@ mod tests {
 
         let balance = report_service.get_balance(id1).await.unwrap();
         assert_eq!(balance[&CommodityId(1)], Decimal::from_str("100").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_stats_by_tag() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
+        let report_service = ReportService::new(db);
+
+        // 准备数据（放在独立作用域中，确保 conn 在 async 调用前释放）
+        let _ = {
+            let conn = report_service.db.connection();
+
+            // 创建 Income / Expense 账户
+            let income_acc = sample_account("Income:Salary", AccountType::Income);
+            let expense_acc = sample_account("Expense:Food", AccountType::Expense);
+            let income_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &income_acc)
+                .unwrap();
+            let expense_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &expense_acc)
+                .unwrap();
+
+            // 创建标签
+            let tag = Tag {
+                id: TagId(0),
+                name: "餐饮".to_string(),
+                description: None,
+                is_system: false,
+            };
+            let tag_id = report_service.db.tag_repo().create(&conn, &tag).unwrap();
+
+            // 创建交易并关联标签
+            let tx = Transaction {
+                id: TransactionId(0),
+                date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                description: "Tag stat test".to_string(),
+                member_id: None,
+                is_template: false,
+            };
+            let tx_id = report_service
+                .db
+                .transaction_repo()
+                .insert(&conn, &tx, &[tag_id])
+                .unwrap();
+
+            // 插入分录
+            let mut p1 = sample_posting(income_id, "100");
+            p1.transaction_id = tx_id;
+            let mut p2 = sample_posting(expense_id, "-100");
+            p2.transaction_id = tx_id;
+            report_service.db.posting_repo().insert(&conn, &p1).unwrap();
+            report_service.db.posting_repo().insert(&conn, &p2).unwrap();
+
+            (income_id, expense_id, tag_id)
+        };
+
+        // 验证统计
+        let stats = report_service
+            .stats_by_tag(&TransactionFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].tag.name, "餐饮");
+        assert_eq!(stats[0].income.len(), 1);
+        assert_eq!(stats[0].income[0].0, CommodityId(1));
+        assert_eq!(stats[0].income[0].1, Decimal::from_str("100").unwrap());
+        assert_eq!(stats[0].expense.len(), 1);
+        assert_eq!(stats[0].expense[0].0, CommodityId(1));
+        assert_eq!(stats[0].expense[0].1, Decimal::from_str("-100").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_stats_by_member() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
+        let report_service = ReportService::new(db);
+
+        // 准备数据（放在独立作用域中，确保 conn 在 async 调用前释放）
+        let _ = {
+            let conn = report_service.db.connection();
+
+            // 创建 Income / Expense 账户
+            let income_acc = sample_account("Income:Salary", AccountType::Income);
+            let expense_acc = sample_account("Expense:Food", AccountType::Expense);
+            let income_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &income_acc)
+                .unwrap();
+            let expense_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &expense_acc)
+                .unwrap();
+
+            // 创建成员
+            let member = Member {
+                id: MemberId(0),
+                name: "Alice".to_string(),
+            };
+            let member_id = report_service
+                .db
+                .member_repo()
+                .create(&conn, &member)
+                .unwrap();
+
+            // 创建交易并设置成员
+            let tx = Transaction {
+                id: TransactionId(0),
+                date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                description: "Member stat test".to_string(),
+                member_id: Some(member_id),
+                is_template: false,
+            };
+            let tx_id = report_service
+                .db
+                .transaction_repo()
+                .insert(&conn, &tx, &[])
+                .unwrap();
+
+            // 插入分录
+            let mut p1 = sample_posting(income_id, "100");
+            p1.transaction_id = tx_id;
+            let mut p2 = sample_posting(expense_id, "-100");
+            p2.transaction_id = tx_id;
+            report_service.db.posting_repo().insert(&conn, &p1).unwrap();
+            report_service.db.posting_repo().insert(&conn, &p2).unwrap();
+
+            (income_id, expense_id, member_id)
+        };
+
+        // 验证统计
+        let stats = report_service
+            .stats_by_member(&TransactionFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].member.name, "Alice");
+        assert_eq!(stats[0].income.len(), 1);
+        assert_eq!(stats[0].income[0].0, CommodityId(1));
+        assert_eq!(stats[0].income[0].1, Decimal::from_str("100").unwrap());
+        assert_eq!(stats[0].expense.len(), 1);
+        assert_eq!(stats[0].expense[0].0, CommodityId(1));
+        assert_eq!(stats[0].expense[0].1, Decimal::from_str("-100").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_stats_by_channel() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
+        let report_service = ReportService::new(db);
+
+        // 准备数据（放在独立作用域中，确保 conn 在 async 调用前释放）
+        let _ = {
+            let conn = report_service.db.connection();
+
+            // 创建 Income / Expense 账户
+            let income_acc = sample_account("Income:Salary", AccountType::Income);
+            let expense_acc = sample_account("Expense:Food", AccountType::Expense);
+            let income_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &income_acc)
+                .unwrap();
+            let expense_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &expense_acc)
+                .unwrap();
+
+            // 创建渠道
+            let channel = Channel {
+                id: ChannelId(0),
+                name: "支付宝".to_string(),
+                description: None,
+            };
+            let channel_id = report_service
+                .db
+                .channel_repo()
+                .create(&conn, &channel)
+                .unwrap();
+
+            // 创建交易
+            let tx = Transaction {
+                id: TransactionId(0),
+                date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                description: "Channel stat test".to_string(),
+                member_id: None,
+                is_template: false,
+            };
+            let tx_id = report_service
+                .db
+                .transaction_repo()
+                .insert(&conn, &tx, &[])
+                .unwrap();
+
+            // 插入分录并关联渠道
+            let mut p1 = sample_posting(income_id, "100");
+            p1.transaction_id = tx_id;
+            p1.channel_id = Some(channel_id);
+            let mut p2 = sample_posting(expense_id, "-100");
+            p2.transaction_id = tx_id;
+            p2.channel_id = Some(channel_id);
+            report_service.db.posting_repo().insert(&conn, &p1).unwrap();
+            report_service.db.posting_repo().insert(&conn, &p2).unwrap();
+
+            (income_id, expense_id, channel_id)
+        };
+
+        // 验证统计
+        let stats = report_service
+            .stats_by_channel(&TransactionFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].channel.name, "支付宝");
+        assert_eq!(stats[0].income.len(), 1);
+        assert_eq!(stats[0].income[0].0, CommodityId(1));
+        assert_eq!(stats[0].income[0].1, Decimal::from_str("100").unwrap());
+        assert_eq!(stats[0].expense.len(), 1);
+        assert_eq!(stats[0].expense[0].0, CommodityId(1));
+        assert_eq!(stats[0].expense[0].1, Decimal::from_str("-100").unwrap());
     }
 }
