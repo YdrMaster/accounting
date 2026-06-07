@@ -8,15 +8,37 @@
     @touchend="handleTouchEnd"
   >
     <div class="transaction-header">
-      <div class="transaction-info">
-        <span class="transaction-date">{{ formattedDate }}</span>
-        <span class="transaction-desc" :title="tx.description">{{ firstLinePreview }}</span>
+      <!-- 栏1：记账人+时间 -->
+      <div class="col-member">
         <span v-if="memberName" class="transaction-member">{{ memberName }}</span>
+        <span class="transaction-date">{{ formattedDate }}</span>
       </div>
-      <div class="transaction-meta">
-        <span class="transaction-amount">¥{{ totalAmount.toFixed(2) }}</span>
-        <span class="expand-icon">{{ expanded ? '▼' : '▶' }}</span>
+      <!-- 栏2：收支账户+备注 -->
+      <div class="col-info">
+        <div class="account-tags">
+          <template v-if="incomeAccounts.length">
+            <span
+              v-for="name in incomeAccounts"
+              :key="name"
+              class="tag-income"
+            >{{ name }}</span>
+          </template>
+          <template v-if="expenseAccounts.length">
+            <span
+              v-for="name in expenseAccounts"
+              :key="name"
+              class="tag-expense"
+            >{{ name }}</span>
+          </template>
+        </div>
+        <span class="transaction-desc" :title="tx.description">{{ firstLinePreview }}</span>
       </div>
+      <!-- 栏3：金额+资产账户 -->
+      <div class="col-amount">
+        <span class="transaction-amount" :class="amountColorClass">¥{{ totalAmount.toFixed(2) }}</span>
+        <span class="asset-accounts">{{ assetAccounts.join(' ') }}</span>
+      </div>
+      <span class="expand-icon">{{ expanded ? '▼' : '▶' }}</span>
     </div>
     <div v-if="expanded" class="transaction-detail">
       <div v-if="postings.length === 0" class="empty">暂无分录</div>
@@ -40,6 +62,7 @@ import { Modal } from 'ant-design-vue'
 import type { Transaction } from '@/stores/transaction'
 import { useMemberStore } from '@/stores/member'
 import { useTransactionStore } from '@/stores/transaction'
+import { useAccountStore } from '@/stores/account'
 
 const props = defineProps<{
   tx: Transaction
@@ -52,6 +75,7 @@ const emit = defineEmits<{
 const router = useRouter()
 const memberStore = useMemberStore()
 const transactionStore = useTransactionStore()
+const accountStore = useAccountStore()
 const expanded = ref(false)
 const postings = computed(() => props.tx.postings || [])
 
@@ -84,6 +108,34 @@ const firstLinePreview = computed(() => {
   const text = props.tx.description || ''
   const firstLine = text.split('\n')[0] || ''
   return firstLine
+})
+
+function lastSegment(fullName: string): string {
+  const segments = fullName.split(':')
+  return segments[segments.length - 1] || fullName
+}
+
+function accountsByType(type: string): string[] {
+  const names = new Set<string>()
+  for (const p of postings.value) {
+    const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+    if (acc?.account_type === type) {
+      names.add(lastSegment(acc.full_name))
+    }
+  }
+  return Array.from(names)
+}
+
+const expenseAccounts = computed(() => accountsByType('Expense'))
+const incomeAccounts = computed(() => accountsByType('Income'))
+const assetAccounts = computed(() => accountsByType('Asset'))
+
+const amountColorClass = computed(() => {
+  const hasExpense = expenseAccounts.value.length > 0
+  const hasIncome = incomeAccounts.value.length > 0
+  if (hasExpense && !hasIncome) return 'amount-expense'
+  if (hasIncome && !hasExpense) return 'amount-income'
+  return 'amount-neutral'
 })
 
 function toggleExpand() {
@@ -170,52 +222,112 @@ function handleTouchEnd(e: TouchEvent) {
 
 .transaction-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  align-items: stretch;
+  gap: 12px;
 }
 
-.transaction-info {
+/* 栏1：记账人+时间 */
+.col-member {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
+  gap: 4px;
+  padding-right: 12px;
+  border-right: 1px solid #f0f0f0;
+  min-width: 52px;
+  flex-shrink: 0;
+}
+
+.transaction-member {
+  color: #1890ff;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .transaction-date {
   color: #666;
-  font-size: 14px;
-  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* 栏2：收支账户+备注 */
+.col-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.account-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.tag-income {
+  color: #52c41a;
+}
+
+.tag-expense {
+  color: #f5222d;
 }
 
 .transaction-desc {
   color: #333;
   font-size: 14px;
-  flex: 1;
-  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.transaction-member {
-  color: #999;
-  font-size: 12px;
-}
-
-.transaction-meta {
+/* 栏3：金额+资产 */
+.col-amount {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 4px;
+  padding-left: 12px;
+  border-left: 1px solid #f0f0f0;
+  min-width: 80px;
+  flex-shrink: 0;
 }
 
 .transaction-amount {
   font-size: 15px;
   font-weight: 600;
+}
+
+.amount-expense {
   color: #f5222d;
+}
+
+.amount-income {
+  color: #52c41a;
+}
+
+.amount-neutral {
+  color: #666;
+}
+
+.asset-accounts {
+  color: #666;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
 }
 
 .expand-icon {
   color: #999;
   font-size: 12px;
+  align-self: center;
+  margin-left: 4px;
+  flex-shrink: 0;
 }
 
 .transaction-detail {

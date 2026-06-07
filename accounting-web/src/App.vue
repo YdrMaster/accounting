@@ -47,8 +47,33 @@ html.dark .transaction-member {
   color: #888 !important;
 }
 
-html.dark .transaction-amount {
+html.dark .amount-expense {
   color: #ff7875 !important;
+}
+
+html.dark .amount-income {
+  color: #73d13d !important;
+}
+
+html.dark .amount-neutral,
+html.dark .asset-accounts {
+  color: #aaa !important;
+}
+
+html.dark .tag-income {
+  color: #73d13d !important;
+}
+
+html.dark .tag-expense {
+  color: #ff7875 !important;
+}
+
+html.dark .col-member {
+  border-right-color: #333 !important;
+}
+
+html.dark .col-amount {
+  border-left-color: #333 !important;
 }
 
 html.dark .expand-icon {
