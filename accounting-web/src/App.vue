@@ -1,16 +1,33 @@
 <template>
-  <a-config-provider :theme="{ algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm }">
+  <a-config-provider :theme="antTheme">
     <Layout />
   </a-config-provider>
 </template>
 
 <script setup lang="ts">
 import { theme } from 'ant-design-vue'
+import { computed, watch, onMounted } from 'vue'
 import Layout from './components/Layout.vue'
 import { useThemeStore } from './stores/theme'
 
 const themeStore = useThemeStore()
-const isDark = themeStore.isDark
+
+const antTheme = computed(() => ({
+  algorithm: themeStore.isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
+}))
+
+// 确保 html.dark 类与 isDark 同步
+watch(
+  () => themeStore.isDark,
+  (dark) => {
+    document.documentElement.classList.toggle('dark', dark)
+  },
+  { immediate: true },
+)
+
+onMounted(() => {
+  document.documentElement.classList.toggle('dark', themeStore.isDark)
+})
 </script>
 
 <style>

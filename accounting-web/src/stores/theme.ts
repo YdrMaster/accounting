@@ -7,18 +7,29 @@ function getSystemTheme() {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
+function getSavedTheme(): Theme {
+  const raw = localStorage.getItem('theme')
+  if (raw === 'light' || raw === 'dark' || raw === 'auto') {
+    return raw
+  }
+  // 非法值自动清理
+  if (raw !== null) {
+    localStorage.removeItem('theme')
+  }
+  return 'light'
+}
+
 export const useThemeStore = defineStore('theme', () => {
-  const theme = ref<Theme>((localStorage.getItem('theme') as Theme) || 'auto')
+  const theme = ref<Theme>(getSavedTheme())
   const isDark = ref(theme.value === 'dark' || (theme.value === 'auto' && getSystemTheme() === 'dark'))
 
   function apply() {
-    const dark = theme.value === 'dark' || (theme.value === 'auto' && getSystemTheme() === 'dark')
+    const raw = theme.value
+    // 防御：如果 theme.value 意外变成对象，回退到 'auto'
+    const themeName = typeof raw === 'string' ? (raw as Theme) : 'light'
+    const dark = themeName === 'dark' || (themeName === 'auto' && getSystemTheme() === 'dark')
     isDark.value = dark
-    if (dark) {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
+    document.documentElement.classList.toggle('dark', dark)
   }
 
   function setTheme(value: Theme) {

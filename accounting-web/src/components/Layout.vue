@@ -4,12 +4,12 @@
     <a-layout-sider
       v-if="!isMobile"
       width="200"
-      theme="dark"
+      :theme="themeStore.isDark ? 'dark' : 'light'"
       class="layout-sider"
     >
       <div class="logo">记账</div>
       <a-menu
-        theme="dark"
+        :theme="themeStore.isDark ? 'dark' : 'light'"
         mode="inline"
         :selected-keys="[currentRoute]"
         @click="handleMenuClick"
@@ -235,8 +235,9 @@ function handleResize() {
   isMobile.value = window.innerWidth < 768
 }
 
-function handleThemeChange() {
-  themeStore.setTheme(themeStore.theme)
+function handleThemeChange(e: any) {
+  const val = e?.target?.value ?? themeStore.theme
+  themeStore.setTheme(val)
 }
 
 async function handleChange(value: number) {
@@ -287,10 +288,15 @@ onUnmounted(() => {
   height: 64px;
   line-height: 64px;
   text-align: center;
-  color: #fff;
+  color: #333;
   font-size: 20px;
   font-weight: bold;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.layout-sider.ant-layout-sider-dark .logo {
+  color: #fff;
+  border-bottom-color: rgba(255, 255, 255, 0.1);
 }
 
 .layout-content {
@@ -309,16 +315,16 @@ onUnmounted(() => {
   right: 16px;
 }
 
-.sider-member :deep(.ant-select-selector) {
+.layout-sider.ant-layout-sider-dark .sider-member :deep(.ant-select-selector) {
   background: rgba(255, 255, 255, 0.1) !important;
   color: #fff !important;
 }
 
-.sider-member :deep(.ant-select-selection-item) {
+.layout-sider.ant-layout-sider-dark .sider-member :deep(.ant-select-selection-item) {
   color: #fff !important;
 }
 
-.sider-member :deep(.ant-select-arrow) {
+.layout-sider.ant-layout-sider-dark .sider-member :deep(.ant-select-arrow) {
   color: rgba(255, 255, 255, 0.6) !important;
 }
 
@@ -329,11 +335,11 @@ onUnmounted(() => {
   right: 8px;
 }
 
-.sider-settings :deep(.ant-btn) {
+.layout-sider.ant-layout-sider-dark .sider-settings :deep(.ant-btn) {
   color: rgba(255, 255, 255, 0.65);
 }
 
-.sider-settings :deep(.ant-btn:hover) {
+.layout-sider.ant-layout-sider-dark .sider-settings :deep(.ant-btn:hover) {
   color: #fff;
   background: rgba(255, 255, 255, 0.1);
 }
