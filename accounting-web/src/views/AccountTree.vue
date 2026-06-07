@@ -2,7 +2,7 @@
   <div class="account-tree">
     <a-tree
       :tree-data="treeData"
-      :default-expanded-keys="expandedKeys"
+      v-model:expanded-keys="expandedKeys"
       class="tree"
     >
       <template #title="{ title, key, dataRef }">
@@ -152,6 +152,11 @@ function handleAddChild(parentId: number) {
   addingParentId.value = parentId
   newAccountName.value = ''
   treeData.value = buildTreeData()
+  // 确保父节点展开
+  const parentKey = String(parentId)
+  if (!expandedKeys.value.includes(parentKey)) {
+    expandedKeys.value = [...expandedKeys.value, parentKey]
+  }
   nextTick(() => {
     newInputRef.value?.focus()
   })
