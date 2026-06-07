@@ -375,9 +375,10 @@ function handleTouchEnd(e: TouchEvent) {
 .channel-tag {
   display: inline-block;
   font-size: 11px;
-  color: #fff;
-  background: #fa8c16;
-  padding: 1px 6px;
+  color: #fa8c16;
+  background: transparent;
+  border: 1px solid #fa8c16;
+  padding: 0 5px;
   border-radius: 4px;
   white-space: nowrap;
   flex-shrink: 0;
