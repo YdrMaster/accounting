@@ -24,10 +24,12 @@ html.dark .layout-content {
   background-color: #141414 !important;
 }
 
+/* ========== TransactionForm ========== */
 html.dark .transaction-form {
   background-color: #1f1f1f !important;
 }
 
+/* ========== TransactionDetail ========== */
 html.dark .transaction-item {
   background-color: #1f1f1f !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -35,6 +37,26 @@ html.dark .transaction-item {
 
 html.dark .transaction-desc {
   color: #e0e0e0 !important;
+}
+
+html.dark .transaction-date {
+  color: #aaa !important;
+}
+
+html.dark .transaction-member {
+  color: #888 !important;
+}
+
+html.dark .transaction-amount {
+  color: #ff7875 !important;
+}
+
+html.dark .expand-icon {
+  color: #888 !important;
+}
+
+html.dark .transaction-detail {
+  border-top-color: #333 !important;
 }
 
 html.dark .posting-row {
@@ -45,20 +67,37 @@ html.dark .posting-account {
   color: #e0e0e0 !important;
 }
 
-html.dark .mobile-top-bar {
-  background-color: #1f1f1f !important;
-  border-bottom-color: #333 !important;
+html.dark .posting-commodity {
+  color: #aaa !important;
 }
 
-html.dark .mobile-tab-bar {
-  background-color: #1f1f1f !important;
-  border-top-color: #333 !important;
-}
-
+/* ========== Dashboard ========== */
 html.dark .overview {
   background-color: #1f1f1f !important;
 }
 
+html.dark .date-group {
+  background-color: #1f1f1f !important;
+}
+
+html.dark .date-header {
+  background-color: #2a2a2a !important;
+  color: #e0e0e0 !important;
+}
+
+html.dark .date-header:hover {
+  background-color: #333 !important;
+}
+
+html.dark .date-icon {
+  color: #888 !important;
+}
+
+html.dark .date-items .transaction-item {
+  border-bottom-color: #333 !important;
+}
+
+/* ========== Calendar ========== */
 html.dark .calendar,
 html.dark .calendar-wrapper {
   background-color: #1f1f1f !important;
@@ -110,24 +149,6 @@ html.dark .day-expense {
   color: #ff7875 !important;
 }
 
-html.dark .month-header {
-  background-color: #1f1f1f !important;
-  border-bottom-color: #333 !important;
-}
-
-html.dark .date-group {
-  background-color: #1f1f1f !important;
-}
-
-html.dark .date-header {
-  background-color: #2a2a2a !important;
-  color: #e0e0e0 !important;
-}
-
-html.dark .date-header:hover {
-  background-color: #333 !important;
-}
-
 html.dark .weekday {
   color: #888 !important;
 }
@@ -136,7 +157,59 @@ html.dark .arrow {
   color: #aaa !important;
 }
 
+/* ========== Layout ========== */
+html.dark .mobile-top-bar {
+  background-color: #1f1f1f !important;
+  border-bottom-color: #333 !important;
+}
+
+html.dark .member-label {
+  color: #aaa !important;
+}
+
+html.dark .mobile-tab-bar {
+  background-color: #1f1f1f !important;
+  border-top-color: #333 !important;
+}
+
+html.dark .tab-item {
+  color: #888 !important;
+}
+
+html.dark .tab-item.active {
+  color: #177ddc !important;
+}
+
 html.dark .drawer-section h4 {
   color: #999 !important;
+}
+
+/* ========== ReportView ========== */
+html.dark .report-view {
+  background-color: #1f1f1f !important;
+}
+
+/* ========== AccountTree ========== */
+html.dark .tree {
+  background-color: #1f1f1f !important;
+}
+
+html.dark .detail-panel {
+  background-color: #1f1f1f !important;
+}
+
+html.dark .detail-label {
+  color: #aaa !important;
+}
+
+html.dark .node-title.active {
+  background-color: #15325b !important;
+  color: #177ddc !important;
+}
+
+/* ========== Common ========== */
+html.dark .empty,
+html.dark .loading {
+  color: #888 !important;
 }
 </style>
