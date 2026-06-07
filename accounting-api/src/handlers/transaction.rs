@@ -181,6 +181,9 @@ async fn create_transaction(
             description: None,
             member_id,
             channel_id: None,
+            kind: accounting::posting::PostingKind::Normal,
+            linked_posting_id: None,
+            reversal_total: Decimal::ZERO,
         });
     }
 
@@ -326,6 +329,9 @@ async fn update_transaction(
                 description: None,
                 member_id,
                 channel_id: None,
+                kind: accounting::posting::PostingKind::Normal,
+                linked_posting_id: None,
+                reversal_total: Decimal::ZERO,
             });
         }
 

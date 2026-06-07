@@ -14,6 +14,12 @@ pub trait PostingRepo {
         conn: &Connection,
         posting: &Posting,
     ) -> Result<PostingId, crate::error::DbError>;
+    /// 按 ID 查询分录
+    fn get(
+        &self,
+        conn: &Connection,
+        id: PostingId,
+    ) -> Result<Option<Posting>, crate::error::DbError>;
     /// 列出某交易的所有分录
     fn list_by_transaction(
         &self,
@@ -88,8 +94,8 @@ impl PostingRepo for SqlitePostingRepo {
             .map(|c| accounting::amount::to_db_amount(c, cost_precision));
         conn.execute(
             "INSERT INTO postings
-             (transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, kind, linked_posting_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 posting.transaction_id.0,
                 posting.account_id.0,
@@ -100,9 +106,51 @@ impl PostingRepo for SqlitePostingRepo {
                 posting.description,
                 posting.member_id.map(|id| id.0),
                 posting.channel_id.map(|id| id.0),
+                posting.kind as i32,
+                posting.linked_posting_id.map(|id| id.0),
             ],
         )?;
         Ok(PostingId(conn.last_insert_rowid()))
+    }
+
+    fn get(
+        &self,
+        conn: &Connection,
+        id: PostingId,
+    ) -> Result<Option<Posting>, crate::error::DbError> {
+        let mut stmt = conn.prepare(
+            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, kind, linked_posting_id, reversal_total
+             FROM postings WHERE id = ?1"
+        )?;
+        let mut rows = stmt.query(params![id.0])?;
+        if let Some(row) = rows.next()? {
+            let precision = get_precision(conn, CommodityId(row.get::<_, i64>(3)?))?;
+            let cost_commodity_id: Option<i64> = row.get(6)?;
+            let cost_precision = cost_commodity_id
+                .map(|cid| get_precision(conn, CommodityId(cid)))
+                .transpose()?
+                .unwrap_or(precision);
+            Ok(Some(Posting {
+                id: PostingId(row.get(0)?),
+                transaction_id: TransactionId(row.get(1)?),
+                account_id: AccountId(row.get(2)?),
+                commodity_id: CommodityId(row.get(3)?),
+                amount: accounting::amount::from_db_amount(row.get(4)?, precision),
+                cost: row
+                    .get::<_, Option<i64>>(5)?
+                    .map(|c| accounting::amount::from_db_amount(c, cost_precision)),
+                cost_commodity_id: cost_commodity_id.map(CommodityId),
+                description: row.get(7)?,
+                member_id: row.get::<_, Option<i64>>(8)?.map(accounting::id::MemberId),
+                channel_id: row.get::<_, Option<i64>>(9)?.map(accounting::id::ChannelId),
+                kind: accounting::posting::PostingKind::from_db(row.get(10)?)
+                    .unwrap_or(accounting::posting::PostingKind::Normal),
+                linked_posting_id: row.get::<_, Option<i64>>(11)?.map(PostingId),
+                reversal_total: accounting::amount::from_db_amount(row.get(12)?, precision),
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     fn list_by_transaction(
@@ -112,7 +160,7 @@ impl PostingRepo for SqlitePostingRepo {
     ) -> Result<Vec<Posting>, crate::error::DbError> {
         // 准备查询语句，获取指定交易的所有原始分录数据
         let mut stmt = conn.prepare(
-            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id
+            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, kind, linked_posting_id, reversal_total
              FROM postings WHERE transaction_id = ?1"
         )?;
         // 先以原始 i64 形式读取所有行，避免在闭包中查询精度导致编译问题
@@ -129,6 +177,9 @@ impl PostingRepo for SqlitePostingRepo {
                     row.get::<_, Option<String>>(7)?,
                     row.get::<_, Option<i64>>(8)?,
                     row.get::<_, Option<i64>>(9)?,
+                    row.get::<_, i32>(10)?,
+                    row.get::<_, Option<i64>>(11)?,
+                    row.get::<_, i64>(12)?,
                 ))
             })?
             .collect::<Result<_, _>>()?;
@@ -145,6 +196,9 @@ impl PostingRepo for SqlitePostingRepo {
             description,
             member_id,
             channel_id,
+            kind,
+            linked_posting_id,
+            reversal_total,
         ) in raw_rows
         {
             let precision = get_precision(conn, CommodityId(commodity_id))?;
@@ -163,6 +217,10 @@ impl PostingRepo for SqlitePostingRepo {
                 description,
                 member_id: member_id.map(accounting::id::MemberId),
                 channel_id: channel_id.map(accounting::id::ChannelId),
+                kind: accounting::posting::PostingKind::from_db(kind)
+                    .unwrap_or(accounting::posting::PostingKind::Normal),
+                linked_posting_id: linked_posting_id.map(PostingId),
+                reversal_total: accounting::amount::from_db_amount(reversal_total, precision),
             });
         }
         Ok(postings)
@@ -175,7 +233,7 @@ impl PostingRepo for SqlitePostingRepo {
     ) -> Result<Vec<Posting>, crate::error::DbError> {
         // 准备查询语句，按交易 ID 排序获取该账户下所有原始分录
         let mut stmt = conn.prepare(
-            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id
+            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, kind, linked_posting_id, reversal_total
              FROM postings WHERE account_id = ?1 ORDER BY transaction_id"
         )?;
         // 先以原始 i64 读取所有行，避免闭包内查询精度
@@ -192,6 +250,9 @@ impl PostingRepo for SqlitePostingRepo {
                     row.get::<_, Option<String>>(7)?,
                     row.get::<_, Option<i64>>(8)?,
                     row.get::<_, Option<i64>>(9)?,
+                    row.get::<_, i32>(10)?,
+                    row.get::<_, Option<i64>>(11)?,
+                    row.get::<_, i64>(12)?,
                 ))
             })?
             .collect::<Result<_, _>>()?;
@@ -208,6 +269,9 @@ impl PostingRepo for SqlitePostingRepo {
             description,
             member_id,
             channel_id,
+            kind,
+            linked_posting_id,
+            reversal_total,
         ) in raw_rows
         {
             let precision = get_precision(conn, CommodityId(commodity_id))?;
@@ -226,6 +290,10 @@ impl PostingRepo for SqlitePostingRepo {
                 description,
                 member_id: member_id.map(accounting::id::MemberId),
                 channel_id: channel_id.map(accounting::id::ChannelId),
+                kind: accounting::posting::PostingKind::from_db(kind)
+                    .unwrap_or(accounting::posting::PostingKind::Normal),
+                linked_posting_id: linked_posting_id.map(PostingId),
+                reversal_total: accounting::amount::from_db_amount(reversal_total, precision),
             });
         }
         Ok(postings)
@@ -605,6 +673,9 @@ mod tests {
             description: None,
             member_id: None,
             channel_id: None,
+            kind: accounting::posting::PostingKind::Normal,
+            linked_posting_id: None,
+            reversal_total: Decimal::ZERO,
         }
     }
 

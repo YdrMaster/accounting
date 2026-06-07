@@ -105,6 +105,9 @@ mod tests {
             description: None,
             member_id: None,
             channel_id: None,
+            kind: crate::posting::PostingKind::Normal,
+            linked_posting_id: None,
+            reversal_total: Decimal::ZERO,
         }
     }
 
