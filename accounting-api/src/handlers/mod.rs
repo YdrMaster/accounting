@@ -1,6 +1,7 @@
 //! API handlers 模块入口
 
 pub mod account;
+pub mod channel;
 pub mod me;
 pub mod member;
 pub mod report;

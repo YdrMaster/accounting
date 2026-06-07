@@ -3,7 +3,7 @@
 use crate::dto::{CreateTransactionRequest, PostingDto, TransactionDetailDto, TransactionDto};
 use crate::handlers::member::AppState;
 use accounting::error::AccountingError;
-use accounting::id::{AccountId, MemberId, PostingId, TagId, TransactionId};
+use accounting::id::{AccountId, ChannelId, MemberId, PostingId, TagId, TransactionId};
 use accounting::posting::Posting;
 use accounting::tag::Tag;
 use accounting::transaction::Transaction;
@@ -122,6 +122,7 @@ async fn list_transactions(
             date_time: tx.date_time.to_string(),
             description: tx.description,
             member_id: tx.member_id.map(|id| id.0),
+            channel_id: tx.channel_id.map(|id| id.0),
             is_template: tx.is_template,
             postings: postings
                 .into_iter()
@@ -211,6 +212,7 @@ async fn create_transaction(
         date_time,
         description: tx_description,
         member_id,
+        channel_id: req.channel_id.map(ChannelId),
         is_template: false,
     };
 
@@ -277,6 +279,7 @@ async fn get_transaction(
         date_time: tx.date_time.to_string(),
         description: tx.description,
         member_id: tx.member_id.map(|id| id.0),
+        channel_id: tx.channel_id.map(|id| id.0),
         is_template: tx.is_template,
         postings: posting_dtos,
     }))
@@ -309,8 +312,8 @@ async fn update_transaction(
                 .map_err(|e| e.to_string())?
                 .ok_or_else(|| format!("Commodity not found: {}", posting_req.commodity))?;
 
-            let amount =
-                Decimal::from_str(&posting_req.amount).map_err(|e| format!("Invalid amount: {}", e))?;
+            let amount = Decimal::from_str(&posting_req.amount)
+                .map_err(|e| format!("Invalid amount: {}", e))?;
 
             postings.push(Posting {
                 id: PostingId(0),
@@ -357,6 +360,7 @@ async fn update_transaction(
         date_time,
         description: req.description,
         member_id,
+        channel_id: req.channel_id.map(ChannelId),
         is_template: false,
     };
 
@@ -391,6 +395,8 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route(
             "/api/transactions/:id",
-            get(get_transaction).put(update_transaction).delete(delete_transaction),
+            get(get_transaction)
+                .put(update_transaction)
+                .delete(delete_transaction),
         )
 }

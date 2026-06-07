@@ -168,6 +168,7 @@ async fn parse_tx_args(
         date_time,
         description: args.description,
         member_id: args.member.map(MemberId),
+        channel_id: None,
         is_template: false,
     };
     Ok((tx, postings, tag_ids))
@@ -185,6 +186,7 @@ async fn parse_tx_args_for_update(
         date_time,
         description: args.description.clone(),
         member_id: args.member.map(MemberId),
+        channel_id: None,
         is_template: false,
     };
     Ok((tx, postings, tag_ids))

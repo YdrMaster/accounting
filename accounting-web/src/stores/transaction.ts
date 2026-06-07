@@ -14,6 +14,7 @@ export interface Transaction {
   date_time: string
   description: string
   member_id?: number
+  channel_id?: number
   is_template: boolean
   postings: Posting[]
   tags?: string[]
@@ -29,6 +30,7 @@ export interface CreateTransactionData {
   date_time: string
   description: string
   member_id?: number
+  channel_id?: number
   postings: PostingInput[]
   tags: string[]
 }

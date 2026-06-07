@@ -74,6 +74,8 @@ pub struct TransactionDto {
     pub description: String,
     /// 成员 ID。
     pub member_id: Option<i64>,
+    /// 渠道 ID。
+    pub channel_id: Option<i64>,
     /// 是否为模板。
     pub is_template: bool,
     /// 分录列表。
@@ -104,6 +106,8 @@ pub struct TransactionDetailDto {
     pub description: String,
     /// 成员 ID。
     pub member_id: Option<i64>,
+    /// 渠道 ID。
+    pub channel_id: Option<i64>,
     /// 是否为模板。
     pub is_template: bool,
     /// 分录列表。
@@ -119,6 +123,8 @@ pub struct CreateTransactionRequest {
     pub description: String,
     /// 成员 ID。
     pub member_id: Option<i64>,
+    /// 渠道 ID。
+    pub channel_id: Option<i64>,
     /// 分录列表。
     pub postings: Vec<PostingRequest>,
     /// 标签列表。
@@ -134,6 +140,26 @@ pub struct PostingRequest {
     pub commodity: String,
     /// 金额字符串。
     pub amount: String,
+}
+
+/// 渠道响应。
+#[derive(Serialize)]
+pub struct ChannelDto {
+    /// 渠道 ID。
+    pub id: i64,
+    /// 渠道名称。
+    pub name: String,
+    /// 渠道描述。
+    pub description: Option<String>,
+}
+
+/// 创建渠道请求。
+#[derive(Deserialize)]
+pub struct CreateChannelRequest {
+    /// 渠道名称。
+    pub name: String,
+    /// 渠道描述。
+    pub description: Option<String>,
 }
 
 /// 标签响应。

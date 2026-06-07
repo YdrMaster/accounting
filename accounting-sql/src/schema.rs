@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     date_time TEXT NOT NULL,
     description TEXT NOT NULL,
     member_id INTEGER REFERENCES members(id),
+    channel_id INTEGER REFERENCES channels(id),
     is_template INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (date('now')),
     updated_at TEXT NOT NULL DEFAULT (date('now'))

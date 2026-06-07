@@ -55,12 +55,13 @@ impl TransactionRepo for SqliteTransactionRepo {
         tag_ids: &[TagId],
     ) -> Result<TransactionId, crate::error::DbError> {
         conn.execute(
-            "INSERT INTO transactions (date_time, description, member_id, is_template)
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO transactions (date_time, description, member_id, channel_id, is_template)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 tx.date_time.to_string(),
                 tx.description,
                 tx.member_id.map(|id| id.0),
+                tx.channel_id.map(|id| id.0),
                 tx.is_template as i32,
             ],
         )?;
@@ -80,7 +81,7 @@ impl TransactionRepo for SqliteTransactionRepo {
         id: TransactionId,
     ) -> Result<Option<Transaction>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, date_time, description, member_id, is_template FROM transactions WHERE id = ?1",
+            "SELECT id, date_time, description, member_id, channel_id, is_template FROM transactions WHERE id = ?1",
         )?;
         let mut rows = stmt.query(params![id.0])?;
         if let Some(row) = rows.next()? {
@@ -135,12 +136,9 @@ impl TransactionRepo for SqliteTransactionRepo {
             conditions.push("tt.tag_id = ?");
             params_vec.push(Box::new(tag.0));
         }
-        // 渠道过滤同样依赖 postings 表，若未 JOIN 则自动追加
+        // 渠道过滤直接查 transactions 表
         if let Some(channel) = filter.channel_id {
-            if !joins.iter().any(|j| j.contains("postings")) {
-                joins.push("JOIN postings p ON p.transaction_id = transactions.id");
-            }
-            conditions.push("p.channel_id = ?");
+            conditions.push("transactions.channel_id = ?");
             params_vec.push(Box::new(channel.0));
         }
 
@@ -148,7 +146,7 @@ impl TransactionRepo for SqliteTransactionRepo {
         let join_clause = joins.join(" ");
         let where_clause = conditions.join(" AND ");
         let sql = format!(
-            "SELECT DISTINCT transactions.id, transactions.date_time, transactions.description, transactions.member_id, transactions.is_template
+            "SELECT DISTINCT transactions.id, transactions.date_time, transactions.description, transactions.member_id, transactions.channel_id, transactions.is_template
              FROM transactions {}
              WHERE {}
              ORDER BY transactions.date_time DESC, transactions.id DESC
@@ -207,10 +205,7 @@ impl TransactionRepo for SqliteTransactionRepo {
             params_vec.push(Box::new(tag.0));
         }
         if let Some(channel) = filter.channel_id {
-            if !joins.iter().any(|j| j.contains("postings")) {
-                joins.push("JOIN postings p ON p.transaction_id = transactions.id");
-            }
-            conditions.push("p.channel_id = ?");
+            conditions.push("transactions.channel_id = ?");
             params_vec.push(Box::new(channel.0));
         }
 
@@ -241,12 +236,13 @@ impl TransactionRepo for SqliteTransactionRepo {
     ) -> Result<(), crate::error::DbError> {
         conn.execute(
             "UPDATE transactions
-             SET date_time = ?1, description = ?2, member_id = ?3, is_template = ?4
-             WHERE id = ?5",
+             SET date_time = ?1, description = ?2, member_id = ?3, channel_id = ?4, is_template = ?5
+             WHERE id = ?6",
             params![
                 tx.date_time.to_string(),
                 tx.description,
                 tx.member_id.map(|id| id.0),
+                tx.channel_id.map(|id| id.0),
                 tx.is_template as i32,
                 tx.id.0,
             ],
@@ -276,7 +272,8 @@ fn map_transaction(row: &rusqlite::Row) -> Result<Transaction, rusqlite::Error> 
         date_time,
         description: row.get(2)?,
         member_id: row.get::<_, Option<i64>>(3)?.map(accounting::id::MemberId),
-        is_template: row.get::<_, i32>(4)? != 0,
+        channel_id: row.get::<_, Option<i64>>(4)?.map(accounting::id::ChannelId),
+        is_template: row.get::<_, i32>(5)? != 0,
     })
 }
 
@@ -303,6 +300,7 @@ mod tests {
                 .unwrap(),
             description: "Grocery shopping".to_string(),
             member_id: None,
+            channel_id: None,
             is_template: false,
         }
     }

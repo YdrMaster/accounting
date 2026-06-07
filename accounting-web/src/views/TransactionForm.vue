@@ -38,6 +38,23 @@
         </a-select>
       </a-form-item>
 
+      <a-form-item>
+        <a-select
+          v-model:value="channelId"
+          placeholder="渠道（可选）"
+          style="width: 100%"
+          allow-clear
+        >
+          <a-select-option
+            v-for="c in channelStore.channels"
+            :key="c.id"
+            :value="c.id"
+          >
+            {{ c.name }}
+          </a-select-option>
+        </a-select>
+      </a-form-item>
+
       <a-form-item required>
         <div
           v-for="(posting, index) in postings"
@@ -89,6 +106,7 @@ import { message } from 'ant-design-vue'
 import { useTransactionStore, type CreateTransactionData } from '@/stores/transaction'
 import { useMemberStore } from '@/stores/member'
 import { useAccountStore } from '@/stores/account'
+import { useChannelStore } from '@/stores/channel'
 import api from '@/api/client'
 
 const route = useRoute()
@@ -96,12 +114,14 @@ const router = useRouter()
 const transactionStore = useTransactionStore()
 const memberStore = useMemberStore()
 const accountStore = useAccountStore()
+const channelStore = useChannelStore()
 
 const isEdit = computed(() => !!route.query.id)
 const editId = computed(() => Number(route.query.id))
 
 const dateTime = ref<Dayjs>(dayjs())
 const description = ref('')
+const channelId = ref<number | undefined>(undefined)
 const postings = ref<{ accountId?: number; commodity: string; amount: string }[]>([])
 const selectedTagNames = ref<string[]>([])
 const tags = ref<{ id: number; name: string }[]>([])
@@ -175,6 +195,7 @@ async function handleSubmit() {
     date_time: dateTime.value.format('YYYY-MM-DD HH:mm:ss'),
     description: description.value,
     member_id: memberStore.currentMember?.id,
+    channel_id: channelId.value,
     postings: validPostings.map((p) => ({
       account: accountMap.get(p.accountId!) || '',
       commodity: p.commodity,
@@ -235,6 +256,9 @@ async function loadTransaction(id: number) {
     if (tx.tags) {
       selectedTagNames.value = tx.tags
     }
+    if (tx.channel_id) {
+      channelId.value = tx.channel_id
+    }
   } catch (e) {
     console.error('加载交易失败', e)
     message.error('加载交易失败')
@@ -247,6 +271,7 @@ onMounted(() => {
     dateTime.value = dayjs(dateParam).startOf('day')
   }
   memberStore.fetchMe()
+  channelStore.fetchChannels()
   accountStore.fetchAccounts().then(() => {
     if (isEdit.value) {
       loadTransaction(editId.value)

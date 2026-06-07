@@ -40,6 +40,7 @@
       <div class="col-amount">
         <span class="transaction-amount" :class="amountColorClass">¥{{ totalAmount.toFixed(2) }}</span>
         <span class="asset-accounts">{{ assetAccounts.join(' ') }}</span>
+        <span v-if="channelName" class="channel-name">{{ channelName }}</span>
       </div>
       <span class="expand-icon">{{ expanded ? '▼' : '▶' }}</span>
     </div>
@@ -66,6 +67,7 @@ import type { Transaction } from '@/stores/transaction'
 import { useMemberStore } from '@/stores/member'
 import { useTransactionStore } from '@/stores/transaction'
 import { useAccountStore } from '@/stores/account'
+import { useChannelStore } from '@/stores/channel'
 
 const props = defineProps<{
   tx: Transaction
@@ -79,6 +81,7 @@ const router = useRouter()
 const memberStore = useMemberStore()
 const transactionStore = useTransactionStore()
 const accountStore = useAccountStore()
+const channelStore = useChannelStore()
 const expanded = ref(false)
 const postings = computed(() => props.tx.postings || [])
 
@@ -94,6 +97,12 @@ const memberName = computed(() => {
   if (!props.tx.member_id) return ''
   const m = memberStore.members.find((m) => m.id === props.tx.member_id)
   return m?.name || ''
+})
+
+const channelName = computed(() => {
+  if (!props.tx.channel_id) return ''
+  const c = channelStore.channels.find((c) => c.id === props.tx.channel_id)
+  return c?.name || ''
 })
 
 const totalAmount = computed(() => {
@@ -346,6 +355,15 @@ function handleTouchEnd(e: TouchEvent) {
 .asset-accounts {
   color: #666;
   font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.channel-name {
+  color: #888;
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -24,7 +24,7 @@
         </a-menu-item>
         <a-menu-item key="/tags">
           <TagOutlined />
-          <span>标签</span>
+          <span>标签与渠道</span>
         </a-menu-item>
         <a-menu-item key="/reports">
           <BarChartOutlined />
@@ -223,7 +223,7 @@ const currentId = computed({
 const tabs = [
   { path: '/', label: '首页', icon: HomeOutlined },
   { path: '/accounts', label: '账户', icon: BookOutlined },
-  { path: '/tags', label: '标签', icon: TagOutlined },
+  { path: '/tags', label: '标签与渠道', icon: TagOutlined },
   { path: '/reports', label: '报表', icon: BarChartOutlined },
 ]
 

@@ -145,7 +145,9 @@ impl<D: Database> AccountService<D> {
         }
 
         // 设置账户所有者
-        if !owner_ids.is_empty() && let Some(account_id) = last_id {
+        if !owner_ids.is_empty()
+            && let Some(account_id) = last_id
+        {
             tx.account_repo()
                 .set_owners(&tx.conn(), account_id, owner_ids)
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;

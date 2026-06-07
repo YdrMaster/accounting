@@ -125,12 +125,14 @@ import TransactionDetail from '@/components/TransactionDetail.vue'
 import { useTransactionStore, type Transaction } from '@/stores/transaction'
 import { useAccountStore } from '@/stores/account'
 import { useMemberStore } from '@/stores/member'
+import { useChannelStore } from '@/stores/channel'
 import api from '@/api/client'
 
 const router = useRouter()
 const transactionStore = useTransactionStore()
 const accountStore = useAccountStore()
 const memberStore = useMemberStore()
+const channelStore = useChannelStore()
 
 const rangeMode = ref(false)
 const selectedDate = ref<string | null>(null)
@@ -377,6 +379,7 @@ onMounted(() => {
   fetchMonthData()
   accountStore.fetchAccounts()
   memberStore.fetchMembers()
+  channelStore.fetchChannels()
   fetchTags()
 })
 </script>

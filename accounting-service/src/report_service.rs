@@ -403,6 +403,7 @@ mod tests {
                 .unwrap(),
             description: "Report test".to_string(),
             member_id: None,
+            channel_id: None,
             is_template: false,
         };
         let tx_id = report_service
@@ -473,6 +474,7 @@ mod tests {
                     .unwrap(),
                 description: "Tag stat test".to_string(),
                 member_id: None,
+                channel_id: None,
                 is_template: false,
             };
             let tx_id = report_service
@@ -551,6 +553,7 @@ mod tests {
                     .unwrap(),
                 description: "Member stat test".to_string(),
                 member_id: Some(member_id),
+                channel_id: None,
                 is_template: false,
             };
             let tx_id = report_service
@@ -630,6 +633,7 @@ mod tests {
                     .unwrap(),
                 description: "Channel stat test".to_string(),
                 member_id: None,
+                channel_id: None,
                 is_template: false,
             };
             let tx_id = report_service

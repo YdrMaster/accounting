@@ -225,6 +225,7 @@ mod tests {
                 .unwrap(),
             description: "Test".to_string(),
             member_id: None,
+            channel_id: None,
             is_template: false,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
@@ -250,6 +251,7 @@ mod tests {
                 .unwrap(),
             description: "Bad".to_string(),
             member_id: None,
+            channel_id: None,
             is_template: false,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-50")];
@@ -278,6 +280,7 @@ mod tests {
                 .unwrap(),
             description: "Original".to_string(),
             member_id: None,
+            channel_id: None,
             is_template: false,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
@@ -293,6 +296,7 @@ mod tests {
             date_time: tx.date_time,
             description: "Updated".to_string(),
             member_id: None,
+            channel_id: None,
             is_template: false,
         };
         let new_postings = vec![sample_posting(id1, "200"), sample_posting(id2, "-200")];
@@ -329,6 +333,7 @@ mod tests {
                 .unwrap(),
             description: "ToDelete".to_string(),
             member_id: None,
+            channel_id: None,
             is_template: false,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
