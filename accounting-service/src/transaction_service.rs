@@ -3,9 +3,11 @@ use accounting::id::{TagId, TransactionId};
 use accounting::posting::Posting;
 use accounting::transaction::Transaction;
 use accounting::transaction_filter::TransactionFilter;
+use accounting::validation::validate_reversal_direction;
 use accounting::validation::validate_transaction;
 use accounting_sql::database::Database;
 use accounting_sql::transaction::Transaction as DbTransaction;
+use rust_decimal::Decimal;
 
 /// 交易服务
 pub struct TransactionService<D: Database> {
@@ -26,6 +28,7 @@ impl<D: Database> TransactionService<D> {
         tag_ids: Vec<TagId>,
     ) -> Result<TransactionId, AccountingError> {
         validate_transaction(&postings)?;
+        validate_reversal_direction(&postings)?;
 
         let tx = self
             .db
@@ -37,6 +40,48 @@ impl<D: Database> TransactionService<D> {
             .transaction_repo()
             .insert(&tx.conn(), &transaction, &tag_ids)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        // 验证退款/报销分录的关联合法性
+        for posting in &postings {
+            if posting.kind == accounting::posting::PostingKind::Normal {
+                continue;
+            }
+
+            let linked_id = posting.linked_posting_id.ok_or_else(|| {
+                AccountingError::InvalidTransaction("退款/报销分录必须关联原分录".to_string())
+            })?;
+
+            let linked_posting = tx
+                .posting_repo()
+                .get(&tx.conn(), linked_id)
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+                .ok_or_else(|| {
+                    AccountingError::InvalidTransaction(format!(
+                        "关联的原分录 {} 不存在",
+                        linked_id.0
+                    ))
+                })?;
+
+            if linked_posting.kind != accounting::posting::PostingKind::Normal {
+                return Err(AccountingError::InvalidTransaction(
+                    "只能冲减普通分录".to_string(),
+                ));
+            }
+
+            if linked_posting.account_id != posting.account_id {
+                return Err(AccountingError::InvalidTransaction(
+                    "退款/报销必须冲减同一账户".to_string(),
+                ));
+            }
+
+            if (posting.amount > Decimal::ZERO && linked_posting.amount > Decimal::ZERO)
+                || (posting.amount < Decimal::ZERO && linked_posting.amount < Decimal::ZERO)
+            {
+                return Err(AccountingError::InvalidTransaction(
+                    "退款/报销金额方向必须与原分录相反".to_string(),
+                ));
+            }
+        }
 
         for posting in &mut postings {
             posting.transaction_id = tx_id;
@@ -59,6 +104,7 @@ impl<D: Database> TransactionService<D> {
         tag_ids: Vec<TagId>,
     ) -> Result<(), AccountingError> {
         validate_transaction(&postings)?;
+        validate_reversal_direction(&postings)?;
 
         let tx = self
             .db
@@ -75,6 +121,48 @@ impl<D: Database> TransactionService<D> {
         tx.transaction_repo()
             .update(&tx.conn(), &transaction, &tag_ids)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        // 验证退款/报销分录的关联合法性
+        for posting in &postings {
+            if posting.kind == accounting::posting::PostingKind::Normal {
+                continue;
+            }
+
+            let linked_id = posting.linked_posting_id.ok_or_else(|| {
+                AccountingError::InvalidTransaction("退款/报销分录必须关联原分录".to_string())
+            })?;
+
+            let linked_posting = tx
+                .posting_repo()
+                .get(&tx.conn(), linked_id)
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+                .ok_or_else(|| {
+                    AccountingError::InvalidTransaction(format!(
+                        "关联的原分录 {} 不存在",
+                        linked_id.0
+                    ))
+                })?;
+
+            if linked_posting.kind != accounting::posting::PostingKind::Normal {
+                return Err(AccountingError::InvalidTransaction(
+                    "只能冲减普通分录".to_string(),
+                ));
+            }
+
+            if linked_posting.account_id != posting.account_id {
+                return Err(AccountingError::InvalidTransaction(
+                    "退款/报销必须冲减同一账户".to_string(),
+                ));
+            }
+
+            if (posting.amount > Decimal::ZERO && linked_posting.amount > Decimal::ZERO)
+                || (posting.amount < Decimal::ZERO && linked_posting.amount < Decimal::ZERO)
+            {
+                return Err(AccountingError::InvalidTransaction(
+                    "退款/报销金额方向必须与原分录相反".to_string(),
+                ));
+            }
+        }
 
         // 插入新分录
         for posting in &mut postings {
