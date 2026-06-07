@@ -1,8 +1,8 @@
 <template>
   <div class="transaction-form">
-    <h2>{{ isEdit ? '编辑交易' : '记一笔' }}</h2>
+    <h2 class="form-title">{{ isEdit ? '编辑交易' : '记一笔' }}</h2>
     <a-form layout="vertical">
-      <a-form-item label="日期时间" required>
+      <a-form-item required>
         <a-date-picker
           v-model:value="dateTime"
           show-time
@@ -11,16 +11,34 @@
         />
       </a-form-item>
 
-      <a-form-item label="备注" required>
+      <a-form-item>
         <a-textarea
           v-model:value="description"
-          placeholder="请输入备注"
+          placeholder="备注（可选）"
           :auto-size="{ minRows: 1, maxRows: 6 }"
           @press-enter="() => {}"
         />
       </a-form-item>
 
-      <a-form-item label="分录" required>
+      <a-form-item>
+        <a-select
+          v-model:value="selectedTagNames"
+          mode="multiple"
+          placeholder="标签"
+          style="width: 100%"
+          allow-clear
+        >
+          <a-select-option
+            v-for="t in tags"
+            :key="t.id"
+            :value="t.name"
+          >
+            {{ t.name }}
+          </a-select-option>
+        </a-select>
+      </a-form-item>
+
+      <a-form-item required>
         <div
           v-for="(posting, index) in postings"
           :key="index"
@@ -45,24 +63,6 @@
           <PlusOutlined />
           添加分录
         </a-button>
-      </a-form-item>
-
-      <a-form-item label="标签">
-        <a-select
-          v-model:value="selectedTagNames"
-          mode="multiple"
-          placeholder="选择标签"
-          style="width: 100%"
-          allow-clear
-        >
-          <a-select-option
-            v-for="t in tags"
-            :key="t.id"
-            :value="t.name"
-          >
-            {{ t.name }}
-          </a-select-option>
-        </a-select>
       </a-form-item>
 
       <a-form-item>
@@ -102,9 +102,7 @@ const editId = computed(() => Number(route.query.id))
 
 const dateTime = ref<Dayjs>(dayjs())
 const description = ref('')
-const postings = ref<{ accountId?: number; commodity: string; amount: string }[]>([
-  { commodity: 'CNY', amount: '' },
-])
+const postings = ref<{ accountId?: number; commodity: string; amount: string }[]>([])
 const selectedTagNames = ref<string[]>([])
 const tags = ref<{ id: number; name: string }[]>([])
 const submitting = ref(false)
@@ -153,12 +151,6 @@ async function handleSubmit() {
   // 验证日期
   if (!dateTime.value || !dateTime.value.isValid()) {
     message.error('请选择日期时间')
-    return
-  }
-
-  // 验证备注
-  if (!description.value.trim()) {
-    message.error('请输入备注')
     return
   }
 
@@ -271,6 +263,10 @@ onMounted(() => {
   background: #fff;
   padding: 24px;
   border-radius: 8px;
+}
+
+.form-title {
+  margin-bottom: 24px;
 }
 
 .posting-row {
