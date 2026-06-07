@@ -3,6 +3,8 @@
     <a-tree
       :tree-data="treeData"
       v-model:expanded-keys="expandedKeys"
+      :selected-keys="selectedKey ? [selectedKey] : []"
+      @select="handleSelect"
       class="tree"
     >
       <template #title="{ title, key, dataRef }">
@@ -23,8 +25,7 @@
         <template v-else>
           <span
             class="node-title"
-            :class="{ active: selectedKey === key, system: dataRef?.is_system }"
-            @click.stop="selectNode(Number(key))"
+            :class="{ system: dataRef?.is_system }"
           >
             {{ title }}
           </span>
@@ -188,8 +189,17 @@ function cancelAdd() {
   treeData.value = buildTreeData()
 }
 
-function selectNode(id: number) {
-  selectedKey.value = String(id)
+function handleSelect(keys: (string | number)[], info: any) {
+  const key = String(keys[0] ?? '')
+  if (!key) return
+  selectedKey.value = key
+  // 非叶子节点选中时自动展开
+  const node = info?.node
+  if (node && node.children && node.children.length > 0) {
+    if (!expandedKeys.value.includes(key)) {
+      expandedKeys.value = [...expandedKeys.value, key]
+    }
+  }
 }
 
 async function handleUpdateOwners(checkedValues: (string | number)[]) {
@@ -224,21 +234,33 @@ onMounted(() => {
 
 .tree {
   background: #fff;
-  padding: 16px;
+  padding: 8px 0;
   border-radius: 8px;
-  font-size: 15px;
+  font-size: 16px;
+}
+
+:deep(.ant-tree-treenode) {
+  padding: 8px 16px !important;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.15s;
+}
+
+:deep(.ant-tree-treenode:last-child) {
+  border-bottom: none;
+}
+
+:deep(.ant-tree-treenode:hover) {
+  background: #f5f5f5;
+}
+
+:deep(.ant-tree-node-selected) {
+  background: #e6f7ff !important;
 }
 
 .node-title {
   margin-right: 4px;
-  cursor: pointer;
   padding: 2px 4px;
   border-radius: 4px;
-}
-
-.node-title.active {
-  background: #e6f7ff;
-  color: #1890ff;
 }
 
 .node-title.system {
@@ -249,16 +271,16 @@ onMounted(() => {
   opacity: 0;
   transition: opacity 0.2s;
   padding: 0 4px;
-  height: 20px;
-  line-height: 20px;
+  height: 22px;
+  line-height: 22px;
 }
 
-:deep(.ant-tree-node-content-wrapper:hover) .add-btn {
+:deep(.ant-tree-treenode:hover) .add-btn {
   opacity: 1;
 }
 
 .inline-input {
-  width: 120px;
+  width: 140px;
 }
 
 .new-node-row {

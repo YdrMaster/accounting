@@ -31,6 +31,15 @@ onMounted(() => {
 </script>
 
 <style>
+/* 全局字号统一 */
+h2 {
+  font-size: 20px;
+}
+
+h3 {
+  font-size: 16px;
+}
+
 /* 全局暗色主题背景 */
 html.dark body {
   background-color: #141414;
