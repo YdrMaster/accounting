@@ -2,7 +2,7 @@
   <div class="account-tree">
     <a-tree
       :tree-data="treeData"
-      :default-expand-all="true"
+      :default-expanded-keys="expandedKeys"
       class="tree"
     >
       <template #title="{ title, key, dataRef }">
@@ -23,12 +23,11 @@
         <template v-else>
           <span
             class="node-title"
-            :class="{ active: selectedKey === key }"
+            :class="{ active: selectedKey === key, system: dataRef?.is_system }"
             @click.stop="selectNode(Number(key))"
           >
             {{ title }}
           </span>
-          <a-tag v-if="dataRef?.is_system" color="orange" class="system-tag">系统</a-tag>
           <a-button
             type="link"
             size="small"
@@ -43,7 +42,10 @@
 
     <!-- 详情面板 -->
     <div v-if="selectedAccount" class="detail-panel">
-      <h3>账户详情</h3>
+      <div class="detail-header">
+        <h3>账户详情</h3>
+        <a-tag v-if="selectedAccount.is_system" color="orange">系统内置账户</a-tag>
+      </div>
       <div class="detail-row">
         <span class="detail-label">名称</span>
         <span>{{ selectedAccount.full_name }}</span>
@@ -52,11 +54,7 @@
         <span class="detail-label">类型</span>
         <span>{{ selectedAccount.account_type }}</span>
       </div>
-      <div v-if="selectedAccount.is_system" class="detail-row">
-        <span class="detail-label"></span>
-        <a-tag color="orange">系统内置账户</a-tag>
-      </div>
-      <div class="detail-row owners-row">
+      <div v-if="selectedAccount.account_type === 'Asset'" class="detail-row owners-row">
         <span class="detail-label">所有者</span>
         <a-checkbox-group
           :value="selectedAccount.owner_ids || []"
@@ -89,6 +87,7 @@ const addingParentId = ref<number | null>(null)
 const newAccountName = ref('')
 const newInputRef = ref<HTMLInputElement | null>(null)
 const selectedKey = ref<string | null>(null)
+const expandedKeys = ref<string[]>([])
 
 const members = computed(() => memberStore.members)
 
@@ -199,6 +198,9 @@ watch(
   () => accountStore.accounts,
   () => {
     treeData.value = buildTreeData()
+    // 自动展开根节点（1级）
+    const roots = treeData.value
+    expandedKeys.value = roots.map((r) => r.key)
   },
   { deep: true }
 )
@@ -219,6 +221,7 @@ onMounted(() => {
   background: #fff;
   padding: 16px;
   border-radius: 8px;
+  font-size: 15px;
 }
 
 .node-title {
@@ -233,9 +236,8 @@ onMounted(() => {
   color: #1890ff;
 }
 
-.system-tag {
-  font-size: 12px;
-  margin-right: 4px;
+.node-title.system {
+  text-decoration: underline;
 }
 
 .add-btn {
@@ -266,6 +268,17 @@ onMounted(() => {
   background: #fff;
   padding: 24px;
   border-radius: 8px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.detail-header h3 {
+  margin: 0;
 }
 
 .detail-row {

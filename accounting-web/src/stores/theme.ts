@@ -16,7 +16,7 @@ function getSavedTheme(): Theme {
   if (raw !== null) {
     localStorage.removeItem('theme')
   }
-  return 'light'
+  return 'auto'
 }
 
 export const useThemeStore = defineStore('theme', () => {
@@ -26,7 +26,7 @@ export const useThemeStore = defineStore('theme', () => {
   function apply() {
     const raw = theme.value
     // 防御：如果 theme.value 意外变成对象，回退到 'auto'
-    const themeName = typeof raw === 'string' ? (raw as Theme) : 'light'
+    const themeName = typeof raw === 'string' ? (raw as Theme) : 'auto'
     const dark = themeName === 'dark' || (themeName === 'auto' && getSystemTheme() === 'dark')
     isDark.value = dark
     document.documentElement.classList.toggle('dark', dark)
