@@ -16,6 +16,7 @@ export interface Transaction {
   member_id?: number
   is_template: boolean
   postings: Posting[]
+  tags?: string[]
 }
 
 export interface PostingInput {

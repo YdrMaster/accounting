@@ -13,22 +13,25 @@
         <span v-if="memberName" class="transaction-member">{{ memberName }}</span>
         <span class="transaction-date">{{ formattedDate }}</span>
       </div>
-      <!-- 栏2：收支账户+备注 -->
+      <!-- 栏2：交易摘要+备注 -->
       <div class="col-info">
         <div class="account-tags">
-          <template v-if="incomeAccounts.length">
+          <template v-if="incomeAccounts.length && !expenseAccounts.length">
             <span
               v-for="name in incomeAccounts"
               :key="name"
               class="tag-income"
             >{{ name }}</span>
           </template>
-          <template v-if="expenseAccounts.length">
+          <template v-else-if="expenseAccounts.length && !incomeAccounts.length">
             <span
               v-for="name in expenseAccounts"
               :key="name"
               class="tag-expense"
             >{{ name }}</span>
+          </template>
+          <template v-else-if="isTransferType">
+            <span class="transaction-summary">{{ hasRepaymentTag ? '还款' : '转账' }}</span>
           </template>
         </div>
         <span class="transaction-desc" :title="tx.description">{{ firstLinePreview }}</span>
@@ -136,6 +139,23 @@ const amountColorClass = computed(() => {
   if (hasExpense && !hasIncome) return 'amount-expense'
   if (hasIncome && !hasExpense) return 'amount-income'
   return 'amount-neutral'
+})
+
+const isTransferType = computed(() => {
+  if (postings.value.length === 0) return false
+  const allowedExpenseNames = new Set(['折扣', '手续费', '分期手续费'])
+  for (const p of postings.value) {
+    const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+    if (!acc) return false
+    if (acc.account_type === 'Asset') continue
+    if (acc.account_type === 'Expense' && allowedExpenseNames.has(lastSegment(acc.full_name))) continue
+    return false
+  }
+  return true
+})
+
+const hasRepaymentTag = computed(() => {
+  return (props.tx.tags || []).includes('还款')
 })
 
 function toggleExpand() {
@@ -269,18 +289,28 @@ function handleTouchEnd(e: TouchEvent) {
 
 .tag-income {
   color: #52c41a;
+  font-size: 15px;
+  font-weight: bold;
 }
 
 .tag-expense {
   color: #f5222d;
+  font-size: 15px;
+  font-weight: bold;
 }
 
 .transaction-desc {
-  color: #333;
+  color: #666;
   font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.transaction-summary {
+  font-size: 15px;
+  font-weight: bold;
+  color: #333;
 }
 
 /* 栏3：金额+资产 */

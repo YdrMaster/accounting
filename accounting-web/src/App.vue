@@ -62,6 +62,10 @@ html.dark .transaction-item {
 }
 
 html.dark .transaction-desc {
+  color: #888 !important;
+}
+
+html.dark .transaction-summary {
   color: #e0e0e0 !important;
 }
 
