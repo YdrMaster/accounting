@@ -31,9 +31,9 @@
     <div v-if="!selectedDate && !rangeFrom && !hasFilter" class="section overview">
       <h3>当月收支概览</h3>
       <div class="stats-row">
-        <a-statistic title="收入" :value="monthlyIncome" prefix="¥" />
-        <a-statistic title="支出" :value="monthlyExpense" prefix="¥" />
-        <a-statistic title="结余" :value="monthlyIncome - monthlyExpense" prefix="¥" />
+        <a-statistic title="收入" :value="monthlyIncome" prefix="¥" :value-style="{ color: '#52c41a' }" />
+        <a-statistic title="支出" :value="monthlyExpense" prefix="¥" :value-style="{ color: '#f5222d' }" />
+        <a-statistic title="结余" :value="monthlyIncome - monthlyExpense" prefix="¥" :value-style="{ color: monthlyIncome >= monthlyExpense ? '#52c41a' : '#f5222d' }" />
       </div>
     </div>
 

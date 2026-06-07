@@ -6,6 +6,7 @@
       :selected-keys="selectedKey ? [selectedKey] : []"
       @select="handleSelect"
       class="tree"
+      block-node
     >
       <template #title="{ title, key, dataRef }">
         <template v-if="key === '__new__'">
@@ -23,20 +24,22 @@
           </div>
         </template>
         <template v-else>
-          <span
-            class="node-title"
-            :class="{ system: dataRef?.is_system }"
-          >
-            {{ title }}
-          </span>
-          <a-button
-            type="link"
-            size="small"
-            class="add-btn"
-            @click.stop="handleAddChild(Number(key))"
-          >
-            <PlusOutlined />
-          </a-button>
+          <div class="node-row">
+            <span
+              class="node-title"
+              :class="{ system: dataRef?.is_system }"
+            >
+              {{ title }}
+            </span>
+            <a-button
+              type="link"
+              size="small"
+              class="add-btn"
+              @click.stop="handleAddChild(Number(key))"
+            >
+              <PlusOutlined />
+            </a-button>
+          </div>
         </template>
       </template>
     </a-tree>
@@ -228,39 +231,27 @@ onMounted(() => {
 
 <style scoped>
 .account-tree {
-  max-width: 800px;
-  margin: 0 auto;
+  width: 100%;
+  background: transparent;
 }
 
 .tree {
-  background: #fff;
-  padding: 8px 0;
-  border-radius: 8px;
   font-size: 16px;
 }
 
-:deep(.ant-tree-treenode) {
-  padding: 8px 16px !important;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background 0.15s;
+.account-tree :deep(.ant-tree-treenode-selected) .node-title {
+  color: #1890ff;
 }
 
-:deep(.ant-tree-treenode:last-child) {
-  border-bottom: none;
-}
-
-:deep(.ant-tree-treenode:hover) {
-  background: #f5f5f5;
-}
-
-:deep(.ant-tree-node-selected) {
-  background: #e6f7ff !important;
+.node-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
 }
 
 .node-title {
-  margin-right: 4px;
+  flex: 1;
   padding: 2px 4px;
-  border-radius: 4px;
 }
 
 .node-title.system {
@@ -269,14 +260,24 @@ onMounted(() => {
 
 .add-btn {
   opacity: 0;
-  transition: opacity 0.2s;
-  padding: 0 4px;
-  height: 22px;
-  line-height: 22px;
+  transition: opacity 0.2s, background 0.2s;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: bold;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #52c41a !important;
+  border: none !important;
+  border-radius: 4px;
+  background: transparent;
 }
 
-:deep(.ant-tree-treenode:hover) .add-btn {
-  opacity: 1;
+.add-btn:hover {
+  background: rgba(82, 196, 26, 0.15) !important;
 }
 
 .inline-input {
@@ -292,9 +293,8 @@ onMounted(() => {
 
 .detail-panel {
   margin-top: 24px;
-  background: #fff;
+  background: transparent;
   padding: 24px;
-  border-radius: 8px;
 }
 
 .detail-header {

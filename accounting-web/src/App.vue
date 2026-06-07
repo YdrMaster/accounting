@@ -74,11 +74,11 @@ html.dark .transaction-member {
 }
 
 html.dark .amount-expense {
-  color: #ff7875 !important;
+  color: #f5222d !important;
 }
 
 html.dark .amount-income {
-  color: #73d13d !important;
+  color: #52c41a !important;
 }
 
 html.dark .amount-neutral,
@@ -87,11 +87,11 @@ html.dark .asset-accounts {
 }
 
 html.dark .tag-income {
-  color: #73d13d !important;
+  color: #52c41a !important;
 }
 
 html.dark .tag-expense {
-  color: #ff7875 !important;
+  color: #f5222d !important;
 }
 
 html.dark .col-member {
@@ -192,12 +192,12 @@ html.dark .day-cell:hover {
 
 html.dark .income,
 html.dark .day-income {
-  color: #73d13d !important;
+  color: #52c41a !important;
 }
 
 html.dark .expense,
 html.dark .day-expense {
-  color: #ff7875 !important;
+  color: #f5222d !important;
 }
 
 html.dark .weekday {
@@ -241,21 +241,77 @@ html.dark .report-view {
 }
 
 /* ========== AccountTree ========== */
-html.dark .tree {
-  background-color: #1f1f1f !important;
+html.dark .ant-tree-treenode:hover {
+  background-color: #2a2a2a !important;
 }
 
-html.dark .detail-panel {
-  background-color: #1f1f1f !important;
-}
-
-html.dark .detail-label {
-  color: #aaa !important;
-}
-
-html.dark .node-title.active {
+html.dark .ant-tree-treenode-selected {
   background-color: #15325b !important;
+}
+
+html.dark .ant-tree-treenode-selected .node-title {
   color: #177ddc !important;
+}
+
+/* 树控件整体透明 */
+.account-tree .ant-tree {
+  background: transparent !important;
+}
+
+/* 亮色模式下 AccountTree 样式 */
+.account-tree .ant-tree-treenode {
+  padding: 0 16px !important;
+  min-height: 40px;
+  display: flex !important;
+  align-items: center;
+  transition: background 0.15s;
+}
+
+.account-tree .ant-tree-treenode:hover {
+  background: #f5f5f5;
+}
+
+.account-tree .ant-tree-treenode-selected {
+  background: #e6f7ff !important;
+}
+
+.account-tree .ant-tree-node-content-wrapper,
+.account-tree .ant-tree-node-content-wrapper-normal,
+.account-tree .ant-tree-node-content-wrapper-open,
+.account-tree .ant-tree-node-content-wrapper-close {
+  flex: 1 1 auto !important;
+  display: flex !important;
+  align-items: center;
+  width: 100% !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* 消除 AntDV 选中态内层框 */
+.account-tree .ant-tree-node-selected {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.account-tree .ant-tree-title {
+  display: block !important;
+  width: 100% !important;
+}
+
+.account-tree .ant-tree-treenode:hover .add-btn {
+  opacity: 1;
+}
+
+.account-tree .ant-tree-list-holder-inner {
+  width: 100%;
+}
+
+/* 去掉树控件所有圆角 */
+.account-tree,
+.account-tree .ant-tree,
+.account-tree .ant-tree-list,
+.account-tree .ant-tree-list-holder {
+  border-radius: 0 !important;
 }
 
 /* ========== Common ========== */

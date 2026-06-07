@@ -26,11 +26,11 @@
         </div>
         <div class="day-bottom">
           <template v-if="data && data[day.date]">
-            <span v-if="data[day.date].expense" class="expense">
-              -{{ fmt(data[day.date].expense) }}
-            </span>
             <span v-if="data[day.date].income" class="income">
               +{{ fmt(data[day.date].income) }}
+            </span>
+            <span v-if="data[day.date].expense" class="expense">
+              -{{ fmt(data[day.date].expense) }}
             </span>
           </template>
         </div>
