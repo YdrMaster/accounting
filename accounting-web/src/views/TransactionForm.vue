@@ -73,6 +73,17 @@
             <a-select-option value="CNY">CNY</a-select-option>
             <a-select-option value="USD">USD</a-select-option>
           </a-select>
+          <a-select v-model:value="posting.kind" style="width: 80px">
+            <a-select-option value="normal">普通</a-select-option>
+            <a-select-option value="refund">退款</a-select-option>
+            <a-select-option value="reimbursement">报销</a-select-option>
+          </a-select>
+          <a-input-number
+            v-if="posting.kind !== 'normal'"
+            v-model:value="posting.linked_posting_id"
+            placeholder="原分录 ID"
+            style="width: 120px"
+          />
           <a-input v-model:value="posting.amount" placeholder="金额" style="width: 120px" />
           <a-button type="link" danger @click="removePosting(index)">删除</a-button>
         </div>
@@ -122,7 +133,7 @@ const editId = computed(() => Number(route.query.id))
 const dateTime = ref<Dayjs>(dayjs())
 const description = ref('')
 const channelId = ref<number | undefined>(undefined)
-const postings = ref<{ accountId?: number; commodity: string; amount: string }[]>([])
+const postings = ref<{ accountId?: number; commodity: string; amount: string; kind: string; linked_posting_id?: number }[]>([])
 const selectedTagNames = ref<string[]>([])
 const tags = ref<{ id: number; name: string }[]>([])
 const submitting = ref(false)
@@ -160,7 +171,7 @@ function addPosting() {
     return acc + (isNaN(val) ? 0 : val)
   }, 0)
   const balancedAmount = sum === 0 ? '' : String(-sum)
-  postings.value.push({ commodity: 'CNY', amount: balancedAmount })
+  postings.value.push({ commodity: 'CNY', amount: balancedAmount, kind: 'normal' })
 }
 
 function removePosting(index: number) {
@@ -200,6 +211,8 @@ async function handleSubmit() {
       account: accountMap.get(p.accountId!) || '',
       commodity: p.commodity,
       amount: p.amount.trim(),
+      kind: p.kind || 'normal',
+      linked_posting_id: p.linked_posting_id,
     })),
     tags: selectedTagNames.value,
   }
@@ -251,6 +264,8 @@ async function loadTransaction(id: number) {
       accountId: accountMap.get(p.account),
       commodity: p.commodity,
       amount: String(p.amount),
+      kind: p.kind || 'normal',
+      linked_posting_id: p.linked_posting_id,
     }))
 
     if (tx.tags) {
