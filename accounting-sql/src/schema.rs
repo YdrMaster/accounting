@@ -122,6 +122,9 @@ CREATE TABLE IF NOT EXISTS postings (
     description TEXT,
     member_id INTEGER REFERENCES members(id),
     channel_id INTEGER REFERENCES channels(id),
+    kind INTEGER NOT NULL DEFAULT 1 CHECK(kind BETWEEN 1 AND 3),
+    linked_posting_id INTEGER REFERENCES postings(id),
+    reversal_total INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (date('now')),
     updated_at TEXT NOT NULL DEFAULT (date('now'))
 );
@@ -151,6 +154,8 @@ CREATE INDEX IF NOT EXISTS idx_postings_tx ON postings(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_postings_account ON postings(account_id);
 CREATE INDEX IF NOT EXISTS idx_postings_commodity ON postings(commodity_id);
 CREATE INDEX IF NOT EXISTS idx_postings_account_commodity ON postings(account_id, commodity_id);
+CREATE INDEX IF NOT EXISTS idx_postings_kind ON postings(kind);
+CREATE INDEX IF NOT EXISTS idx_postings_linked ON postings(linked_posting_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date_time);
 CREATE INDEX IF NOT EXISTS idx_attachments_tx ON attachments(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_transaction_tags_tag ON transaction_tags(tag_id);
@@ -227,6 +232,33 @@ FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
     UPDATE postings SET updated_at = date('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_postings_reversal_insert
+AFTER INSERT ON postings
+WHEN NEW.kind IN (2, 3) AND NEW.linked_posting_id IS NOT NULL
+BEGIN
+    UPDATE postings
+    SET reversal_total = reversal_total + NEW.amount
+    WHERE id = NEW.linked_posting_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_postings_reversal_delete
+AFTER DELETE ON postings
+WHEN OLD.kind IN (2, 3) AND OLD.linked_posting_id IS NOT NULL
+BEGIN
+    UPDATE postings
+    SET reversal_total = reversal_total - OLD.amount
+    WHERE id = OLD.linked_posting_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_postings_reversal_update
+AFTER UPDATE OF amount ON postings
+WHEN NEW.kind IN (2, 3) AND NEW.linked_posting_id IS NOT NULL
+BEGIN
+    UPDATE postings
+    SET reversal_total = reversal_total - OLD.amount + NEW.amount
+    WHERE id = NEW.linked_posting_id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_attachments_updated_at
