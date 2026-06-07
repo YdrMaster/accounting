@@ -1,6 +1,6 @@
 use crate::account_type::AccountType;
 use crate::error::AccountingError;
-use crate::posting::Posting;
+use crate::posting::{Posting, PostingKind};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -54,6 +54,24 @@ pub fn validate_transaction(postings: &[Posting]) -> Result<(), AccountingError>
             "交易不平衡".to_string(),
         ))
     }
+}
+
+/// 验证退款/报销分录的金额方向是否正确
+///
+/// 规则：Refund/Reimbursement 分录的金额不能为零。
+/// 更严格的方向验证（与原分录方向相反）在 service 层通过数据库查询完成。
+pub fn validate_reversal_direction(postings: &[Posting]) -> Result<(), AccountingError> {
+    for posting in postings {
+        if posting.kind == PostingKind::Normal {
+            continue;
+        }
+        if posting.amount.is_zero() {
+            return Err(AccountingError::InvalidTransaction(
+                "退款/报销分录金额不能为零".to_string(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// 验证账户是否可以关闭
