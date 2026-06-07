@@ -39,6 +39,7 @@
       <!-- 栏3：金额+资产账户 -->
       <div class="col-amount">
         <span class="transaction-amount" :class="amountColorClass">¥{{ totalAmount.toFixed(2) }}</span>
+        <span v-if="netAmount !== totalAmount" class="net-amount">净 ¥{{ netAmount.toFixed(2) }}</span>
         <div class="meta-row">
           <span v-if="channelName" class="channel-tag">{{ channelName }}</span>
           <span class="asset-accounts">{{ assetAccounts.join(' ') }}</span>
@@ -50,7 +51,12 @@
       <div v-if="postings.length === 0" class="empty">暂无分录</div>
       <div v-else class="postings">
         <div v-for="p in postings" :key="p.id" class="posting-row">
-          <span class="posting-account">{{ p.account }}</span>
+          <span class="posting-account">
+            {{ p.account }}
+            <span v-if="p.kind === 'refund'" class="tag-refund">退</span>
+            <span v-else-if="p.kind === 'reimbursement'" class="tag-reimbursement">报</span>
+            <span v-if="p.linked_posting_id" class="linked-tag">冲减分录 #{{ p.linked_posting_id }}</span>
+          </span>
           <span class="posting-commodity">{{ p.commodity }}</span>
           <span class="posting-amount" :class="{ positive: Number(p.amount) > 0, negative: Number(p.amount) < 0 }">
             {{ Number(p.amount) > 0 ? '+' : '' }}{{ p.amount }}
@@ -116,6 +122,21 @@ const totalAmount = computed(() => {
     }
   }
   return sum
+})
+
+const reversalTotal = computed(() => {
+  let sum = 0
+  for (const p of postings.value) {
+    const rt = parseFloat(p.reversal_total || '0')
+    if (!isNaN(rt)) {
+      sum += rt
+    }
+  }
+  return sum
+})
+
+const netAmount = computed(() => {
+  return totalAmount.value + reversalTotal.value
 })
 
 const firstLinePreview = computed(() => {
@@ -445,5 +466,35 @@ function handleTouchEnd(e: TouchEvent) {
 
 .posting-amount.negative {
   color: #f5222d;
+}
+
+.tag-refund {
+  color: #fa8c16;
+  font-size: 11px;
+  border: 1px solid #fa8c16;
+  padding: 0 4px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
+.tag-reimbursement {
+  color: #1890ff;
+  font-size: 11px;
+  border: 1px solid #1890ff;
+  padding: 0 4px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
+.linked-tag {
+  color: #999;
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.net-amount {
+  color: #999;
+  font-size: 12px;
+  margin-left: 4px;
 }
 </style>
