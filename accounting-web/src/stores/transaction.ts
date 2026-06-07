@@ -7,6 +7,9 @@ export interface Posting {
   account: string
   commodity: string
   amount: string
+  kind: string
+  linked_posting_id?: number
+  reversal_total: string
 }
 
 export interface Transaction {
@@ -24,6 +27,8 @@ export interface PostingInput {
   account: string
   commodity: string
   amount: string
+  kind?: string
+  linked_posting_id?: number
 }
 
 export interface CreateTransactionData {
