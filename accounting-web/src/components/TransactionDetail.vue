@@ -39,8 +39,10 @@
       <!-- 栏3：金额+资产账户 -->
       <div class="col-amount">
         <span class="transaction-amount" :class="amountColorClass">¥{{ totalAmount.toFixed(2) }}</span>
-        <span class="asset-accounts">{{ assetAccounts.join(' ') }}</span>
-        <span v-if="channelName" class="channel-name">{{ channelName }}</span>
+        <div class="meta-row">
+          <span v-if="channelName" class="channel-tag">{{ channelName }}</span>
+          <span class="asset-accounts">{{ assetAccounts.join(' ') }}</span>
+        </div>
       </div>
       <span class="expand-icon">{{ expanded ? '▼' : '▶' }}</span>
     </div>
@@ -352,22 +354,33 @@ function handleTouchEnd(e: TouchEvent) {
   color: #666;
 }
 
-.asset-accounts {
-  color: #666;
-  font-size: 12px;
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 140px;
 }
 
-.channel-name {
-  color: #888;
-  font-size: 11px;
+.asset-accounts {
+  color: #666;
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 140px;
+}
+
+.channel-tag {
+  display: inline-block;
+  font-size: 11px;
+  color: #fff;
+  background: #fa8c16;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .expand-icon {
