@@ -93,6 +93,12 @@ pub struct PostingDto {
     pub commodity: String,
     /// 金额字符串。
     pub amount: String,
+    /// 分录类型。
+    pub kind: String,
+    /// 关联分录 ID。
+    pub linked_posting_id: Option<i64>,
+    /// 已冲正总额。
+    pub reversal_total: String,
 }
 
 /// 交易详情响应（含分录）。
@@ -140,6 +146,11 @@ pub struct PostingRequest {
     pub commodity: String,
     /// 金额字符串。
     pub amount: String,
+    /// 分录类型。
+    #[serde(default)]
+    pub kind: String,
+    /// 关联分录 ID。
+    pub linked_posting_id: Option<i64>,
 }
 
 /// 渠道响应。

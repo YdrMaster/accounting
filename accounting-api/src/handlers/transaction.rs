@@ -134,6 +134,15 @@ async fn list_transactions(
                         .cloned()
                         .unwrap_or_default(),
                     amount: p.amount.to_string(),
+                    kind: match p.kind {
+                        accounting::posting::PostingKind::Refund => "refund".to_string(),
+                        accounting::posting::PostingKind::Reimbursement => {
+                            "reimbursement".to_string()
+                        }
+                        _ => "normal".to_string(),
+                    },
+                    linked_posting_id: p.linked_posting_id.map(|id| id.0),
+                    reversal_total: p.reversal_total.to_string(),
                 })
                 .collect(),
         })
@@ -170,6 +179,12 @@ async fn create_transaction(
         let amount =
             Decimal::from_str(&posting_req.amount).map_err(|e| format!("Invalid amount: {}", e))?;
 
+        let kind = match posting_req.kind.as_str() {
+            "refund" => accounting::posting::PostingKind::Refund,
+            "reimbursement" => accounting::posting::PostingKind::Reimbursement,
+            _ => accounting::posting::PostingKind::Normal,
+        };
+
         postings.push(Posting {
             id: PostingId(0),
             transaction_id: TransactionId(0),
@@ -181,8 +196,8 @@ async fn create_transaction(
             description: None,
             member_id,
             channel_id: None,
-            kind: accounting::posting::PostingKind::Normal,
-            linked_posting_id: None,
+            kind,
+            linked_posting_id: posting_req.linked_posting_id.map(PostingId),
             reversal_total: Decimal::ZERO,
         });
     }
@@ -274,6 +289,13 @@ async fn get_transaction(
                 .cloned()
                 .unwrap_or_default(),
             amount: p.amount.to_string(),
+            kind: match p.kind {
+                accounting::posting::PostingKind::Refund => "refund".to_string(),
+                accounting::posting::PostingKind::Reimbursement => "reimbursement".to_string(),
+                _ => "normal".to_string(),
+            },
+            linked_posting_id: p.linked_posting_id.map(|id| id.0),
+            reversal_total: p.reversal_total.to_string(),
         })
         .collect();
 
@@ -318,6 +340,12 @@ async fn update_transaction(
             let amount = Decimal::from_str(&posting_req.amount)
                 .map_err(|e| format!("Invalid amount: {}", e))?;
 
+            let kind = match posting_req.kind.as_str() {
+                "refund" => accounting::posting::PostingKind::Refund,
+                "reimbursement" => accounting::posting::PostingKind::Reimbursement,
+                _ => accounting::posting::PostingKind::Normal,
+            };
+
             postings.push(Posting {
                 id: PostingId(0),
                 transaction_id: TransactionId(id),
@@ -329,8 +357,8 @@ async fn update_transaction(
                 description: None,
                 member_id,
                 channel_id: None,
-                kind: accounting::posting::PostingKind::Normal,
-                linked_posting_id: None,
+                kind,
+                linked_posting_id: posting_req.linked_posting_id.map(PostingId),
                 reversal_total: Decimal::ZERO,
             });
         }
