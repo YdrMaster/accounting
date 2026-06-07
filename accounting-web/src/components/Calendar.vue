@@ -306,13 +306,12 @@ function handleClick(date: string) {
 
 .day-bottom {
   display: flex;
-  flex-direction: row;
-  gap: 2px;
+  flex-direction: column;
+  gap: 1px;
   align-items: center;
   justify-content: center;
   font-size: clamp(10px, 2.5cqi, 12px);
-  line-height: 1.4;
-  white-space: nowrap;
+  line-height: 1.3;
   overflow: hidden;
 }
 

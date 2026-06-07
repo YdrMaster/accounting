@@ -11,8 +11,13 @@
         />
       </a-form-item>
 
-      <a-form-item label="备注">
-        <a-input v-model:value="description" placeholder="请输入备注" />
+      <a-form-item label="备注" required>
+        <a-textarea
+          v-model:value="description"
+          placeholder="请输入备注"
+          :auto-size="{ minRows: 1, maxRows: 6 }"
+          @press-enter="() => {}"
+        />
       </a-form-item>
 
       <a-form-item label="分录" required>
@@ -148,6 +153,12 @@ async function handleSubmit() {
   // 验证日期
   if (!dateTime.value || !dateTime.value.isValid()) {
     message.error('请选择日期时间')
+    return
+  }
+
+  // 验证备注
+  if (!description.value.trim()) {
+    message.error('请输入备注')
     return
   }
 

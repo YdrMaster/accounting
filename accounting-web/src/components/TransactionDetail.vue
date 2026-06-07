@@ -10,7 +10,7 @@
     <div class="transaction-header">
       <div class="transaction-info">
         <span class="transaction-date">{{ formattedDate }}</span>
-        <span class="transaction-desc">{{ tx.description }}</span>
+        <span class="transaction-desc" :title="tx.description">{{ firstLinePreview }}</span>
         <span v-if="memberName" class="transaction-member">{{ memberName }}</span>
       </div>
       <div class="transaction-meta">
@@ -78,6 +78,12 @@ const totalAmount = computed(() => {
     }
   }
   return sum
+})
+
+const firstLinePreview = computed(() => {
+  const text = props.tx.description || ''
+  const firstLine = text.split('\n')[0] || ''
+  return firstLine
 })
 
 function toggleExpand() {
@@ -183,6 +189,11 @@ function handleTouchEnd(e: TouchEvent) {
 .transaction-desc {
   color: #333;
   font-size: 14px;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .transaction-member {
