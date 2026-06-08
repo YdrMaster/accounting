@@ -8,12 +8,14 @@
 
 每一笔交易由一组 **Posting（端点/分录）** 组成，每个 Posting 描述一笔资金从"某处"流向"某处"。与 T-account 或 Pacioli 分组模型不同，端点模型天然支持多币种和复杂的资金流动追踪。
 
-系统中没有独立的"换汇"概念——多币种交易通过 `cost` 字段表达双边等式。例如，买入 100 USD 花费 700 CNY：
+系统中没有独立的"换汇"概念——多币种交易通过 `cost` 字段表达双边等式。例如，买入 100 USD 花费 678 CNY：
 
 ```plaintext
-Assets:Foreign:USD    +100 USD  (cost = 70000 CNY)
-Assets:Cash           -70000 CNY
+Assets:Foreign:USD    +100 USD  (cost = 678 CNY)
+Assets:Cash           -678 CNY
 ```
+
+> 注：数据库存储时按 commodity 的 precision 缩放为整数（如 CNY precision=2 时，678 CNY 存储为 67800）。
 
 ### 分层架构
 
@@ -46,6 +48,10 @@ accounting          ← 核心库（纯数据模型 + 算法）
 
 详见 [`accounting-cli/README.md`](accounting-cli/README.md)。
 
+## Web 用法
+
+详见 [`accounting-web/README.md`](accounting-web/README.md)。
+
 ## Workspace 结构
 
 ```plaintext
@@ -54,6 +60,8 @@ accounting          ← 核心库（纯数据模型 + 算法）
 ├── accounting-sql/      # 数据库层：Repository + SQLite
 ├── accounting-service/  # 业务层：Service + 事务
 ├── accounting-cli/      # CLI 入口
+├── accounting-api/      # HTTP API 服务（axum）
+├── accounting-web/      # Web 前端（Vue 3 + Ant Design Vue）
 ├── spec/                # 设计文档
 ├── plan/                # 实现计划
 └── docs/                # 项目文档
