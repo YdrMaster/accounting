@@ -29,6 +29,7 @@ pub struct TxQuery {
     pub member: Option<i64>,
     pub tag: Option<String>,
     pub keyword: Option<String>,
+    pub reimbursable: Option<bool>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -90,6 +91,10 @@ async fn list_transactions(
         filter.keyword = Some(keyword);
     }
 
+    if let Some(reimbursable) = query.reimbursable {
+        filter.has_reimbursable = Some(reimbursable);
+    }
+
     let (accounts, commodities) = {
         let conn = db.connection();
         let accounts: std::collections::HashMap<i64, String> = db
@@ -121,6 +126,13 @@ async fn list_transactions(
             id: tx.id.0,
             date_time: tx.date_time.to_string(),
             description: tx.description,
+            kind: match tx.kind {
+                accounting::transaction::TransactionKind::Refund => "refund".to_string(),
+                accounting::transaction::TransactionKind::Reimbursement => {
+                    "reimbursement".to_string()
+                }
+                _ => "normal".to_string(),
+            },
             member_id: tx.member_id.map(|id| id.0),
             channel_id: tx.channel_id.map(|id| id.0),
             is_template: tx.is_template,
@@ -134,13 +146,7 @@ async fn list_transactions(
                         .cloned()
                         .unwrap_or_default(),
                     amount: p.amount.to_string(),
-                    kind: match p.kind {
-                        accounting::posting::PostingKind::Refund => "refund".to_string(),
-                        accounting::posting::PostingKind::Reimbursement => {
-                            "reimbursement".to_string()
-                        }
-                        _ => "normal".to_string(),
-                    },
+                    is_reimbursable: p.is_reimbursable,
                     linked_posting_id: p.linked_posting_id.map(|id| id.0),
                     reversal_total: p.reversal_total.to_string(),
                 })
@@ -179,12 +185,6 @@ async fn create_transaction(
         let amount =
             Decimal::from_str(&posting_req.amount).map_err(|e| format!("Invalid amount: {}", e))?;
 
-        let kind = match posting_req.kind.as_str() {
-            "refund" => accounting::posting::PostingKind::Refund,
-            "reimbursement" => accounting::posting::PostingKind::Reimbursement,
-            _ => accounting::posting::PostingKind::Normal,
-        };
-
         postings.push(Posting {
             id: PostingId(0),
             transaction_id: TransactionId(0),
@@ -196,7 +196,7 @@ async fn create_transaction(
             description: None,
             member_id,
             channel_id: None,
-            kind,
+            is_reimbursable: posting_req.is_reimbursable,
             linked_posting_id: posting_req.linked_posting_id.map(PostingId),
             reversal_total: Decimal::ZERO,
         });
@@ -225,10 +225,17 @@ async fn create_transaction(
         tag_ids.push(tag_id);
     }
 
+    let tx_kind = match req.kind.as_str() {
+        "refund" => accounting::transaction::TransactionKind::Refund,
+        "reimbursement" => accounting::transaction::TransactionKind::Reimbursement,
+        _ => accounting::transaction::TransactionKind::Normal,
+    };
+
     let transaction = Transaction {
         id: TransactionId(0),
         date_time,
         description: tx_description,
+        kind: tx_kind,
         member_id,
         channel_id: req.channel_id.map(ChannelId),
         is_template: false,
@@ -289,11 +296,7 @@ async fn get_transaction(
                 .cloned()
                 .unwrap_or_default(),
             amount: p.amount.to_string(),
-            kind: match p.kind {
-                accounting::posting::PostingKind::Refund => "refund".to_string(),
-                accounting::posting::PostingKind::Reimbursement => "reimbursement".to_string(),
-                _ => "normal".to_string(),
-            },
+            is_reimbursable: p.is_reimbursable,
             linked_posting_id: p.linked_posting_id.map(|id| id.0),
             reversal_total: p.reversal_total.to_string(),
         })
@@ -303,10 +306,60 @@ async fn get_transaction(
         id: tx.id.0,
         date_time: tx.date_time.to_string(),
         description: tx.description,
+        kind: match tx.kind {
+            accounting::transaction::TransactionKind::Refund => "refund".to_string(),
+            accounting::transaction::TransactionKind::Reimbursement => "reimbursement".to_string(),
+            _ => "normal".to_string(),
+        },
         member_id: tx.member_id.map(|id| id.0),
         channel_id: tx.channel_id.map(|id| id.0),
         is_template: tx.is_template,
         postings: posting_dtos,
+    }))
+}
+
+/// 获取单笔分录
+async fn get_posting(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Result<Json<PostingDto>, String> {
+    let db = state.db().map_err(|e| e.to_string())?;
+    let conn = db.connection();
+    let posting = db
+        .posting_repo()
+        .get(&conn, PostingId(id))
+        .map_err(|e| e.to_string())?
+        .ok_or("Posting not found")?;
+
+    let accounts: std::collections::HashMap<i64, String> = db
+        .account_repo()
+        .list(&conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|a| (a.id.0, a.full_name))
+        .collect();
+    let commodities: std::collections::HashMap<i64, String> = db
+        .commodity_repo()
+        .list(&conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|c| (c.id.0, c.symbol))
+        .collect();
+
+    Ok(Json(PostingDto {
+        id: posting.id.0,
+        account: accounts
+            .get(&posting.account_id.0)
+            .cloned()
+            .unwrap_or_default(),
+        commodity: commodities
+            .get(&posting.commodity_id.0)
+            .cloned()
+            .unwrap_or_default(),
+        amount: posting.amount.to_string(),
+        is_reimbursable: posting.is_reimbursable,
+        linked_posting_id: posting.linked_posting_id.map(|id| id.0),
+        reversal_total: posting.reversal_total.to_string(),
     }))
 }
 
@@ -340,12 +393,6 @@ async fn update_transaction(
             let amount = Decimal::from_str(&posting_req.amount)
                 .map_err(|e| format!("Invalid amount: {}", e))?;
 
-            let kind = match posting_req.kind.as_str() {
-                "refund" => accounting::posting::PostingKind::Refund,
-                "reimbursement" => accounting::posting::PostingKind::Reimbursement,
-                _ => accounting::posting::PostingKind::Normal,
-            };
-
             postings.push(Posting {
                 id: PostingId(0),
                 transaction_id: TransactionId(id),
@@ -357,7 +404,7 @@ async fn update_transaction(
                 description: None,
                 member_id,
                 channel_id: None,
-                kind,
+                is_reimbursable: posting_req.is_reimbursable,
                 linked_posting_id: posting_req.linked_posting_id.map(PostingId),
                 reversal_total: Decimal::ZERO,
             });
@@ -389,10 +436,17 @@ async fn update_transaction(
         (postings, tag_ids)
     };
 
+    let tx_kind = match req.kind.as_str() {
+        "refund" => accounting::transaction::TransactionKind::Refund,
+        "reimbursement" => accounting::transaction::TransactionKind::Reimbursement,
+        _ => accounting::transaction::TransactionKind::Normal,
+    };
+
     let transaction = Transaction {
         id: TransactionId(id),
         date_time,
         description: req.description,
+        kind: tx_kind,
         member_id,
         channel_id: req.channel_id.map(ChannelId),
         is_template: false,
@@ -433,4 +487,5 @@ pub fn router() -> Router<Arc<AppState>> {
                 .put(update_transaction)
                 .delete(delete_transaction),
         )
+        .route("/api/postings/:id", get(get_posting))
 }

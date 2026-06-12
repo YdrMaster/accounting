@@ -72,6 +72,8 @@ pub struct TransactionDto {
     pub date_time: String,
     /// 交易描述。
     pub description: String,
+    /// 交易类型。
+    pub kind: String,
     /// 成员 ID。
     pub member_id: Option<i64>,
     /// 渠道 ID。
@@ -93,8 +95,8 @@ pub struct PostingDto {
     pub commodity: String,
     /// 金额字符串。
     pub amount: String,
-    /// 分录类型。
-    pub kind: String,
+    /// 可报销标记。
+    pub is_reimbursable: bool,
     /// 关联分录 ID。
     pub linked_posting_id: Option<i64>,
     /// 已冲正总额。
@@ -110,6 +112,8 @@ pub struct TransactionDetailDto {
     pub date_time: String,
     /// 交易描述。
     pub description: String,
+    /// 交易类型。
+    pub kind: String,
     /// 成员 ID。
     pub member_id: Option<i64>,
     /// 渠道 ID。
@@ -127,6 +131,9 @@ pub struct CreateTransactionRequest {
     pub date_time: String,
     /// 交易描述。
     pub description: String,
+    /// 交易类型。
+    #[serde(default = "default_kind")]
+    pub kind: String,
     /// 成员 ID。
     pub member_id: Option<i64>,
     /// 渠道 ID。
@@ -135,6 +142,10 @@ pub struct CreateTransactionRequest {
     pub postings: Vec<PostingRequest>,
     /// 标签列表。
     pub tags: Vec<String>,
+}
+
+fn default_kind() -> String {
+    "normal".to_string()
 }
 
 /// 分录请求。
@@ -146,9 +157,9 @@ pub struct PostingRequest {
     pub commodity: String,
     /// 金额字符串。
     pub amount: String,
-    /// 分录类型。
+    /// 可报销标记。
     #[serde(default)]
-    pub kind: String,
+    pub is_reimbursable: bool,
     /// 关联分录 ID。
     pub linked_posting_id: Option<i64>,
 }
