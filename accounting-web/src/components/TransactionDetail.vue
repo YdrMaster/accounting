@@ -50,11 +50,17 @@
     <div v-if="expanded" class="transaction-detail">
       <div v-if="postings.length === 0" class="empty">暂无分录</div>
       <div v-else class="postings">
-        <div v-for="p in postings" :key="p.id" class="posting-row">
+        <div
+          v-for="p in postings"
+          :key="p.id"
+          class="posting-row"
+          :class="postingRowClass(p)"
+          @click="onPostingClick(p)"
+        >
           <span class="posting-account">
             {{ p.account }}
-            <span v-if="p.kind === 'refund'" class="tag-refund">退</span>
-            <span v-else-if="p.kind === 'reimbursement'" class="tag-reimbursement">报</span>
+            <span v-if="p.linked_posting_id != null && tx.kind === 'refund'" class="badge-refund">退</span>
+            <span v-else-if="(p.linked_posting_id != null && tx.kind === 'reimbursement') || (p.is_reimbursable && p.linked_posting_id == null)" class="badge-reimb">报</span>
             <span v-if="p.linked_posting_id" class="linked-tag">冲减分录 #{{ p.linked_posting_id }}</span>
           </span>
           <span class="posting-commodity">{{ p.commodity }}</span>
@@ -71,7 +77,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Modal } from 'ant-design-vue'
-import type { Transaction } from '@/stores/transaction'
+import type { Transaction, Posting } from '@/stores/transaction'
 import { useMemberStore } from '@/stores/member'
 import { useTransactionStore } from '@/stores/transaction'
 import { useAccountStore } from '@/stores/account'
@@ -79,10 +85,14 @@ import { useChannelStore } from '@/stores/channel'
 
 const props = defineProps<{
   tx: Transaction
+  selectable?: boolean
+  selectableFilter?: (p: Posting) => boolean
+  selectedPostingIds?: Set<number>
 }>()
 
 const emit = defineEmits<{
   (e: 'deleted', id: number): void
+  (e: 'select-posting', id: number): void
 }>()
 
 const router = useRouter()
@@ -189,6 +199,30 @@ const isTransferType = computed(() => {
 const hasRepaymentTag = computed(() => {
   return (props.tx.tags || []).includes('还款')
 })
+
+function postingRowClass(p: Posting): Record<string, boolean> {
+  const cls: Record<string, boolean> = {}
+  if (props.selectable) {
+    if (props.selectableFilter && !props.selectableFilter(p)) {
+      cls['selectable-disabled'] = true
+    } else {
+      cls['selectable'] = true
+    }
+  }
+  if (props.selectedPostingIds?.has(p.id)) {
+    cls['selected'] = true
+  }
+  if (p.is_reimbursable && p.linked_posting_id == null) {
+    cls['reimbursable'] = true
+  }
+  return cls
+}
+
+function onPostingClick(p: Posting) {
+  if (!props.selectable) return
+  if (props.selectableFilter && !props.selectableFilter(p)) return
+  emit('select-posting', p.id)
+}
 
 function toggleExpand() {
   expanded.value = !expanded.value
@@ -443,6 +477,11 @@ function handleTouchEnd(e: TouchEvent) {
   border-radius: 4px;
 }
 
+.posting-row.selectable { cursor: pointer; }
+.posting-row.selectable-disabled { opacity: 0.4; cursor: not-allowed; }
+.posting-row.selected { background: #bae7ff; border: 1px solid #1890ff; }
+.posting-row.reimbursable { background: #e6f7ff; }
+
 .posting-account {
   flex: 1;
   color: #333;
@@ -468,21 +507,21 @@ function handleTouchEnd(e: TouchEvent) {
   color: #f5222d;
 }
 
-.tag-refund {
-  color: #fa8c16;
-  font-size: 11px;
-  border: 1px solid #fa8c16;
+.badge-refund {
+  color: #fa541c;
+  border: 1px solid #fa541c;
+  font-size: 12px;
   padding: 0 4px;
-  border-radius: 4px;
+  border-radius: 2px;
   margin-left: 4px;
 }
 
-.tag-reimbursement {
+.badge-reimb {
   color: #1890ff;
-  font-size: 11px;
   border: 1px solid #1890ff;
+  font-size: 12px;
   padding: 0 4px;
-  border-radius: 4px;
+  border-radius: 2px;
   margin-left: 4px;
 }
 
