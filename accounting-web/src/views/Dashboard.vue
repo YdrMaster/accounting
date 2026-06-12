@@ -1,14 +1,14 @@
 <template>
   <div class="dashboard">
-    <!-- 工具栏：范围 + 筛选 -->
+    <!-- 工具栏：模式切换 + 筛选 -->
     <div class="toolbar">
       <a-space>
-        <a-button
-          :type="rangeMode ? 'primary' : 'default'"
-          @click="rangeMode = !rangeMode"
-        >
-          范围选择
-        </a-button>
+        <a-radio-group v-model:value="mode" button-style="solid" size="small">
+          <a-radio-button value="normal">普通</a-radio-button>
+          <a-radio-button value="range">范围</a-radio-button>
+          <a-radio-button value="refund">退款</a-radio-button>
+          <a-radio-button value="reimbursement">报销</a-radio-button>
+        </a-radio-group>
         <a-button @click="showFilter = true">
           <FilterOutlined />
           筛选
@@ -21,8 +21,8 @@
 
     <Calendar
       :data="calendarData"
-      :mode="rangeMode ? 'range' : 'normal'"
-      @select="handleSelect"
+      :mode="mode"
+      @select="mode !== 'range' ? handleSelect($event) : undefined"
       @select-range="handleSelectRange"
       @clear="handleClear"
     />
@@ -56,7 +56,11 @@
               v-for="tx in group.transactions"
               :key="tx.id"
               :tx="tx"
+              :selectable="isSelectMode"
+              :selectable-filter="mode === 'reimbursement' ? reimbursableFilter : undefined"
+              :selected-posting-ids="selectedPostingIds"
               @deleted="handleDeleted"
+              @select-posting="togglePostingSelection"
             />
           </div>
         </div>
@@ -112,6 +116,31 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 底部抽屉：选中分录 -->
+    <div v-if="isSelectMode && selectedPostingIds.size > 0" class="bottom-drawer" :class="{ collapsed: !drawerExpanded }">
+      <div class="drawer-left">
+        <span class="count-badge">{{ selectedPostingIds.size }}</span>
+        <span class="toggle-icon" @click="drawerExpanded = !drawerExpanded">
+          {{ drawerExpanded ? '▶' : '◀' }}
+        </span>
+      </div>
+      <div v-if="drawerExpanded" class="drawer-body">
+        <div class="drawer-actions">
+          <a-button type="primary" style="background: #52c41a; border-color: #52c41a" @click="confirmSelection">
+            确定
+          </a-button>
+          <a-button @click="cancelSelection">取消</a-button>
+        </div>
+        <div class="drawer-cards">
+          <div v-for="p in selectedPostingsInfo" :key="p.id" class="selected-card">
+            <div class="card-account">{{ p.account }}</div>
+            <div class="card-meta">{{ p.date }} · {{ p.description }}</div>
+            <div class="card-amount">{{ p.amount }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -122,7 +151,7 @@ import dayjs from 'dayjs'
 import { FilterOutlined } from '@ant-design/icons-vue'
 import Calendar from '@/components/Calendar.vue'
 import TransactionDetail from '@/components/TransactionDetail.vue'
-import { useTransactionStore, type Transaction } from '@/stores/transaction'
+import { useTransactionStore, type Transaction, type Posting } from '@/stores/transaction'
 import { useAccountStore } from '@/stores/account'
 import { useMemberStore } from '@/stores/member'
 import { useChannelStore } from '@/stores/channel'
@@ -134,7 +163,12 @@ const accountStore = useAccountStore()
 const memberStore = useMemberStore()
 const channelStore = useChannelStore()
 
-const rangeMode = ref(false)
+type DashboardMode = 'normal' | 'range' | 'refund' | 'reimbursement'
+const mode = ref<DashboardMode>('normal')
+const selectedPostingIds = ref<Set<number>>(new Set())
+const drawerExpanded = ref(false)
+const isSelectMode = computed(() => mode.value === 'refund' || mode.value === 'reimbursement')
+
 const selectedDate = ref<string | null>(null)
 const rangeFrom = ref<string | null>(null)
 const rangeTo = ref<string | null>(null)
@@ -280,6 +314,8 @@ function handleSelect(date: string) {
   selectedDate.value = date
   rangeFrom.value = null
   rangeTo.value = null
+  selectedPostingIds.value = new Set()
+  drawerExpanded.value = false
   fetchData()
 }
 
@@ -287,6 +323,8 @@ function handleSelectRange(from: string, to: string) {
   selectedDate.value = null
   rangeFrom.value = from
   rangeTo.value = to
+  selectedPostingIds.value = new Set()
+  drawerExpanded.value = false
   fetchData()
 }
 
@@ -294,6 +332,8 @@ function handleClear() {
   selectedDate.value = null
   rangeFrom.value = null
   rangeTo.value = null
+  selectedPostingIds.value = new Set()
+  drawerExpanded.value = false
   if (!hasFilter.value) {
     fetchMonthData()
   } else {
@@ -336,6 +376,9 @@ function buildParams(): Record<string, unknown> {
   if (filterForm.value.keyword) {
     params.keyword = filterForm.value.keyword
   }
+  if (mode.value === 'reimbursement') {
+    params.reimbursable = true
+  }
   return params
 }
 
@@ -374,6 +417,48 @@ function goToTransaction() {
 function handleDeleted() {
   fetchData()
 }
+
+function togglePostingSelection(id: number) {
+  const next = new Set(selectedPostingIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedPostingIds.value = next
+}
+
+const reimbursableFilter = (p: Posting) => p.is_reimbursable
+
+const selectedPostingsInfo = computed(() => {
+  const result: any[] = []
+  for (const tx of transactionStore.transactions) {
+    for (const p of tx.postings) {
+      if (selectedPostingIds.value.has(p.id)) {
+        result.push({ ...p, date: tx.date_time.slice(0, 10), description: tx.description })
+      }
+    }
+  }
+  return result
+})
+
+function confirmSelection() {
+  const ids = Array.from(selectedPostingIds.value).join(',')
+  const path = mode.value === 'refund' ? '/transaction/refund' : '/transaction/reimbursement'
+  router.push(`${path}?posting_ids=${ids}`)
+}
+
+function cancelSelection() {
+  selectedPostingIds.value = new Set()
+  drawerExpanded.value = false
+}
+
+watch(mode, (newMode) => {
+  selectedPostingIds.value = new Set()
+  drawerExpanded.value = false
+  if (newMode === 'reimbursement') {
+    fetchData()
+  } else if (newMode === 'normal' || newMode === 'refund') {
+    fetchData()
+  }
+})
 
 onMounted(() => {
   fetchMonthData()
@@ -479,4 +564,61 @@ onMounted(() => {
   color: #999;
   padding: 24px;
 }
+
+.bottom-drawer {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px 0 0 0;
+  padding: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  z-index: 1000;
+  max-width: 80vw;
+}
+.bottom-drawer.collapsed {
+  padding: 8px 12px;
+}
+.drawer-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.count-badge {
+  background: #1890ff;
+  color: #fff;
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-size: 14px;
+  font-weight: bold;
+}
+.toggle-icon { cursor: pointer; }
+.drawer-body { display: flex; align-items: flex-start; gap: 8px; }
+.drawer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.drawer-cards {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.drawer-cards::-webkit-scrollbar { display: none; }
+.selected-card {
+  background: #f5f5f5;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  padding: 6px 10px;
+  white-space: nowrap;
+  min-width: 140px;
+}
+.card-account { font-weight: 600; }
+.card-meta { font-size: 12px; color: #999; }
+.card-amount { font-size: 14px; }
 </style>
