@@ -1,29 +1,6 @@
 use crate::id::{AccountId, ChannelId, CommodityId, MemberId, PostingId, TransactionId};
 use rust_decimal::Decimal;
 
-/// 分录类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PostingKind {
-    /// 普通分录
-    Normal = 1,
-    /// 退款分录（冲减原支出）
-    Refund = 2,
-    /// 报销分录（冲减原支出）
-    Reimbursement = 3,
-}
-
-impl PostingKind {
-    /// 从数据库整数值解析
-    pub fn from_db(value: i32) -> Option<Self> {
-        match value {
-            1 => Some(PostingKind::Normal),
-            2 => Some(PostingKind::Refund),
-            3 => Some(PostingKind::Reimbursement),
-            _ => None,
-        }
-    }
-}
-
 /// 分录（Posting / 端点）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Posting {
@@ -47,9 +24,9 @@ pub struct Posting {
     pub member_id: Option<MemberId>,
     /// 关联支付渠道 ID
     pub channel_id: Option<ChannelId>,
-    /// 分录类型
-    pub kind: PostingKind,
-    /// 关联原分录 ID（退款/报销时指向被冲减的分录）
+    /// 可报销标记（仅 Expense 类账户可设置）
+    pub is_reimbursable: bool,
+    /// 关联原分录 ID（非空表示该分录是冲减分录）
     pub linked_posting_id: Option<PostingId>,
     /// 累计被冲减金额（由触发器自动维护）
     pub reversal_total: Decimal,

@@ -26,7 +26,7 @@ pub mod installment;
 pub mod member;
 /// 分录模型
 pub mod posting;
-pub use posting::PostingKind;
+pub use transaction::TransactionKind;
 /// 标签模型
 pub mod tag;
 /// 交易模型
