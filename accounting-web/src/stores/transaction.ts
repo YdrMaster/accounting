@@ -7,7 +7,7 @@ export interface Posting {
   account: string
   commodity: string
   amount: string
-  kind: string
+  is_reimbursable: boolean
   linked_posting_id?: number
   reversal_total: string
 }
@@ -16,6 +16,7 @@ export interface Transaction {
   id: number
   date_time: string
   description: string
+  kind: string
   member_id?: number
   channel_id?: number
   is_template: boolean
@@ -27,13 +28,14 @@ export interface PostingInput {
   account: string
   commodity: string
   amount: string
-  kind?: string
+  is_reimbursable?: boolean
   linked_posting_id?: number
 }
 
 export interface CreateTransactionData {
   date_time: string
   description: string
+  kind: string
   member_id?: number
   channel_id?: number
   postings: PostingInput[]
@@ -56,6 +58,11 @@ export const useTransactionStore = defineStore('transaction', () => {
     }
   }
 
+  async function fetchPosting(id: number): Promise<Posting> {
+    const res = await api.get<Posting>(`/postings/${id}`)
+    return res.data
+  }
+
   async function createTransaction(data: CreateTransactionData) {
     await api.post('/transactions', data)
   }
@@ -68,5 +75,5 @@ export const useTransactionStore = defineStore('transaction', () => {
     await api.delete(`/transactions/${id}`)
   }
 
-  return { transactions, loading, fetchTransactions, createTransaction, updateTransaction, deleteTransaction }
+  return { transactions, loading, fetchTransactions, fetchPosting, createTransaction, updateTransaction, deleteTransaction }
 })
