@@ -8,6 +8,8 @@ import ReportView from '@/views/ReportView.vue'
 const routes = [
   { path: '/', component: Dashboard },
   { path: '/transaction', component: TransactionForm },
+  { path: '/transaction/refund', component: TransactionForm },
+  { path: '/transaction/reimbursement', component: TransactionForm },
   { path: '/accounts', component: AccountTree },
   { path: '/tags', component: Tags },
   { path: '/reports', component: ReportView },
