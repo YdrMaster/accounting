@@ -323,4 +323,32 @@ html.dark .empty,
 html.dark .loading {
   color: #888 !important;
 }
+
+/* ========== Posting rows & bottom drawer ========== */
+html.dark .posting-row.selected {
+  background: #15395b;
+  border-color: #177ddc;
+}
+html.dark .posting-row.reimbursable {
+  background: #111d2c;
+}
+html.dark .bottom-drawer {
+  background: #1f1f1f;
+  border-color: #434343;
+}
+html.dark .selected-card {
+  background: #262626;
+  border-color: #434343;
+}
+html.dark .card-meta {
+  color: #888;
+}
+html.dark .badge-refund {
+  color: #ff7a45;
+  border-color: #ff7a45;
+}
+html.dark .badge-reimb {
+  color: #69c0ff;
+  border-color: #69c0ff;
+}
 </style>
