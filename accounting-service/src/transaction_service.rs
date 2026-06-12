@@ -3,6 +3,8 @@ use accounting::id::{TagId, TransactionId};
 use accounting::posting::Posting;
 use accounting::transaction::Transaction;
 use accounting::transaction_filter::TransactionFilter;
+use accounting::validation::validate_kind_consistency;
+use accounting::validation::validate_reversal_cap;
 use accounting::validation::validate_reversal_direction;
 use accounting::validation::validate_transaction;
 use accounting_sql::database::Database;
@@ -29,6 +31,7 @@ impl<D: Database> TransactionService<D> {
     ) -> Result<TransactionId, AccountingError> {
         validate_transaction(&postings)?;
         validate_reversal_direction(&postings)?;
+        validate_kind_consistency(transaction.kind, &postings)?;
 
         let tx = self
             .db
@@ -43,7 +46,7 @@ impl<D: Database> TransactionService<D> {
 
         // 验证退款/报销分录的关联合法性
         for posting in &postings {
-            if posting.kind == accounting::posting::PostingKind::Normal {
+            if posting.linked_posting_id.is_none() {
                 continue;
             }
 
@@ -62,7 +65,7 @@ impl<D: Database> TransactionService<D> {
                     ))
                 })?;
 
-            if linked_posting.kind != accounting::posting::PostingKind::Normal {
+            if linked_posting.linked_posting_id.is_some() {
                 return Err(AccountingError::InvalidTransaction(
                     "只能冲减普通分录".to_string(),
                 ));
@@ -81,6 +84,12 @@ impl<D: Database> TransactionService<D> {
                     "退款/报销金额方向必须与原分录相反".to_string(),
                 ));
             }
+
+            validate_reversal_cap(
+                posting.amount,
+                linked_posting.amount,
+                linked_posting.reversal_total,
+            )?;
         }
 
         for posting in &mut postings {
@@ -105,6 +114,7 @@ impl<D: Database> TransactionService<D> {
     ) -> Result<(), AccountingError> {
         validate_transaction(&postings)?;
         validate_reversal_direction(&postings)?;
+        validate_kind_consistency(transaction.kind, &postings)?;
 
         let tx = self
             .db
@@ -124,7 +134,7 @@ impl<D: Database> TransactionService<D> {
 
         // 验证退款/报销分录的关联合法性
         for posting in &postings {
-            if posting.kind == accounting::posting::PostingKind::Normal {
+            if posting.linked_posting_id.is_none() {
                 continue;
             }
 
@@ -143,7 +153,7 @@ impl<D: Database> TransactionService<D> {
                     ))
                 })?;
 
-            if linked_posting.kind != accounting::posting::PostingKind::Normal {
+            if linked_posting.linked_posting_id.is_some() {
                 return Err(AccountingError::InvalidTransaction(
                     "只能冲减普通分录".to_string(),
                 ));
@@ -162,6 +172,12 @@ impl<D: Database> TransactionService<D> {
                     "退款/报销金额方向必须与原分录相反".to_string(),
                 ));
             }
+
+            validate_reversal_cap(
+                posting.amount,
+                linked_posting.amount,
+                linked_posting.reversal_total,
+            )?;
         }
 
         // 插入新分录
@@ -256,6 +272,7 @@ mod tests {
     use accounting::id::{AccountId, CommodityId, PostingId, TransactionId};
     use accounting::posting::Posting;
     use accounting::transaction::Transaction;
+    use accounting::transaction::TransactionKind;
     use accounting_sql::impls::sqlite::SqliteDatabase;
     use chrono::NaiveDate;
     use rust_decimal::Decimal;
@@ -286,7 +303,7 @@ mod tests {
             description: None,
             member_id: None,
             channel_id: None,
-            kind: accounting::posting::PostingKind::Normal,
+            is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,
         }
@@ -315,6 +332,7 @@ mod tests {
                 .and_hms_opt(0, 0, 0)
                 .unwrap(),
             description: "Test".to_string(),
+            kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
             is_template: false,
@@ -341,6 +359,7 @@ mod tests {
                 .and_hms_opt(0, 0, 0)
                 .unwrap(),
             description: "Bad".to_string(),
+            kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
             is_template: false,
@@ -370,6 +389,7 @@ mod tests {
                 .and_hms_opt(0, 0, 0)
                 .unwrap(),
             description: "Original".to_string(),
+            kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
             is_template: false,
@@ -386,6 +406,7 @@ mod tests {
             id: tx_id,
             date_time: tx.date_time,
             description: "Updated".to_string(),
+            kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
             is_template: false,
@@ -423,6 +444,7 @@ mod tests {
                 .and_hms_opt(0, 0, 0)
                 .unwrap(),
             description: "ToDelete".to_string(),
+            kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
             is_template: false,

@@ -342,6 +342,7 @@ mod tests {
     use accounting::posting::Posting;
     use accounting::tag::Tag;
     use accounting::transaction::Transaction;
+    use accounting::transaction::TransactionKind;
     use accounting_sql::impls::sqlite::SqliteDatabase;
     use chrono::NaiveDate;
     use rust_decimal::Decimal;
@@ -372,7 +373,7 @@ mod tests {
             description: None,
             member_id: None,
             channel_id: None,
-            kind: accounting::posting::PostingKind::Normal,
+            is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,
         }
@@ -405,6 +406,7 @@ mod tests {
                 .and_hms_opt(0, 0, 0)
                 .unwrap(),
             description: "Report test".to_string(),
+            kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
             is_template: false,
@@ -476,6 +478,7 @@ mod tests {
                     .and_hms_opt(0, 0, 0)
                     .unwrap(),
                 description: "Tag stat test".to_string(),
+                kind: TransactionKind::Normal,
                 member_id: None,
                 channel_id: None,
                 is_template: false,
@@ -555,6 +558,7 @@ mod tests {
                     .and_hms_opt(0, 0, 0)
                     .unwrap(),
                 description: "Member stat test".to_string(),
+                kind: TransactionKind::Normal,
                 member_id: Some(member_id),
                 channel_id: None,
                 is_template: false,
@@ -635,6 +639,7 @@ mod tests {
                     .and_hms_opt(0, 0, 0)
                     .unwrap(),
                 description: "Channel stat test".to_string(),
+                kind: TransactionKind::Normal,
                 member_id: None,
                 channel_id: None,
                 is_template: false,
