@@ -1,5 +1,6 @@
 use accounting::id::{TagId, TransactionId};
 use accounting::transaction::Transaction;
+use accounting::transaction::TransactionKind;
 use accounting::transaction_filter::TransactionFilter;
 use chrono::NaiveDateTime;
 use rusqlite::{Connection, params};
@@ -55,14 +56,15 @@ impl TransactionRepo for SqliteTransactionRepo {
         tag_ids: &[TagId],
     ) -> Result<TransactionId, crate::error::DbError> {
         conn.execute(
-            "INSERT INTO transactions (date_time, description, member_id, channel_id, is_template)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO transactions (date_time, description, member_id, channel_id, is_template, kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 tx.date_time.to_string(),
                 tx.description,
                 tx.member_id.map(|id| id.0),
                 tx.channel_id.map(|id| id.0),
                 tx.is_template as i32,
+                tx.kind as i32,
             ],
         )?;
         let tx_id = TransactionId(conn.last_insert_rowid());
@@ -81,7 +83,7 @@ impl TransactionRepo for SqliteTransactionRepo {
         id: TransactionId,
     ) -> Result<Option<Transaction>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, date_time, description, member_id, channel_id, is_template FROM transactions WHERE id = ?1",
+            "SELECT id, date_time, description, kind, member_id, channel_id, is_template FROM transactions WHERE id = ?1",
         )?;
         let mut rows = stmt.query(params![id.0])?;
         if let Some(row) = rows.next()? {
@@ -141,12 +143,19 @@ impl TransactionRepo for SqliteTransactionRepo {
             conditions.push("transactions.channel_id = ?");
             params_vec.push(Box::new(channel.0));
         }
+        // 可报销过滤需要 JOIN postings 表
+        if let Some(true) = filter.has_reimbursable {
+            if !joins.iter().any(|j| j.contains("postings")) {
+                joins.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id");
+            }
+            conditions.push("p_reimb.is_reimbursable = 1");
+        }
 
         // 组装最终 SQL
         let join_clause = joins.join(" ");
         let where_clause = conditions.join(" AND ");
         let sql = format!(
-            "SELECT DISTINCT transactions.id, transactions.date_time, transactions.description, transactions.member_id, transactions.channel_id, transactions.is_template
+            "SELECT DISTINCT transactions.id, transactions.date_time, transactions.description, transactions.kind, transactions.member_id, transactions.channel_id, transactions.is_template
              FROM transactions {}
              WHERE {}
              ORDER BY transactions.date_time DESC, transactions.id DESC
@@ -208,6 +217,12 @@ impl TransactionRepo for SqliteTransactionRepo {
             conditions.push("transactions.channel_id = ?");
             params_vec.push(Box::new(channel.0));
         }
+        if let Some(true) = filter.has_reimbursable {
+            if !joins.iter().any(|j| j.contains("postings")) {
+                joins.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id");
+            }
+            conditions.push("p_reimb.is_reimbursable = 1");
+        }
 
         // 组装 COUNT SQL 并执行
         let join_clause = joins.join(" ");
@@ -236,15 +251,16 @@ impl TransactionRepo for SqliteTransactionRepo {
     ) -> Result<(), crate::error::DbError> {
         conn.execute(
             "UPDATE transactions
-             SET date_time = ?1, description = ?2, member_id = ?3, channel_id = ?4, is_template = ?5
-             WHERE id = ?6",
+             SET date_time = ?1, description = ?2, member_id = ?3, channel_id = ?4, is_template = ?5, kind = ?6
+             WHERE id = ?7",
             params![
                 tx.date_time.to_string(),
                 tx.description,
                 tx.member_id.map(|id| id.0),
                 tx.channel_id.map(|id| id.0),
                 tx.is_template as i32,
-                tx.id.0,
+               tx.kind as i32,
+               tx.id.0,
             ],
         )?;
         conn.execute(
@@ -271,9 +287,10 @@ fn map_transaction(row: &rusqlite::Row) -> Result<Transaction, rusqlite::Error> 
         id: TransactionId(row.get(0)?),
         date_time,
         description: row.get(2)?,
-        member_id: row.get::<_, Option<i64>>(3)?.map(accounting::id::MemberId),
-        channel_id: row.get::<_, Option<i64>>(4)?.map(accounting::id::ChannelId),
-        is_template: row.get::<_, i32>(5)? != 0,
+        kind: TransactionKind::from_db(row.get::<_, i32>(3)?).unwrap_or(TransactionKind::Normal),
+        member_id: row.get::<_, Option<i64>>(4)?.map(accounting::id::MemberId),
+        channel_id: row.get::<_, Option<i64>>(5)?.map(accounting::id::ChannelId),
+        is_template: row.get::<_, i32>(6)? != 0,
     })
 }
 
@@ -299,6 +316,7 @@ mod tests {
                 .and_hms_opt(0, 0, 0)
                 .unwrap(),
             description: "Grocery shopping".to_string(),
+            kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
             is_template: false,

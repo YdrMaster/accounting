@@ -22,4 +22,6 @@ pub struct TransactionFilter {
     pub has_installment: Option<bool>,
     /// 是否为模板交易
     pub is_template: Option<bool>,
+    /// 只包含可报销分录的交易
+    pub has_reimbursable: Option<bool>,
 }
