@@ -94,7 +94,7 @@ impl PostingRepo for SqlitePostingRepo {
             .map(|c| accounting::amount::to_db_amount(c, cost_precision));
         conn.execute(
             "INSERT INTO postings
-             (transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, kind, linked_posting_id)
+             (transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, is_reimbursable, linked_posting_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 posting.transaction_id.0,
@@ -106,7 +106,7 @@ impl PostingRepo for SqlitePostingRepo {
                 posting.description,
                 posting.member_id.map(|id| id.0),
                 posting.channel_id.map(|id| id.0),
-                posting.kind as i32,
+                posting.is_reimbursable as i32,
                 posting.linked_posting_id.map(|id| id.0),
             ],
         )?;
@@ -119,7 +119,7 @@ impl PostingRepo for SqlitePostingRepo {
         id: PostingId,
     ) -> Result<Option<Posting>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, kind, linked_posting_id, reversal_total
+            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, is_reimbursable, linked_posting_id, reversal_total
              FROM postings WHERE id = ?1"
         )?;
         let mut rows = stmt.query(params![id.0])?;
@@ -143,8 +143,7 @@ impl PostingRepo for SqlitePostingRepo {
                 description: row.get(7)?,
                 member_id: row.get::<_, Option<i64>>(8)?.map(accounting::id::MemberId),
                 channel_id: row.get::<_, Option<i64>>(9)?.map(accounting::id::ChannelId),
-                kind: accounting::posting::PostingKind::from_db(row.get(10)?)
-                    .unwrap_or(accounting::posting::PostingKind::Normal),
+                is_reimbursable: row.get::<_, i32>(10)? != 0,
                 linked_posting_id: row.get::<_, Option<i64>>(11)?.map(PostingId),
                 reversal_total: accounting::amount::from_db_amount(row.get(12)?, precision),
             }))
@@ -160,7 +159,7 @@ impl PostingRepo for SqlitePostingRepo {
     ) -> Result<Vec<Posting>, crate::error::DbError> {
         // 准备查询语句，获取指定交易的所有原始分录数据
         let mut stmt = conn.prepare(
-            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, kind, linked_posting_id, reversal_total
+            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, is_reimbursable, linked_posting_id, reversal_total
              FROM postings WHERE transaction_id = ?1"
         )?;
         // 先以原始 i64 形式读取所有行，避免在闭包中查询精度导致编译问题
@@ -196,7 +195,7 @@ impl PostingRepo for SqlitePostingRepo {
             description,
             member_id,
             channel_id,
-            kind,
+            is_reimbursable,
             linked_posting_id,
             reversal_total,
         ) in raw_rows
@@ -217,8 +216,7 @@ impl PostingRepo for SqlitePostingRepo {
                 description,
                 member_id: member_id.map(accounting::id::MemberId),
                 channel_id: channel_id.map(accounting::id::ChannelId),
-                kind: accounting::posting::PostingKind::from_db(kind)
-                    .unwrap_or(accounting::posting::PostingKind::Normal),
+                is_reimbursable: is_reimbursable != 0,
                 linked_posting_id: linked_posting_id.map(PostingId),
                 reversal_total: accounting::amount::from_db_amount(reversal_total, precision),
             });
@@ -233,7 +231,7 @@ impl PostingRepo for SqlitePostingRepo {
     ) -> Result<Vec<Posting>, crate::error::DbError> {
         // 准备查询语句，按交易 ID 排序获取该账户下所有原始分录
         let mut stmt = conn.prepare(
-            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, kind, linked_posting_id, reversal_total
+            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, is_reimbursable, linked_posting_id, reversal_total
              FROM postings WHERE account_id = ?1 ORDER BY transaction_id"
         )?;
         // 先以原始 i64 读取所有行，避免闭包内查询精度
@@ -269,7 +267,7 @@ impl PostingRepo for SqlitePostingRepo {
             description,
             member_id,
             channel_id,
-            kind,
+            is_reimbursable,
             linked_posting_id,
             reversal_total,
         ) in raw_rows
@@ -290,8 +288,7 @@ impl PostingRepo for SqlitePostingRepo {
                 description,
                 member_id: member_id.map(accounting::id::MemberId),
                 channel_id: channel_id.map(accounting::id::ChannelId),
-                kind: accounting::posting::PostingKind::from_db(kind)
-                    .unwrap_or(accounting::posting::PostingKind::Normal),
+                is_reimbursable: is_reimbursable != 0,
                 linked_posting_id: linked_posting_id.map(PostingId),
                 reversal_total: accounting::amount::from_db_amount(reversal_total, precision),
             });
@@ -673,7 +670,7 @@ mod tests {
             description: None,
             member_id: None,
             channel_id: None,
-            kind: accounting::posting::PostingKind::Normal,
+            is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,
         }
