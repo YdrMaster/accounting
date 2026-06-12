@@ -1,6 +1,6 @@
 <template>
   <div class="transaction-form">
-    <h2 class="form-title">{{ isEdit ? '编辑交易' : '记一笔' }}</h2>
+    <h2 class="form-title">{{ formTitle }}</h2>
     <a-form layout="vertical">
       <a-form-item required>
         <a-date-picker
@@ -73,18 +73,22 @@
             <a-select-option value="CNY">CNY</a-select-option>
             <a-select-option value="USD">USD</a-select-option>
           </a-select>
-          <a-select v-model:value="posting.kind" style="width: 80px">
-            <a-select-option value="normal">普通</a-select-option>
-            <a-select-option value="refund">退款</a-select-option>
-            <a-select-option value="reimbursement">报销</a-select-option>
-          </a-select>
+          <!-- TODO: linked_posting_id 在专用模式下由分组 UI 自动填充 -->
           <a-input-number
-            v-if="posting.kind !== 'normal'"
+            v-if="isRefundMode || isReimbursementMode"
             v-model:value="posting.linked_posting_id"
             placeholder="原分录 ID"
             style="width: 120px"
           />
           <a-input v-model:value="posting.amount" placeholder="金额" style="width: 120px" />
+          <a-button
+            v-if="isExpenseAccount(posting.accountId)"
+            :type="posting.is_reimbursable ? 'primary' : 'default'"
+            size="small"
+            @click="posting.is_reimbursable = !posting.is_reimbursable"
+          >
+            报销
+          </a-button>
           <a-button type="link" danger @click="removePosting(index)">删除</a-button>
         </div>
         <a-button type="dashed" block @click="addPosting">
@@ -130,10 +134,30 @@ const channelStore = useChannelStore()
 const isEdit = computed(() => !!route.query.id)
 const editId = computed(() => Number(route.query.id))
 
+// 专用模式检测
+const isRefundMode = computed(() => route.path === '/transaction/refund')
+const isReimbursementMode = computed(() => route.path === '/transaction/reimbursement')
+const formKind = computed(() => {
+  if (isRefundMode.value) return 'refund'
+  if (isReimbursementMode.value) return 'reimbursement'
+  return 'normal'
+})
+const formTitle = computed(() => {
+  if (isRefundMode.value) return '录入退款'
+  if (isReimbursementMode.value) return '录入报销'
+  return isEdit.value ? '编辑交易' : '记一笔'
+})
+
+function isExpenseAccount(accountId?: number): boolean {
+  if (!accountId) return false
+  const account = accountStore.accounts.find(a => a.id === accountId)
+  return account?.account_type === 'Expense'
+}
+
 const dateTime = ref<Dayjs>(dayjs())
 const description = ref('')
 const channelId = ref<number | undefined>(undefined)
-const postings = ref<{ accountId?: number; commodity: string; amount: string; kind: string; linked_posting_id?: number }[]>([])
+const postings = ref<{ accountId?: number; commodity: string; amount: string; is_reimbursable: boolean; linked_posting_id?: number }[]>([])
 const selectedTagNames = ref<string[]>([])
 const tags = ref<{ id: number; name: string }[]>([])
 const submitting = ref(false)
@@ -171,7 +195,7 @@ function addPosting() {
     return acc + (isNaN(val) ? 0 : val)
   }, 0)
   const balancedAmount = sum === 0 ? '' : String(-sum)
-  postings.value.push({ commodity: 'CNY', amount: balancedAmount, kind: 'normal' })
+  postings.value.push({ commodity: 'CNY', amount: balancedAmount, is_reimbursable: false })
 }
 
 function removePosting(index: number) {
@@ -207,11 +231,12 @@ async function handleSubmit() {
     description: description.value,
     member_id: memberStore.currentMember?.id,
     channel_id: channelId.value,
+    kind: formKind.value,
     postings: validPostings.map((p) => ({
       account: accountMap.get(p.accountId!) || '',
       commodity: p.commodity,
       amount: p.amount.trim(),
-      kind: p.kind || 'normal',
+      is_reimbursable: p.is_reimbursable,
       linked_posting_id: p.linked_posting_id,
     })),
     tags: selectedTagNames.value,
@@ -264,7 +289,7 @@ async function loadTransaction(id: number) {
       accountId: accountMap.get(p.account),
       commodity: p.commodity,
       amount: String(p.amount),
-      kind: p.kind || 'normal',
+      is_reimbursable: p.is_reimbursable || false,
       linked_posting_id: p.linked_posting_id,
     }))
 
