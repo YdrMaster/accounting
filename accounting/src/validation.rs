@@ -1,6 +1,7 @@
 use crate::account_type::AccountType;
 use crate::error::AccountingError;
-use crate::posting::{Posting, PostingKind};
+use crate::posting::Posting;
+use crate::transaction::TransactionKind;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -56,20 +57,71 @@ pub fn validate_transaction(postings: &[Posting]) -> Result<(), AccountingError>
     }
 }
 
-/// 验证退款/报销分录的金额方向是否正确
+/// 验证交易级 kind 与分录结构的一致性
 ///
-/// 规则：Refund/Reimbursement 分录的金额不能为零。
+/// 规则：
+/// - Normal 交易中所有分录的 linked_posting_id 必须为 None
+/// - Refund/Reimbursement 交易必须至少有一个分录的 linked_posting_id 不为 None
+pub fn validate_kind_consistency(
+    kind: TransactionKind,
+    postings: &[Posting],
+) -> Result<(), AccountingError> {
+    let has_reversal = postings.iter().any(|p| p.linked_posting_id.is_some());
+    match kind {
+        TransactionKind::Normal => {
+            if has_reversal {
+                return Err(AccountingError::InvalidTransaction(
+                    "普通交易不能包含冲减分录".to_string(),
+                ));
+            }
+        }
+        TransactionKind::Refund | TransactionKind::Reimbursement => {
+            if !has_reversal {
+                return Err(AccountingError::InvalidTransaction(
+                    "退款/报销交易必须包含冲减分录".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 验证冲减分录金额不为零
+///
 /// 更严格的方向验证（与原分录方向相反）在 service 层通过数据库查询完成。
 pub fn validate_reversal_direction(postings: &[Posting]) -> Result<(), AccountingError> {
     for posting in postings {
-        if posting.kind == PostingKind::Normal {
+        if posting.linked_posting_id.is_none() {
             continue;
         }
         if posting.amount.is_zero() {
             return Err(AccountingError::InvalidTransaction(
-                "退款/报销分录金额不能为零".to_string(),
+                "冲减分录金额不能为零".to_string(),
             ));
         }
+    }
+    Ok(())
+}
+
+/// 验证冲减金额不超过原分录剩余可冲减额度
+///
+/// `linked_amount`: 冲减分录金额
+/// `original_amount`: 原分录金额
+/// `existing_reversal_total`: 原分录已被其他冲减分录冲减的累计金额
+pub fn validate_reversal_cap(
+    linked_amount: Decimal,
+    original_amount: Decimal,
+    existing_reversal_total: Decimal,
+) -> Result<(), AccountingError> {
+    let used = existing_reversal_total.abs() + linked_amount.abs();
+    let available = original_amount.abs();
+    if used > available {
+        return Err(AccountingError::InvalidTransaction(format!(
+            "冲减金额超出原分录剩余额度: 已冲减 {}, 本次冲减 {}, 原金额 {}",
+            existing_reversal_total.abs(),
+            linked_amount.abs(),
+            available,
+        )));
     }
     Ok(())
 }
@@ -111,6 +163,7 @@ mod tests {
         amount: &str,
         cost: Option<&str>,
         cost_commodity: Option<i64>,
+        linked_posting_id: Option<i64>,
     ) -> Posting {
         Posting {
             id: PostingId(0),
@@ -123,8 +176,8 @@ mod tests {
             description: None,
             member_id: None,
             channel_id: None,
-            kind: crate::posting::PostingKind::Normal,
-            linked_posting_id: None,
+            is_reimbursable: false,
+            linked_posting_id: linked_posting_id.map(PostingId),
             reversal_total: Decimal::ZERO,
         }
     }
@@ -137,15 +190,15 @@ mod tests {
 
     #[test]
     fn test_single_posting_fails() {
-        let postings = vec![posting(1, 1, "100", None, None)];
+        let postings = vec![posting(1, 1, "100", None, None, None)];
         assert!(validate_transaction(&postings).is_err());
     }
 
     #[test]
     fn test_balanced_same_commodity_passes() {
         let postings = vec![
-            posting(1, 1, "100", None, None),
-            posting(2, 1, "-100", None, None),
+            posting(1, 1, "100", None, None, None),
+            posting(2, 1, "-100", None, None, None),
         ];
         assert!(validate_transaction(&postings).is_ok());
     }
@@ -153,8 +206,8 @@ mod tests {
     #[test]
     fn test_unbalanced_fails() {
         let postings = vec![
-            posting(1, 1, "100", None, None),
-            posting(2, 1, "-50", None, None),
+            posting(1, 1, "100", None, None, None),
+            posting(2, 1, "-50", None, None, None),
         ];
         assert!(validate_transaction(&postings).is_err());
     }
@@ -162,8 +215,8 @@ mod tests {
     #[test]
     fn test_multi_commodity_with_cost_passes() {
         let postings = vec![
-            posting(1, 1, "100", Some("70000"), Some(2)),
-            posting(2, 2, "-70000", None, None),
+            posting(1, 1, "100", Some("70000"), Some(2), None),
+            posting(2, 2, "-70000", None, None, None),
         ];
         assert!(validate_transaction(&postings).is_ok());
     }
@@ -171,10 +224,70 @@ mod tests {
     #[test]
     fn test_multi_commodity_without_cost_fails() {
         let postings = vec![
-            posting(1, 1, "100", None, None),
-            posting(2, 2, "-700", None, None),
+            posting(1, 1, "100", None, None, None),
+            posting(2, 2, "-700", None, None, None),
         ];
         assert!(validate_transaction(&postings).is_err());
+    }
+
+    #[test]
+    fn test_normal_tx_with_reversal_fails() {
+        let postings = vec![
+            posting(1, 1, "100", None, None, Some(1)),
+            posting(2, 1, "-100", None, None, None),
+        ];
+        assert!(validate_kind_consistency(TransactionKind::Normal, &postings).is_err());
+    }
+
+    #[test]
+    fn test_refund_tx_without_reversal_fails() {
+        let postings = vec![
+            posting(1, 1, "100", None, None, None),
+            posting(2, 1, "-100", None, None, None),
+        ];
+        assert!(validate_kind_consistency(TransactionKind::Refund, &postings).is_err());
+    }
+
+    #[test]
+    fn test_refund_tx_with_reversal_passes() {
+        let postings = vec![
+            posting(1, 1, "-50", None, None, Some(1)),
+            posting(2, 1, "50", None, None, None),
+        ];
+        assert!(validate_kind_consistency(TransactionKind::Refund, &postings).is_ok());
+    }
+
+    #[test]
+    fn test_reversal_cap_exceeded_fails() {
+        assert!(
+            validate_reversal_cap(
+                Decimal::from_str("60").unwrap(),
+                Decimal::from_str("100").unwrap(),
+                Decimal::from_str("50").unwrap(),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_reversal_cap_within_limit_passes() {
+        assert!(
+            validate_reversal_cap(
+                Decimal::from_str("40").unwrap(),
+                Decimal::from_str("100").unwrap(),
+                Decimal::from_str("50").unwrap(),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_reversal_direction_zero_rejected() {
+        let postings = vec![
+            posting(1, 1, "0", None, None, Some(1)),
+            posting(2, 1, "0", None, None, None),
+        ];
+        assert!(validate_reversal_direction(&postings).is_err());
     }
 
     #[test]

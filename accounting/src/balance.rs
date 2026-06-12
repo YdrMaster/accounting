@@ -27,7 +27,6 @@ pub fn calculate_all_balances(postings: &[Posting]) -> HashMap<CommodityId, Deci
 mod tests {
     use super::*;
     use crate::id::{AccountId, CommodityId, PostingId, TransactionId};
-    use crate::posting::Posting;
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
@@ -43,7 +42,7 @@ mod tests {
             description: None,
             member_id: None,
             channel_id: None,
-            kind: crate::posting::PostingKind::Normal,
+            is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,
         }
