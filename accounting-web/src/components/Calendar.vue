@@ -43,10 +43,12 @@
 import { ref, computed, watch } from 'vue'
 import dayjs from 'dayjs'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   data?: Record<string, { income: number; expense: number }>
-  rangeMode?: boolean
-}>()
+  mode?: string
+}>(), {
+  mode: 'normal',
+})
 
 const emit = defineEmits<{
   (e: 'select', date: string): void
@@ -59,7 +61,7 @@ const selectedDate = ref<string | null>(null)
 const rangeStart = ref<string | null>(null)
 const rangeEnd = ref<string | null>(null)
 
-watch(() => props.rangeMode, () => {
+watch(() => props.mode, () => {
   selectedDate.value = null
   rangeStart.value = null
   rangeEnd.value = null
@@ -153,7 +155,7 @@ function fmt(n: number) {
 }
 
 function handleClick(date: string) {
-  if (!props.rangeMode) {
+  if (props.mode !== 'range') {
     // 单日模式：单击选单日，再次点击取消
     if (selectedDate.value === date) {
       selectedDate.value = null

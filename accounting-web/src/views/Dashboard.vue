@@ -21,7 +21,7 @@
 
     <Calendar
       :data="calendarData"
-      :range-mode="rangeMode"
+      :mode="rangeMode ? 'range' : 'normal'"
       @select="handleSelect"
       @select-range="handleSelectRange"
       @clear="handleClear"
