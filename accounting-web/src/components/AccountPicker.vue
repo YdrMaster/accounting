@@ -179,13 +179,14 @@ watch(() => props.modelValue, () => {
 
 .panel {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 12px;
   width: 90%;
   max-width: 500px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
 }
 
 .panel-header {
@@ -199,6 +200,7 @@ watch(() => props.modelValue, () => {
 .panel-title {
   font-size: 16px;
   font-weight: 500;
+  color: #333;
 }
 
 .close-btn {
@@ -241,25 +243,29 @@ watch(() => props.modelValue, () => {
 .panel-body {
   padding: 16px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   overflow-y: auto;
   flex: 1;
 }
 
 .account-btn {
-  padding: 10px 8px;
+  height: 36px;
+  padding: 0 8px;
   border: 1px solid #d9d9d9;
   border-radius: 6px;
   background: #fff;
   cursor: pointer;
   text-align: center;
-  font-size: 14px;
+  font-size: 13px;
   transition: all 0.2s;
-  min-height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .account-btn:hover {
@@ -287,5 +293,82 @@ watch(() => props.modelValue, () => {
   font-size: 13px;
   color: #666;
   background: #fafafa;
+}
+
+/* Dark mode */
+html.dark .picker-trigger {
+  background: #1f1f1f;
+  border-color: #434343;
+  color: #fff;
+}
+
+html.dark .picker-trigger:hover {
+  border-color: #177ddc;
+}
+
+html.dark .picker-trigger.disabled {
+  background: #141414;
+  border-color: #434343;
+}
+
+html.dark .selected-name {
+  color: #fff;
+}
+
+html.dark .panel {
+  background: #1f1f1f;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+html.dark .panel-header {
+  border-bottom-color: #303030;
+}
+
+html.dark .panel-title {
+  color: #fff;
+}
+
+html.dark .close-btn {
+  color: #999;
+}
+
+html.dark .close-btn:hover {
+  color: #fff;
+}
+
+html.dark .breadcrumb {
+  background: #141414;
+  border-bottom-color: #303030;
+}
+
+html.dark .account-btn {
+  background: #1f1f1f;
+  border-color: #434343;
+  color: #fff;
+}
+
+html.dark .account-btn:hover {
+  border-color: #177ddc;
+  background: #111d2c;
+}
+
+html.dark .account-btn.is-leaf {
+  border-color: #49aa19;
+}
+
+html.dark .account-btn.is-leaf:hover {
+  border-color: #49aa19;
+  background: #162312;
+}
+
+html.dark .account-btn.is-selected {
+  border-color: #177ddc;
+  background: #111d2c;
+}
+
+html.dark .panel-footer {
+  border-top-color: #303030;
+  background: #141414;
+  color: #999;
 }
 </style>
