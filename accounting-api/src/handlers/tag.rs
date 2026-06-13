@@ -108,5 +108,5 @@ async fn delete_tag(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/tags", get(list_tags).post(create_tag))
-        .route("/api/tags/:id", delete(delete_tag))
+        .route("/api/tags/{id}", delete(delete_tag))
 }

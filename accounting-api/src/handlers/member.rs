@@ -86,5 +86,5 @@ async fn delete_member(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/members", get(list_members).post(create_member))
-        .route("/api/members/:id", delete(delete_member))
+        .route("/api/members/{id}", delete(delete_member))
 }

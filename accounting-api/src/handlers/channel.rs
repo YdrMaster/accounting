@@ -78,5 +78,5 @@ async fn delete_channel(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/channels", get(list_channels).post(create_channel))
-        .route("/api/channels/:id", delete(delete_channel))
+        .route("/api/channels/{id}", delete(delete_channel))
 }

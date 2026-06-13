@@ -166,10 +166,10 @@ async fn reorder_accounts(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/accounts", get(list_accounts).post(create_account))
-        .route("/api/accounts/:id/balance", get(get_balance))
-        .route("/api/accounts/:id/owner", put(set_owner))
-        .route("/api/accounts/:id/rename", put(rename_account))
-        .route("/api/accounts/:id/close", put(close_account))
-        .route("/api/accounts/:id/open", put(reopen_account))
+        .route("/api/accounts/{id}/balance", get(get_balance))
+        .route("/api/accounts/{id}/owner", put(set_owner))
+        .route("/api/accounts/{id}/rename", put(rename_account))
+        .route("/api/accounts/{id}/close", put(close_account))
+        .route("/api/accounts/{id}/open", put(reopen_account))
         .route("/api/accounts/reorder", put(reorder_accounts))
 }

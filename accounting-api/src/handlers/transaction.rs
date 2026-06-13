@@ -482,10 +482,10 @@ pub fn router() -> Router<Arc<AppState>> {
             get(list_transactions).post(create_transaction),
         )
         .route(
-            "/api/transactions/:id",
+            "/api/transactions/{id}",
             get(get_transaction)
                 .put(update_transaction)
                 .delete(delete_transaction),
         )
-        .route("/api/postings/:id", get(get_posting))
+        .route("/api/postings/{id}", get(get_posting))
 }
