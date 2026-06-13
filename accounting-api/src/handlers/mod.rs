@@ -2,6 +2,7 @@
 
 pub mod account;
 pub mod channel;
+pub mod commodity;
 pub mod me;
 pub mod member;
 pub mod report;
