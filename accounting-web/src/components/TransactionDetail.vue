@@ -38,8 +38,8 @@
       </div>
       <!-- 栏3：金额+资产账户 -->
       <div class="col-amount">
-        <span class="transaction-amount" :class="amountColorClass">¥{{ totalAmount.toFixed(2) }}</span>
-        <span v-if="netAmount !== totalAmount" class="net-amount">净 ¥{{ netAmount.toFixed(2) }}</span>
+        <span class="transaction-amount" :class="amountColorClass">¥{{ Math.abs(netAmount).toFixed(2) }}</span>
+        <span v-if="hasReversal" class="original-amount">¥{{ Math.abs(totalAmount).toFixed(2) }}</span>
         <div class="meta-row">
           <span v-if="channelName" class="channel-tag">{{ channelName }}</span>
           <span class="asset-accounts">{{ assetAccounts.join(' ') }}</span>
@@ -60,12 +60,19 @@
           <span class="posting-account">
             {{ p.account }}
             <span v-if="p.linked_posting_id != null && tx.kind === 'refund'" class="badge-refund">退</span>
-            <span v-else-if="(p.linked_posting_id != null && tx.kind === 'reimbursement') || (p.is_reimbursable && p.linked_posting_id == null)" class="badge-reimb">报</span>
+            <span v-else-if="p.linked_posting_id != null && tx.kind === 'reimbursement'" class="badge-reimb">报</span>
+            <span v-else-if="p.is_reimbursable" class="badge-reimb">报</span>
             <span v-if="p.linked_posting_id" class="linked-tag">冲减分录 #{{ p.linked_posting_id }}</span>
           </span>
           <span class="posting-commodity">{{ p.commodity }}</span>
           <span class="posting-amount" :class="{ positive: Number(p.amount) > 0, negative: Number(p.amount) < 0 }">
-            {{ Number(p.amount) > 0 ? '+' : '' }}{{ p.amount }}
+            <template v-if="Number(p.reversal_total) !== 0">
+              ¥{{ Math.abs(postingNetAmount(p)).toFixed(2) }}
+              <span class="original-amount">¥{{ Math.abs(Number(p.amount)).toFixed(2) }}</span>
+            </template>
+            <template v-else>
+              ¥{{ Math.abs(Number(p.amount)).toFixed(2) }}
+            </template>
           </span>
         </div>
       </div>
@@ -124,29 +131,35 @@ const channelName = computed(() => {
 })
 
 const totalAmount = computed(() => {
-  let sum = 0
+  let expenseSum = 0
+  let incomeSum = 0
   for (const p of postings.value) {
-    const amount = parseFloat(p.amount)
-    if (amount > 0) {
-      sum += amount
+    const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+    if (acc?.account_type === 'Expense') {
+      expenseSum += parseFloat(p.amount) || 0
+    } else if (acc?.account_type === 'Income') {
+      incomeSum += parseFloat(p.amount) || 0
     }
   }
-  return sum
-})
-
-const reversalTotal = computed(() => {
-  let sum = 0
-  for (const p of postings.value) {
-    const rt = parseFloat(p.reversal_total || '0')
-    if (!isNaN(rt)) {
-      sum += rt
-    }
-  }
-  return sum
+  return -(expenseSum + incomeSum)
 })
 
 const netAmount = computed(() => {
-  return totalAmount.value + reversalTotal.value
+  let expenseNet = 0
+  let incomeSum = 0
+  for (const p of postings.value) {
+    const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+    if (acc?.account_type === 'Expense') {
+      expenseNet += (parseFloat(p.amount) || 0) + (parseFloat(p.reversal_total || '0'))
+    } else if (acc?.account_type === 'Income') {
+      incomeSum += parseFloat(p.amount) || 0
+    }
+  }
+  return -(expenseNet + incomeSum)
+})
+
+const hasReversal = computed(() => {
+  return postings.value.some(p => Number(p.reversal_total) !== 0)
 })
 
 const firstLinePreview = computed(() => {
@@ -176,21 +189,18 @@ const incomeAccounts = computed(() => accountsByType('Income'))
 const assetAccounts = computed(() => accountsByType('Asset'))
 
 const amountColorClass = computed(() => {
-  const hasExpense = expenseAccounts.value.length > 0
-  const hasIncome = incomeAccounts.value.length > 0
-  if (hasExpense && !hasIncome) return 'amount-expense'
-  if (hasIncome && !hasExpense) return 'amount-income'
+  if (netAmount.value > 0) return 'amount-income'
+  if (netAmount.value < 0) return 'amount-expense'
   return 'amount-neutral'
 })
 
 const isTransferType = computed(() => {
   if (postings.value.length === 0) return false
-  const allowedExpenseNames = new Set(['折扣', '手续费', '分期手续费'])
   for (const p of postings.value) {
     const acc = accountStore.accounts.find((a) => a.full_name === p.account)
     if (!acc) return false
     if (acc.account_type === 'Asset') continue
-    if (acc.account_type === 'Expense' && allowedExpenseNames.has(lastSegment(acc.full_name))) continue
+    if (acc.account_type === 'Expense' && acc.parent_id != null) continue
     return false
   }
   return true
@@ -199,6 +209,10 @@ const isTransferType = computed(() => {
 const hasRepaymentTag = computed(() => {
   return (props.tx.tags || []).includes('还款')
 })
+
+function postingNetAmount(p: Posting): number {
+  return parseFloat(p.amount) + parseFloat(p.reversal_total || '0')
+}
 
 function postingRowClass(p: Posting): Record<string, boolean> {
   const cls: Record<string, boolean> = {}
@@ -531,8 +545,9 @@ function handleTouchEnd(e: TouchEvent) {
   margin-left: 4px;
 }
 
-.net-amount {
-  color: #999;
+.original-amount {
+  color: #1890ff;
+  text-decoration: line-through;
   font-size: 12px;
   margin-left: 4px;
 }

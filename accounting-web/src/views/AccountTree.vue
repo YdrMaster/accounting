@@ -10,10 +10,8 @@
         :parent-id="rootAccount?.id ?? null"
         :type="activeTab"
         :accounts="accounts"
-        :selected-id="selectedId"
-        :expanded-id="expandedId"
-        @update:selected="onSelectedChange"
-        @update:expanded="onExpandedChange"
+        :expanded-stack="expandedStack"
+        @navigate="navigateTo"
       />
     </div>
 
@@ -48,11 +46,6 @@
         </span>
       </div>
 
-      <div class="detail-row">
-        <span class="detail-label">类型</span>
-        <span>{{ selectedAccount.account_type }}</span>
-      </div>
-
       <div v-if="selectedAccount.account_type === 'Asset'" class="detail-row owners-row">
         <span class="detail-label">所有者</span>
         <a-checkbox-group
@@ -75,8 +68,32 @@
           size="small"
           @click="handleReopen"
         >重新打开</a-button>
+        <a-button
+          danger
+          type="primary"
+          ghost
+          size="small"
+          @click="showDeleteModal"
+        >删除账户</a-button>
       </div>
     </div>
+
+    <a-modal
+      v-model:open="deleteModalVisible"
+      title="删除账户"
+      @ok="confirmDelete"
+      :ok-button-props="{ danger: true, disabled: deleteConfirmValue !== selectedAccount?.full_name }"
+      ok-text="确认删除"
+      cancel-text="取消"
+    >
+      <p>此操作将永久删除账户 <strong>{{ selectedAccount?.full_name }}</strong>，不可恢复。</p>
+      <p>请输入账户全名以确认：</p>
+      <a-input
+        v-model:value="deleteConfirmValue"
+        :placeholder="selectedAccount?.full_name"
+        @press-enter="confirmDelete"
+      />
+    </a-modal>
   </div>
 </template>
 
@@ -91,8 +108,7 @@ const accountStore = useAccountStore()
 const memberStore = useMemberStore()
 
 const activeTab = ref('Asset')
-const selectedId = ref<number | null>(null)
-const expandedId = ref<number | null>(null)
+const expandedStack = ref<number[]>([])
 
 const accounts = computed(() => accountStore.accounts)
 const rootAccount = computed(() =>
@@ -107,22 +123,50 @@ const tabTypes = [
 ]
 
 function resetAll() {
-  selectedId.value = null
-  expandedId.value = null
+  expandedStack.value = []
 }
 
-function onSelectedChange(id: number | null) {
-  selectedId.value = id
-}
+function navigateTo(id: number, pushOnly: boolean) {
+  const stack = expandedStack.value
+  const target = accounts.value.find(a => a.id === id)
+  if (!target) return
 
-function onExpandedChange(id: number | null) {
-  expandedId.value = id
+  const segments = target.full_name.split(':')
+  const ancestorFullNames = new Set<string>()
+  for (let i = 1; i < segments.length; i++) {
+    ancestorFullNames.add(segments.slice(0, i).join(':'))
+  }
+
+  let deepestPos = -1
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const acc = accounts.value.find(a => a.id === stack[i])
+    if (acc && ancestorFullNames.has(acc.full_name)) {
+      deepestPos = i
+      break
+    }
+  }
+
+  const newStack = stack.slice(0, deepestPos + 1)
+
+  if (pushOnly && stack.length > 0 && stack[stack.length - 1] === id) {
+    expandedStack.value = newStack
+    return
+  }
+
+  if (newStack.length > 0 && newStack[newStack.length - 1] === id) {
+    expandedStack.value = newStack
+    return
+  }
+
+  newStack.push(id)
+  expandedStack.value = newStack
 }
 
 // --- Selected account ---
 const selectedAccount = computed<Account | null>(() => {
-  if (selectedId.value === null) return null
-  return accountStore.accounts.find((a) => a.id === selectedId.value) || null
+  const stack = expandedStack.value
+  if (stack.length === 0) return null
+  return accountStore.accounts.find((a) => a.id === stack[stack.length - 1]) || null
 })
 
 // --- Rename ---
@@ -177,6 +221,29 @@ async function handleClose() {
 async function handleReopen() {
   if (!selectedAccount.value) return
   await accountStore.reopenAccount(selectedAccount.value.id)
+}
+
+// --- Delete ---
+const deleteModalVisible = ref(false)
+const deleteConfirmValue = ref('')
+
+function showDeleteModal() {
+  deleteModalVisible.value = true
+  deleteConfirmValue.value = ''
+}
+
+async function confirmDelete() {
+  if (!selectedAccount.value) return
+  if (deleteConfirmValue.value !== selectedAccount.value.full_name) return
+  deleteModalVisible.value = false
+  deleteConfirmValue.value = ''
+  // Pop deleted account from stack
+  const stack = expandedStack.value
+  const idx = stack.indexOf(selectedAccount.value.id)
+  if (idx >= 0) {
+    expandedStack.value = stack.slice(0, idx)
+  }
+  await accountStore.deleteAccount(selectedAccount.value.id)
 }
 
 // --- Owners ---

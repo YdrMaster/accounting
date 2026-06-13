@@ -32,6 +32,12 @@ pub trait PostingRepo {
         conn: &Connection,
         account_id: AccountId,
     ) -> Result<Vec<Posting>, crate::error::DbError>;
+    /// 检查账户是否有任何分录关联
+    fn has_postings(
+        &self,
+        conn: &Connection,
+        account_id: AccountId,
+    ) -> Result<bool, crate::error::DbError>;
     /// 按商品汇总某账户的余额
     fn sum_by_account(
         &self,
@@ -294,6 +300,19 @@ impl PostingRepo for SqlitePostingRepo {
             });
         }
         Ok(postings)
+    }
+
+    fn has_postings(
+        &self,
+        conn: &Connection,
+        account_id: AccountId,
+    ) -> Result<bool, crate::error::DbError> {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM postings WHERE account_id = ?1",
+            params![account_id.0],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
     }
 
     fn sum_by_account(

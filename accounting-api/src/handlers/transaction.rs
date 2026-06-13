@@ -1,6 +1,6 @@
 //! 交易 API handler
 
-use crate::dto::{CreateTransactionRequest, PostingDto, TransactionDetailDto, TransactionDto};
+use crate::dto::{CreateTransactionRequest, PostingDto, TransactionDto};
 use crate::handlers::member::AppState;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, ChannelId, MemberId, PostingId, TagId, TransactionId};
@@ -140,6 +140,7 @@ async fn list_transactions(
                 .into_iter()
                 .map(|p| PostingDto {
                     id: p.id.0,
+                    transaction_id: p.transaction_id.0,
                     account: accounts.get(&p.account_id.0).cloned().unwrap_or_default(),
                     commodity: commodities
                         .get(&p.commodity_id.0)
@@ -254,7 +255,7 @@ async fn create_transaction(
 async fn get_transaction(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<Json<TransactionDetailDto>, String> {
+) -> Result<Json<TransactionDto>, String> {
     let db = state.db().map_err(|e| e.to_string())?;
     let conn = db.connection();
 
@@ -290,6 +291,7 @@ async fn get_transaction(
         .into_iter()
         .map(|p| PostingDto {
             id: p.id.0,
+            transaction_id: p.transaction_id.0,
             account: accounts.get(&p.account_id.0).cloned().unwrap_or_default(),
             commodity: commodities
                 .get(&p.commodity_id.0)
@@ -302,7 +304,7 @@ async fn get_transaction(
         })
         .collect();
 
-    Ok(Json(TransactionDetailDto {
+    Ok(Json(TransactionDto {
         id: tx.id.0,
         date_time: tx.date_time.to_string(),
         description: tx.description,
@@ -348,6 +350,7 @@ async fn get_posting(
 
     Ok(Json(PostingDto {
         id: posting.id.0,
+        transaction_id: posting.transaction_id.0,
         account: accounts
             .get(&posting.account_id.0)
             .cloned()

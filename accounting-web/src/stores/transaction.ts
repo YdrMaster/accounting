@@ -4,6 +4,7 @@ import api from '@/api/client'
 
 export interface Posting {
   id: number
+  transaction_id: number
   account: string
   commodity: string
   amount: string

@@ -128,24 +128,22 @@ pub fn validate_reversal_cap(
 
 /// 验证账户是否可以关闭
 ///
-/// Asset 和 Liability 必须余额为零；Income 和 Expense 无限制
+/// 仅 Asset 要求余额为零；Income、Expense、Equity、Liability 无限制
 pub fn validate_account_close(
     account_type: AccountType,
     balances: &[(crate::id::CommodityId, Decimal)],
 ) -> Result<(), AccountingError> {
     match account_type {
-        AccountType::Asset
-        | AccountType::Liability
-        | AccountType::Expense
-        | AccountType::Equity => {
+        AccountType::Asset => {
             let non_zero: Vec<_> = balances.iter().filter(|(_, b)| !b.is_zero()).collect();
             if !non_zero.is_empty() {
                 return Err(AccountingError::AccountNotEmpty("账户余额非零".to_string()));
             }
         }
-        AccountType::Income => {
-            // Income 账户关闭无限制
-        }
+        AccountType::Liability
+        | AccountType::Income
+        | AccountType::Expense
+        | AccountType::Equity => {}
     }
     Ok(())
 }

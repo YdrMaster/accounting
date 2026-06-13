@@ -392,7 +392,8 @@ html.dark .cards-grid {
   background: transparent;
 }
 html.dark .sub-cards {
-  border-left-color: #434343;
+  --bubble-border: #434343;
+  --bubble-bg: #1f1f1f;
 }
 html.dark .inline-add-row {
   background: #262626;

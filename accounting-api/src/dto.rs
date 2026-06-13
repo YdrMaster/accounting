@@ -89,6 +89,8 @@ pub struct TransactionDto {
 pub struct PostingDto {
     /// 分录 ID。
     pub id: i64,
+    /// 所属交易 ID。
+    pub transaction_id: i64,
     /// 账户名称。
     pub account: String,
     /// 货币符号。
@@ -101,27 +103,6 @@ pub struct PostingDto {
     pub linked_posting_id: Option<i64>,
     /// 已冲正总额。
     pub reversal_total: String,
-}
-
-/// 交易详情响应（含分录）。
-#[derive(Serialize)]
-pub struct TransactionDetailDto {
-    /// 交易 ID。
-    pub id: i64,
-    /// 交易日期时间（ISO 8601 格式）。
-    pub date_time: String,
-    /// 交易描述。
-    pub description: String,
-    /// 交易类型。
-    pub kind: String,
-    /// 成员 ID。
-    pub member_id: Option<i64>,
-    /// 渠道 ID。
-    pub channel_id: Option<i64>,
-    /// 是否为模板。
-    pub is_template: bool,
-    /// 分录列表。
-    pub postings: Vec<PostingDto>,
 }
 
 /// 创建交易请求。

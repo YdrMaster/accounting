@@ -61,6 +61,11 @@ export const useAccountStore = defineStore('account', () => {
     await fetchAccounts()
   }
 
+  async function deleteAccount(id: number) {
+    await api.delete(`/accounts/${id}`)
+    await fetchAccounts()
+  }
+
   async function setOwners(accountId: number, ownerIds: number[]) {
     await api.put(`/accounts/${accountId}/owner`, { owner_ids: ownerIds })
     await fetchAccounts()
@@ -71,5 +76,5 @@ export const useAccountStore = defineStore('account', () => {
     await fetchAccounts()
   }
 
-  return { accounts, loading, fetchAccounts, createAccount, renameAccount, closeAccount, reopenAccount, setOwners, reorderAccounts }
+  return { accounts, loading, fetchAccounts, createAccount, renameAccount, closeAccount, reopenAccount, deleteAccount, setOwners, reorderAccounts }
 })

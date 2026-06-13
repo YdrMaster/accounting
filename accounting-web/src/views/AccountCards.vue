@@ -1,5 +1,5 @@
 <template>
-  <div class="cards-grid">
+  <div ref="gridEl" class="cards-grid">
     <draggable
       v-model="localList"
       item-key="id"
@@ -14,7 +14,7 @@
             class="account-card"
             :class="{
               selected: selectedId === account.id,
-              expanded: expandedId === account.id,
+              expanded: isExpanded(account.id),
               closed: account.closed_at,
               system: account.is_system,
             }"
@@ -33,7 +33,7 @@
                   <span class="child-count">{{ childrenCount(account.id) }}</span>
                   <span
                     class="expand-arrow"
-                    :class="{ rotated: expandedId === account.id }"
+                    :class="{ rotated: isExpanded(account.id) }"
                     @click.stop="handleToggleExpand(account)"
                   >▼</span>
                 </template>
@@ -43,18 +43,16 @@
           </div>
 
           <!-- Recursive children / inline add -->
-          <div v-if="expandedId === account.id" class="sub-cards">
+          <div v-if="isExpanded(account.id) && (childrenCount(account.id) > 0 || addingChildOf === account.id)" class="sub-cards">
             <AccountCards
               v-if="childrenCount(account.id) > 0"
               :parent-id="account.id"
               :type="type"
               :accounts="accounts"
-              :selected-id="selectedId"
-              :expanded-id="expandedId"
-              @update:selected="$emit('update:selected', $event)"
-              @update:expanded="$emit('update:expanded', $event)"
+              :expanded-stack="expandedStack"
+              @navigate="(id, pushOnly) => emit('navigate', id, pushOnly)"
             />
-            <div v-if="isAdding && expandedId === account.id" class="sub-add-row">
+            <div v-if="addingChildOf === account.id && selectedId === account.id" class="sub-add-row">
               <a-input
                 ref="addInputRef"
                 v-model:value="newChildName"
@@ -73,7 +71,7 @@
     </draggable>
 
     <!-- Inline add for this level -->
-    <div v-if="isAdding" class="sub-add-row">
+    <div v-if="addingAtRoot" class="sub-add-row">
       <a-input
         ref="addInputRef"
         v-model:value="newChildName"
@@ -88,9 +86,9 @@
     </div>
 
     <!-- Add card: hidden while adding at this level -->
-    <div v-if="!isAdding" class="card-wrapper">
+    <div v-if="!addingAtRoot" class="card-wrapper">
       <div class="account-card add-card-box" @click="handleStartAddRoot">
-        <span class="add-card-text">+ 添加子账户</span>
+        <span class="add-card-text">+ 添加</span>
       </div>
     </div>
   </div>
@@ -101,8 +99,9 @@ export default { name: 'AccountCards' }
 </script>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import draggable from 'vuedraggable'
+import { message } from 'ant-design-vue'
 import type { Account } from '@/stores/account'
 import { useAccountStore } from '@/stores/account'
 
@@ -110,16 +109,23 @@ const props = defineProps<{
   parentId: number | null
   type: string
   accounts: Account[]
-  selectedId: number | null
-  expandedId: number | null
+  expandedStack: number[]
 }>()
 
 const emit = defineEmits<{
-  'update:selected': [id: number | null]
-  'update:expanded': [id: number | null]
+  navigate: [id: number, pushOnly: boolean]
 }>()
 
 const accountStore = useAccountStore()
+
+const selectedId = computed(() => {
+  const s = props.expandedStack
+  return s.length > 0 ? s[s.length - 1] : null
+})
+
+function isExpanded(id: number): boolean {
+  return props.expandedStack.includes(id)
+}
 
 // --- Drag & drop ---
 const localList = ref<Account[]>([])
@@ -141,42 +147,43 @@ function onDragEnd() {
   accountStore.reorderAccounts(ids)
 }
 
-// --- Children count ---
+// --- Children count (prebuilt Map for O(1) lookup) ---
+const childrenCountMap = computed(() => {
+  const map = new Map<number, number>()
+  for (const a of props.accounts) {
+    if (a.parent_id != null) {
+      map.set(a.parent_id, (map.get(a.parent_id) || 0) + 1)
+    }
+  }
+  return map
+})
+
 function childrenCount(parentId: number): number {
-  return props.accounts.filter((a) => a.parent_id === parentId).length
+  return childrenCountMap.value.get(parentId) || 0
 }
 
-// --- Selection ---
+// --- Selection / Navigation ---
 function handleSelectCard(account: Account) {
-  if (props.selectedId === account.id) {
-    emit('update:selected', null)
-  } else {
-    emit('update:selected', account.id)
-  }
+  emit('navigate', account.id, false)
 }
 
 // --- Expand / collapse ---
 function handleToggleExpand(account: Account) {
-  if (props.expandedId === account.id) {
-    emit('update:expanded', null)
-  } else {
-    emit('update:expanded', account.id)
-    if (props.selectedId !== account.id) {
-      emit('update:selected', null)
-    }
-  }
+  const stack = props.expandedStack
+  const isTop = stack.length > 0 && stack[stack.length - 1] === account.id
+  emit('navigate', account.id, isTop)
 }
 
 // --- Add child (local state, independent per component instance) ---
-const isAdding = ref(false)
+const addingChildOf = ref<number | null>(null)
+const addingAtRoot = ref(false)
 const newChildName = ref('')
 const addInputRef = ref<HTMLInputElement | null>(null)
 
 function handleStartAdd(account: Account) {
-  isAdding.value = true
-  if (props.expandedId !== account.id) {
-    emit('update:expanded', account.id)
-  }
+  emit('navigate', account.id, false)
+  addingChildOf.value = account.id
+  addingAtRoot.value = false
   newChildName.value = ''
   nextTick(() => addInputRef.value?.focus())
 }
@@ -190,16 +197,17 @@ async function confirmAdd(parent: Account) {
   const siblings = props.accounts.filter((a) => a.parent_id === parent.id)
   const fullName = `${parent.full_name}:${name}`
   if (siblings.some((a) => a.full_name === fullName)) {
-    cancelAdd()
+    message.warning('同名账户已存在')
     return
   }
-  isAdding.value = false
+  addingChildOf.value = null
   newChildName.value = ''
   await accountStore.createAccount(fullName)
 }
 
 function handleStartAddRoot() {
-  isAdding.value = true
+  addingAtRoot.value = true
+  addingChildOf.value = null
   newChildName.value = ''
   nextTick(() => addInputRef.value?.focus())
 }
@@ -212,14 +220,15 @@ async function confirmRootAdd() {
   if (!parent) return
   const fullName = `${parent.full_name}:${name}`
   const siblings = props.accounts.filter(a => a.parent_id === parent.id)
-  if (siblings.some(a => a.full_name === fullName)) { cancelAdd(); return }
-  isAdding.value = false
+  if (siblings.some(a => a.full_name === fullName)) { message.warning('同名账户已存在'); return }
+  addingAtRoot.value = false
   newChildName.value = ''
   await accountStore.createAccount(fullName)
 }
 
 function cancelAdd() {
-  isAdding.value = false
+  addingChildOf.value = null
+  addingAtRoot.value = false
   newChildName.value = ''
 }
 
@@ -227,6 +236,45 @@ function cancelAdd() {
 function shortName(fullName: string): string {
   return fullName.split(':').pop() || fullName
 }
+
+// --- Triangle positioning ---
+const gridEl = ref<HTMLElement | null>(null)
+
+const expandedIndex = computed(() => {
+  const stack = props.expandedStack
+  if (stack.length === 0) return -1
+  const children = props.accounts
+    .filter(a => a.parent_id === props.parentId && a.account_type === props.type)
+    .sort((a, b) => a.position - b.position)
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const idx = children.findIndex(c => c.id === stack[i])
+    if (idx >= 0) return idx
+  }
+  return -1
+})
+
+function updateTriangle() {
+  const idx = expandedIndex.value
+  if (idx < 0 || !gridEl.value) return
+  const draggable = gridEl.value.querySelector(':scope > .draggable-wrapper')
+  const container = draggable || gridEl.value
+  const cards = container.querySelectorAll(':scope > .card-wrapper > .account-card')
+  const card = cards[idx] as HTMLElement | undefined
+  if (!card) return
+  const cardWrapper = card.closest('.card-wrapper')
+  const subCards = cardWrapper?.querySelector('.sub-cards') as HTMLElement | undefined
+  if (!subCards) return
+  const cardRect = card.getBoundingClientRect()
+  const gridRect = gridEl.value.getBoundingClientRect()
+  const left = cardRect.left + cardRect.width / 2 - gridRect.left
+  subCards.style.setProperty('--tri-left', `${left}px`)
+}
+
+watch(() => props.expandedStack, () => {
+  nextTick(updateTriangle)
+}, { deep: true })
+
+onMounted(() => nextTick(updateTriangle))
 </script>
 
 <style scoped>
@@ -235,6 +283,7 @@ function shortName(fullName: string): string {
   flex-wrap: wrap;
   gap: 12px;
   min-height: 36px;
+  align-items: flex-start;
 }
 
 .draggable-wrapper {
@@ -242,8 +291,7 @@ function shortName(fullName: string): string {
 }
 
 .card-wrapper {
-  display: flex;
-  flex-direction: column;
+  display: contents;
 }
 
 .account-card {
@@ -258,6 +306,7 @@ function shortName(fullName: string): string {
   align-items: center;
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   user-select: none;
+  box-sizing: border-box;
 }
 
 .account-card:hover {
@@ -267,6 +316,10 @@ function shortName(fullName: string): string {
 .account-card.selected {
   border-color: #1890ff;
   background: #e6f7ff;
+}
+
+.account-card.expanded {
+  border-color: #1890ff;
 }
 
 .account-card.closed {
@@ -281,6 +334,7 @@ function shortName(fullName: string): string {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
 }
 
 .drag-handle {
@@ -353,6 +407,39 @@ function shortName(fullName: string): string {
   background: rgba(82, 196, 26, 0.12);
 }
 
+.sub-cards {
+  order: 1;
+  flex-basis: 100%;
+  position: relative;
+  border: 1px solid var(--bubble-border, #d9d9d9);
+  border-radius: 8px;
+  background: var(--bubble-bg, #fafafa);
+  padding: 12px;
+  --tri-left: 80px;
+}
+
+.sub-cards::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: var(--tri-left);
+  transform: translateX(-50%);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 8px solid var(--bubble-border, #d9d9d9);
+}
+
+.sub-cards::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: var(--tri-left);
+  transform: translateX(-50%);
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 7px solid var(--bubble-bg, #fafafa);
+}
+
 .sub-add-row {
   display: flex;
   align-items: center;
@@ -361,7 +448,6 @@ function shortName(fullName: string): string {
   border: 1px solid #52c41a;
   border-radius: 6px;
   background: rgba(82, 196, 26, 0.05);
-  min-width: 140px;
   min-height: 50px;
   box-sizing: border-box;
 }
@@ -375,24 +461,10 @@ function shortName(fullName: string): string {
   align-items: center;
 }
 
-.sub-cards {
-  padding-left: 24px;
-  margin-top: 8px;
-  border-left: 2px solid #f0f0f0;
-}
-
 .add-card-box {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
   border: 1px dashed #d9d9d9;
-  border-radius: 6px;
-  cursor: pointer;
-  min-width: 140px;
-  min-height: 50px;
+  justify-content: center;
   transition: border-color 0.2s;
-  box-sizing: border-box;
 }
 
 .add-card-box:hover {

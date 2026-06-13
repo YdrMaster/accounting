@@ -154,12 +154,14 @@ import { useAccountStore } from '@/stores/account'
 import { useMemberStore } from '@/stores/member'
 import { useChannelStore } from '@/stores/channel'
 import api from '@/api/client'
+import { useAccountTree } from '@/composables/useAccountTree'
 
 const router = useRouter()
 const transactionStore = useTransactionStore()
 const accountStore = useAccountStore()
 const memberStore = useMemberStore()
 const channelStore = useChannelStore()
+const { accountTreeData } = useAccountTree()
 
 type DashboardMode = 'normal' | 'range' | 'refund' | 'reimbursement'
 const mode = ref<DashboardMode>('normal')
@@ -197,20 +199,10 @@ const loading = computed(() => transactionStore.loading)
 const filteredTransactions = computed(() => {
   const txs = transactionStore.transactions
   if (mode.value === 'refund') {
-    // 退款模式：只显示包含 Expense 类型分录的交易
     return txs.filter(tx =>
       (tx.postings || []).some(p => {
         const acc = accountStore.accounts.find(a => a.full_name === p.account)
         return acc?.account_type === 'Expense'
-      })
-    )
-  }
-  if (mode.value === 'reimbursement') {
-    // 报销模式：只显示包含可报销 Expense 分录的交易
-    return txs.filter(tx =>
-      (tx.postings || []).some(p => {
-        const acc = accountStore.accounts.find(a => a.full_name === p.account)
-        return p.is_reimbursable && acc?.account_type === 'Expense'
       })
     )
   }
@@ -259,7 +251,7 @@ function calcIncome(transactions: Transaction[]) {
     for (const p of tx.postings || []) {
       const acc = accountStore.accounts.find((a) => a.full_name === p.account)
       if (acc?.account_type === 'Income') {
-        sum += Math.abs(parseFloat(p.amount) || 0)
+        sum -= parseFloat(p.amount) || 0
       }
     }
   }
@@ -269,10 +261,11 @@ function calcIncome(transactions: Transaction[]) {
 function calcExpense(transactions: Transaction[]) {
   let sum = 0
   for (const tx of transactions) {
+    if (tx.kind === 'refund' || tx.kind === 'reimbursement') continue
     for (const p of tx.postings || []) {
       const acc = accountStore.accounts.find((a) => a.full_name === p.account)
       if (acc?.account_type === 'Expense') {
-        sum += Math.abs(parseFloat(p.amount) || 0)
+        sum += (parseFloat(p.amount) || 0) + (parseFloat(p.reversal_total || '0'))
       }
     }
   }
@@ -285,48 +278,21 @@ const monthlyExpense = computed(() => calcExpense(monthTransactions.value))
 const calendarData = computed(() => {
   const data: Record<string, { income: number; expense: number }> = {}
   for (const tx of monthTransactions.value) {
+    if (tx.kind === 'refund' || tx.kind === 'reimbursement') continue
     const date = tx.date_time.slice(0, 10)
     if (!data[date]) {
       data[date] = { income: 0, expense: 0 }
     }
     for (const p of tx.postings || []) {
       const acc = accountStore.accounts.find((a) => a.full_name === p.account)
-      const amount = Math.abs(parseFloat(p.amount) || 0)
       if (acc?.account_type === 'Income') {
-        data[date].income += amount
+        data[date].income -= parseFloat(p.amount) || 0
       } else if (acc?.account_type === 'Expense') {
-        data[date].expense += amount
+        data[date].expense += (parseFloat(p.amount) || 0) + (parseFloat(p.reversal_total || '0'))
       }
     }
   }
   return data
-})
-
-const accountTreeData = computed(() => {
-  const accounts = accountStore.accounts
-  const map = new Map<number, any>()
-  const roots: any[] = []
-
-  accounts.forEach((acc) => {
-    const segments = acc.full_name.split(':')
-    map.set(acc.id, {
-      title: segments[segments.length - 1],
-      key: acc.id,
-      children: [],
-    })
-  })
-
-  accounts.forEach((acc) => {
-    const node = map.get(acc.id)
-    if (!node) return
-    if (acc.parent_id && map.has(acc.parent_id)) {
-      map.get(acc.parent_id)!.children.push(node)
-    } else {
-      roots.push(node)
-    }
-  })
-
-  return roots
 })
 
 function handleSelect(date: string) {
@@ -383,6 +349,9 @@ function buildParams(): Record<string, unknown> {
     params.from = start
     params.to = end
   }
+  if (mode.value === 'reimbursement') {
+    params.reimbursable = true
+  }
   if (filterForm.value.account) {
     params.account = filterForm.value.account
   }
@@ -405,8 +374,12 @@ function fetchData() {
 async function fetchMonthData() {
   const start = dayjs().startOf('month').format('YYYY-MM-DD')
   const end = dayjs().endOf('month').format('YYYY-MM-DD')
-  await transactionStore.fetchTransactions({ from: start, to: end })
-  monthTransactions.value = transactionStore.transactions
+  try {
+    const res = await api.get<Transaction[]>('/transactions', { params: { from: start, to: end } })
+    monthTransactions.value = res.data
+  } catch (e) {
+    console.error('获取当月交易失败', e)
+  }
 }
 
 function applyFilter() {
@@ -477,6 +450,11 @@ function cancelSelection() {
 watch(mode, () => {
   selectedPostingIds.value = new Set()
   drawerExpanded.value = false
+  if (selectedDate.value || rangeFrom.value || hasFilter.value) {
+    fetchData()
+  } else {
+    fetchMonthData()
+  }
 })
 
 onMounted(() => {

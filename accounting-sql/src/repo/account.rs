@@ -45,6 +45,8 @@ pub trait AccountRepo {
     fn close(&self, conn: &Connection, id: AccountId) -> Result<(), crate::error::DbError>;
     /// 重新开启账户（清除 closed_at）
     fn reopen(&self, conn: &Connection, id: AccountId) -> Result<(), crate::error::DbError>;
+    /// 删除账户（物理删除）
+    fn delete(&self, conn: &Connection, id: AccountId) -> Result<(), crate::error::DbError>;
     /// 创建账户并自动维护闭包表
     fn create_with_closure(
         &self,
@@ -183,6 +185,19 @@ impl AccountRepo for SqliteAccountRepo {
             "UPDATE accounts SET closed_at = NULL WHERE id = ?1",
             params![id.0],
         )?;
+        Ok(())
+    }
+
+    fn delete(&self, conn: &Connection, id: AccountId) -> Result<(), crate::error::DbError> {
+        conn.execute(
+            "DELETE FROM account_owners WHERE account_id = ?1",
+            params![id.0],
+        )?;
+        conn.execute(
+            "DELETE FROM account_ancestors WHERE account_id = ?1",
+            params![id.0],
+        )?;
+        conn.execute("DELETE FROM accounts WHERE id = ?1", params![id.0])?;
         Ok(())
     }
 

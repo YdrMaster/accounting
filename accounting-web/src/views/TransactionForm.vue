@@ -63,13 +63,9 @@
             :key="index"
             class="posting-row"
           >
-            <a-tree-select
-              v-model:value="posting.accountId"
-              :tree-data="accountTreeData"
-              :field-names="{ children: 'children', label: 'title', value: 'key' }"
+            <AccountPicker
+              v-model="posting.accountId"
               placeholder="选择账户"
-              style="flex: 1"
-              tree-default-expand-all
             />
             <a-select v-model:value="posting.commodity" style="width: 100px">
               <a-select-option value="CNY">CNY</a-select-option>
@@ -106,12 +102,9 @@
             </div>
             <!-- 冲减分录（锁定不可编辑），从右到左：action | amount | ± | commodity | tree -->
             <div class="posting-row reversal-row">
-              <a-tree-select
-                :value="group.original.accountId"
-                :tree-data="accountTreeData"
-                :field-names="{ children: 'children', label: 'title', value: 'key' }"
-                style="flex: 1 1 0%; min-width: 0"
-                tree-default-expand-all
+              <AccountPicker
+                :model-value="group.original.accountId"
+                placeholder="选择账户"
                 disabled
               />
               <span class="col-commodity">{{ group.original.commodity }}</span>
@@ -127,13 +120,10 @@
               :key="ai"
               class="posting-row"
             >
-              <a-tree-select
-                v-model:value="asset.accountId"
-                :tree-data="assetAccountTreeData"
-                :field-names="{ children: 'children', label: 'title', value: 'key' }"
+              <AccountPicker
+                v-model="asset.accountId"
+                account-type="Asset"
                 placeholder="选择资产账户"
-                style="flex: 1 1 0%; min-width: 0"
-                tree-default-expand-all
               />
               <span class="col-commodity">{{ group.original.commodity }}</span>
               <span class="col-sign">+</span>
@@ -182,6 +172,7 @@ import { useAccountStore } from '@/stores/account'
 import { useCommodityStore } from '@/stores/commodity'
 import { useChannelStore } from '@/stores/channel'
 import api from '@/api/client'
+import AccountPicker from '@/components/AccountPicker.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -228,17 +219,6 @@ interface PostingGroup {
 const groups = ref<PostingGroup[]>([])
 const groupsLoading = ref(false)
 
-// 仅包含 Asset 类型账户的树
-const assetAccountTreeData = computed(() => {
-  const assetIds = new Set(accountStore.accounts.filter(a => a.account_type === 'Asset').map(a => a.id))
-  function filterTree(nodes: any[]): any[] {
-    return nodes
-      .map(n => ({ ...n, children: filterTree(n.children || []) }))
-      .filter(n => assetIds.has(n.key) || n.children.length > 0)
-  }
-  return filterTree(accountTreeData.value)
-})
-
 function formatReversalAmountAbs(group: PostingGroup): string {
   const sum = group.assets.reduce((acc, a) => acc + (parseFloat(a.amount) || 0), 0)
   return sum === 0 ? '0' : String(Math.abs(sum))
@@ -263,33 +243,6 @@ const totalReversalAmount = computed(() => {
 const selectedTagNames = ref<string[]>([])
 const tags = ref<{ id: number; name: string }[]>([])
 const submitting = ref(false)
-
-const accountTreeData = computed(() => {
-  const accounts = accountStore.accounts
-  const map = new Map<number, any>()
-  const roots: any[] = []
-
-  accounts.forEach((acc) => {
-    const segments = acc.full_name.split(':')
-    map.set(acc.id, {
-      title: segments[segments.length - 1],
-      key: acc.id,
-      children: [],
-    })
-  })
-
-  accounts.forEach((acc) => {
-    const node = map.get(acc.id)
-    if (!node) return
-    if (acc.parent_id && map.has(acc.parent_id)) {
-      map.get(acc.parent_id)!.children.push(node)
-    } else {
-      roots.push(node)
-    }
-  })
-
-  return roots
-})
 
 function addPosting() {
   const sum = postings.value.reduce((acc, p) => acc + (parseFloat(p.amount) || 0), 0)
@@ -479,21 +432,19 @@ async function loadOriginalPostings() {
 
   groupsLoading.value = true
   try {
-    // 加载所有交易以获取日期和描述
-    await transactionStore.fetchTransactions({})
-    const txs = transactionStore.transactions
+    const postings = await Promise.all(idList.map(id => transactionStore.fetchPosting(id)))
 
-    for (const id of idList) {
-      const p = await transactionStore.fetchPosting(id)
-      let date = '', description = ''
-      for (const tx of txs) {
-        const found = tx.postings.find(pp => pp.id === id)
-        if (found) {
-          date = tx.date_time.slice(0, 10)
-          description = tx.description
-          break
-        }
-      }
+    const txIds = new Set(postings.map(p => p.transaction_id))
+    const txMap = new Map<number, { date: string; description: string }>()
+    await Promise.all(
+      Array.from(txIds).map(async (txId) => {
+        const res = await api.get<{ date_time: string; description: string }>(`/transactions/${txId}`)
+        txMap.set(txId, { date: res.data.date_time.slice(0, 10), description: res.data.description })
+      })
+    )
+
+    for (const p of postings) {
+      const tx = txMap.get(p.transaction_id)
       groups.value.push({
         original: {
           id: p.id,
@@ -502,8 +453,8 @@ async function loadOriginalPostings() {
           commodity: p.commodity,
           amount: p.amount,
           reversal_total: p.reversal_total || '0',
-          date: date || '—',
-          description: description || '—',
+          date: tx?.date || '—',
+          description: tx?.description || '—',
         },
         assets: [],
       })
@@ -535,6 +486,11 @@ async function loadOriginalPostings() {
   gap: 8px;
   margin-bottom: 8px;
   align-items: center;
+}
+
+.posting-row :deep(.account-picker) {
+  flex: 1;
+  min-width: 0;
 }
 
 .btn-row {

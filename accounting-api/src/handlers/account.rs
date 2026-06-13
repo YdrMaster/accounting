@@ -9,7 +9,7 @@ use accounting_sql::database::Database;
 use axum::{
     Json, Router,
     extract::{Path, State},
-    routing::{get, put},
+    routing::{delete, get, put},
 };
 use std::sync::Arc;
 
@@ -149,6 +149,42 @@ async fn reopen_account(
     Ok("reopened".to_string())
 }
 
+/// 删除账户
+async fn delete_account(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Result<String, String> {
+    let db = state.db().map_err(|e| e.to_string())?;
+    let conn = db.connection();
+    let accounts = db.account_repo().list(&conn).map_err(|e| e.to_string())?;
+    let target = accounts.iter().find(|a| a.id.0 == id).ok_or("账户不存在")?;
+
+    if target.is_system {
+        return Err("系统账户不能删除".to_string());
+    }
+
+    let children = db
+        .account_repo()
+        .list_children(&conn, AccountId(id))
+        .map_err(|e| e.to_string())?;
+    if !children.is_empty() {
+        return Err("请先删除子账户".to_string());
+    }
+
+    let has_postings = db
+        .posting_repo()
+        .has_postings(&conn, AccountId(id))
+        .map_err(|e| e.to_string())?;
+    if has_postings {
+        return Err("该账户有关联分录，不能删除".to_string());
+    }
+
+    db.account_repo()
+        .delete(&conn, AccountId(id))
+        .map_err(|e| e.to_string())?;
+    Ok("deleted".to_string())
+}
+
 /// 重排账户
 async fn reorder_accounts(
     State(state): State<Arc<AppState>>,
@@ -171,5 +207,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/accounts/{id}/rename", put(rename_account))
         .route("/api/accounts/{id}/close", put(close_account))
         .route("/api/accounts/{id}/open", put(reopen_account))
+        .route("/api/accounts/{id}", delete(delete_account))
         .route("/api/accounts/reorder", put(reorder_accounts))
 }
