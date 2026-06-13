@@ -55,7 +55,7 @@
           :key="p.id"
           class="posting-row"
           :class="postingRowClass(p)"
-          @click="onPostingClick(p)"
+          @click.stop="onPostingClick(p)"
         >
           <span class="posting-account">
             {{ p.account }}

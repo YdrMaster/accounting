@@ -351,4 +351,28 @@ html.dark .badge-reimb {
   color: #69c0ff;
   border-color: #69c0ff;
 }
+
+html.dark .posting-group {
+  background: #1f1f1f;
+  border-color: #434343;
+}
+html.dark .group-account {
+  color: #d9d9d9;
+}
+html.dark .group-meta {
+  color: #888;
+}
+html.dark .reversal-row {
+  opacity: 0.6;
+}
+html.dark .total-reversal {
+  background: #162312;
+  border-color: #274916;
+}
+html.dark .total-label {
+  color: #d9d9d9;
+}
+html.dark .col-commodity {
+  color: #d9d9d9;
+}
 </style>

@@ -65,7 +65,6 @@ watch(() => props.mode, () => {
   selectedDate.value = null
   rangeStart.value = null
   rangeEnd.value = null
-  emit('clear')
 })
 
 const weekdays = ['日', '一', '二', '三', '四', '五', '六']

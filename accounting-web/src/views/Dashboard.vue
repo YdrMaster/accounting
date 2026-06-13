@@ -3,7 +3,7 @@
     <!-- 工具栏：模式切换 + 筛选 -->
     <div class="toolbar">
       <a-space>
-        <a-radio-group v-model:value="mode" button-style="solid" size="small">
+        <a-radio-group v-model:value="mode" button-style="solid">
           <a-radio-button value="normal">普通</a-radio-button>
           <a-radio-button value="range">范围</a-radio-button>
           <a-radio-button value="refund">退款</a-radio-button>
@@ -57,7 +57,7 @@
               :key="tx.id"
               :tx="tx"
               :selectable="isSelectMode"
-              :selectable-filter="mode === 'reimbursement' ? reimbursableFilter : undefined"
+              :selectable-filter="mode === 'refund' ? expenseFilter : mode === 'reimbursement' ? reimbursableFilter : undefined"
               :selected-posting-ids="selectedPostingIds"
               @deleted="handleDeleted"
               @select-posting="togglePostingSelection"
@@ -118,18 +118,16 @@
     </a-modal>
 
     <!-- 底部抽屉：选中分录 -->
-    <div v-if="isSelectMode && selectedPostingIds.size > 0" class="bottom-drawer" :class="{ collapsed: !drawerExpanded }">
-      <div class="drawer-left">
-        <span class="count-badge">{{ selectedPostingIds.size }}</span>
-        <span class="toggle-icon" @click="drawerExpanded = !drawerExpanded">
-          {{ drawerExpanded ? '▶' : '◀' }}
-        </span>
-      </div>
-      <div v-if="drawerExpanded" class="drawer-body">
+    <div v-if="isSelectMode" class="bottom-drawer">
+      <div class="drawer-body" :class="{ 'drawer-body-expanded': drawerExpanded }">
         <div class="drawer-actions">
+          <span class="count-badge">{{ selectedPostingIds.size }}</span>
           <a-button type="primary" style="background: #52c41a; border-color: #52c41a" @click="confirmSelection">
             确定
           </a-button>
+          <span class="toggle-icon" @click="drawerExpanded = !drawerExpanded">
+            {{ drawerExpanded ? '▶' : '◀' }}
+          </span>
           <a-button @click="cancelSelection">取消</a-button>
         </div>
         <div class="drawer-cards">
@@ -196,7 +194,19 @@ const hasFilter = computed(() => {
 })
 
 const loading = computed(() => transactionStore.loading)
-const filteredTransactions = computed(() => transactionStore.transactions)
+const filteredTransactions = computed(() => {
+  const txs = transactionStore.transactions
+  if (mode.value === 'refund') {
+    // 退款模式：只显示包含 Expense 类型分录的交易
+    return txs.filter(tx =>
+      (tx.postings || []).some(p => {
+        const acc = accountStore.accounts.find(a => a.full_name === p.account)
+        return acc?.account_type === 'Expense'
+      })
+    )
+  }
+  return txs
+})
 
 const expandedDates = ref<Set<string>>(new Set())
 
@@ -425,7 +435,15 @@ function togglePostingSelection(id: number) {
   selectedPostingIds.value = next
 }
 
-const reimbursableFilter = (p: Posting) => p.is_reimbursable
+const reimbursableFilter = (p: Posting) => {
+  if (!p.is_reimbursable) return false
+  const acc = accountStore.accounts.find(a => a.full_name === p.account)
+  return acc?.account_type === 'Expense'
+}
+const expenseFilter = (p: Posting) => {
+  const acc = accountStore.accounts.find(a => a.full_name === p.account)
+  return acc?.account_type === 'Expense'
+}
 
 const selectedPostingsInfo = computed(() => {
   const result: any[] = []
@@ -450,12 +468,12 @@ function cancelSelection() {
   drawerExpanded.value = false
 }
 
-watch(mode, (newMode) => {
+watch(mode, (newMode, oldMode) => {
   selectedPostingIds.value = new Set()
   drawerExpanded.value = false
-  if (newMode === 'reimbursement') {
-    fetchData()
-  } else if (newMode === 'normal' || newMode === 'refund') {
+  // 仅在进入/离开报销模式时需要重抓数据（API 参数不同）
+  const needRefetch = newMode === 'reimbursement' || oldMode === 'reimbursement'
+  if (needRefetch) {
     fetchData()
   }
 })
@@ -574,19 +592,9 @@ onMounted(() => {
   border-radius: 8px 0 0 0;
   padding: 8px;
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: stretch;
   z-index: 1000;
   max-width: 80vw;
-}
-.bottom-drawer.collapsed {
-  padding: 8px 12px;
-}
-.drawer-left {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
 }
 .count-badge {
   background: #1890ff;
@@ -595,19 +603,35 @@ onMounted(() => {
   padding: 2px 8px;
   font-size: 14px;
   font-weight: bold;
+  min-width: 28px;
+  text-align: center;
 }
-.toggle-icon { cursor: pointer; }
-.drawer-body { display: flex; align-items: flex-start; gap: 8px; }
-.drawer-actions {
+.toggle-icon { cursor: pointer; user-select: none; }
+.drawer-body {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: stretch;
+  gap: 8px;
+  max-width: 44px;
+  overflow: hidden;
+  transition: max-width 0.3s ease;
+}
+.drawer-body-expanded {
+  max-width: 70vw;
+}
+.drawer-actions {
+  display: grid;
+  grid-template: 1fr 1fr / auto auto;
+  gap: 4px 6px;
+  align-items: center;
+  justify-items: center;
+  flex-shrink: 0;
 }
 .drawer-cards {
   display: flex;
   gap: 8px;
   overflow-x: auto;
   scrollbar-width: none;
+  align-items: stretch;
 }
 .drawer-cards::-webkit-scrollbar { display: none; }
 .selected-card {
@@ -617,6 +641,9 @@ onMounted(() => {
   padding: 6px 10px;
   white-space: nowrap;
   min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .card-account { font-weight: 600; }
 .card-meta { font-size: 12px; color: #999; }
