@@ -1,95 +1,99 @@
 <template>
-  <draggable
-    v-model="localList"
-    item-key="id"
-    handle=".drag-handle"
-    class="cards-grid"
-    :animation="200"
-    @end="onDragEnd"
-  >
-    <template #item="{ element: account }">
-      <div class="card-wrapper">
-        <div
-          class="account-card"
-          :class="{
-            selected: selectedId === account.id,
-            expanded: expandedId === account.id,
-            closed: account.closed_at,
-            system: account.is_system,
-          }"
-          @click="handleSelectCard(account)"
-        >
-          <div class="card-header">
-            <span class="drag-handle" @click.stop>⠿</span>
-            <span class="card-name" :title="account.full_name">
-              <template v-if="renamingId === account.id">
-                <a-input
-                  ref="renameInputRef"
-                  v-model:value="renameValue"
-                  size="small"
-                  class="rename-input"
-                  @press-enter="confirmRename(account)"
-                  @click.stop
-                  @blur="cancelRename"
-                />
-              </template>
-              <template v-else>
+  <div class="cards-grid">
+    <draggable
+      v-model="localList"
+      item-key="id"
+      handle=".drag-handle"
+      :animation="200"
+      @end="onDragEnd"
+      class="draggable-wrapper"
+    >
+      <template #item="{ element: account }">
+        <div class="card-wrapper">
+          <div
+            class="account-card"
+            :class="{
+              selected: selectedId === account.id,
+              expanded: expandedId === account.id,
+              closed: account.closed_at,
+              system: account.is_system,
+            }"
+            @click="handleSelectCard(account)"
+          >
+            <div class="card-header">
+              <span class="drag-handle" @click.stop>⠿</span>
+              <span class="card-name" :title="account.full_name">
                 {{ shortName(account.full_name) }}
-              </template>
-            </span>
-            <span v-if="account.closed_at" class="closed-tag">
-              <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
-            </span>
-            <span class="card-actions">
-              <template v-if="childrenCount(account.id) > 0">
-                <span class="child-count">{{ childrenCount(account.id) }}</span>
-                <span
-                  class="expand-arrow"
-                  :class="{ rotated: expandedId === account.id }"
-                  @click.stop="handleToggleExpand(account)"
-                >▼</span>
-              </template>
-              <span
-                v-else
-                class="add-btn"
-                @click.stop="handleStartAdd(account)"
-              >+</span>
-            </span>
+              </span>
+              <span v-if="account.closed_at" class="closed-tag">
+                <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
+              </span>
+              <span class="card-actions">
+                <template v-if="childrenCount(account.id) > 0">
+                  <span class="child-count">{{ childrenCount(account.id) }}</span>
+                  <span
+                    class="expand-arrow"
+                    :class="{ rotated: expandedId === account.id }"
+                    @click.stop="handleToggleExpand(account)"
+                  >▼</span>
+                </template>
+                <span v-else class="add-btn" @click.stop="handleStartAdd(account)">+</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Recursive children / inline add -->
+          <div v-if="expandedId === account.id" class="sub-cards">
+            <AccountCards
+              v-if="childrenCount(account.id) > 0"
+              :parent-id="account.id"
+              :type="type"
+              :accounts="accounts"
+              :selected-id="selectedId"
+              :expanded-id="expandedId"
+              @update:selected="$emit('update:selected', $event)"
+              @update:expanded="$emit('update:expanded', $event)"
+            />
+            <div v-if="isAdding && expandedId === account.id" class="sub-add-row">
+              <a-input
+                ref="addInputRef"
+                v-model:value="newChildName"
+                size="small"
+                placeholder="输入子账户名"
+                class="sub-add-input"
+                @press-enter="confirmAdd(account)"
+                @click.stop
+              />
+              <a-button size="small" type="primary" @click.stop="confirmAdd(account)">确认</a-button>
+              <a-button size="small" @click.stop="cancelAdd">取消</a-button>
+            </div>
           </div>
         </div>
+      </template>
+    </draggable>
 
-        <!-- Add new account inline -->
-        <div v-if="addingParentId === account.id" class="inline-add-row">
-          <a-input
-            ref="addInputRef"
-            v-model:value="newChildName"
-            size="small"
-            placeholder="输入子账户名"
-            class="inline-input"
-            @press-enter="confirmAdd(account)"
-            @click.stop
-          />
-          <a-button size="small" type="primary" @click.stop="confirmAdd(account)">确认</a-button>
-          <a-button size="small" @click.stop="cancelAdd">取消</a-button>
-        </div>
+    <!-- Inline add for this level -->
+    <div v-if="isAdding" class="sub-add-row">
+      <a-input
+        ref="addInputRef"
+        v-model:value="newChildName"
+        size="small"
+        placeholder="输入子账户名"
+        class="sub-add-input"
+        @press-enter="confirmRootAdd"
+        @click.stop
+      />
+      <a-button size="small" type="primary" @click.stop="confirmRootAdd">确认</a-button>
+      <a-button size="small" @click.stop="cancelAdd">取消</a-button>
+    </div>
 
-        <!-- Recursive children -->
-        <div v-if="expandedId === account.id && childrenCount(account.id) > 0" class="sub-cards">
-          <AccountCards
-            :parent-id="account.id"
-            :type="type"
-            :accounts="accounts"
-            :selected-id="selectedId"
-            :expanded-id="expandedId"
-            :adding-parent-id="addingParentId"
-            @update:selected="$emit('update:selected', $event)"
-            @update:expanded="$emit('update:expanded', $event)"
-            @start-add="$emit('start-add', $event)"
-          />
-        </div>
+    <!-- Add card: hidden while adding at this level -->
+    <div v-if="!isAdding" class="card-wrapper">
+      <div class="account-card add-card-box" @click="handleStartAddRoot">
+        <span class="add-card-text">+ 添加子账户</span>
       </div>
-    </template>
-  </draggable>
+    </div>
+  </div>
 </template>
 
 <script lang="ts">
@@ -108,13 +112,11 @@ const props = defineProps<{
   accounts: Account[]
   selectedId: number | null
   expandedId: number | null
-  addingParentId: number | null
 }>()
 
 const emit = defineEmits<{
   'update:selected': [id: number | null]
   'update:expanded': [id: number | null]
-  'start-add': [parentId: number | null]
 }>()
 
 const accountStore = useAccountStore()
@@ -165,22 +167,18 @@ function handleToggleExpand(account: Account) {
   }
 }
 
-// --- Add child ---
+// --- Add child (local state, independent per component instance) ---
+const isAdding = ref(false)
 const newChildName = ref('')
 const addInputRef = ref<HTMLInputElement | null>(null)
 
 function handleStartAdd(account: Account) {
-  emit('start-add', account.id)
+  isAdding.value = true
   if (props.expandedId !== account.id) {
     emit('update:expanded', account.id)
-    if (props.selectedId !== account.id) {
-      emit('update:selected', null)
-    }
   }
   newChildName.value = ''
-  nextTick(() => {
-    addInputRef.value?.focus()
-  })
+  nextTick(() => addInputRef.value?.focus())
 }
 
 async function confirmAdd(parent: Account) {
@@ -189,62 +187,40 @@ async function confirmAdd(parent: Account) {
     cancelAdd()
     return
   }
-  // Check sibling duplicate
   const siblings = props.accounts.filter((a) => a.parent_id === parent.id)
   const fullName = `${parent.full_name}:${name}`
   if (siblings.some((a) => a.full_name === fullName)) {
+    cancelAdd()
     return
   }
-  emit('start-add', null)
+  isAdding.value = false
+  newChildName.value = ''
+  await accountStore.createAccount(fullName)
+}
+
+function handleStartAddRoot() {
+  isAdding.value = true
+  newChildName.value = ''
+  nextTick(() => addInputRef.value?.focus())
+}
+
+async function confirmRootAdd() {
+  const name = newChildName.value.trim()
+  if (!name) { cancelAdd(); return }
+  if (props.parentId == null) return
+  const parent = props.accounts.find(a => a.id === props.parentId)
+  if (!parent) return
+  const fullName = `${parent.full_name}:${name}`
+  const siblings = props.accounts.filter(a => a.parent_id === parent.id)
+  if (siblings.some(a => a.full_name === fullName)) { cancelAdd(); return }
+  isAdding.value = false
   newChildName.value = ''
   await accountStore.createAccount(fullName)
 }
 
 function cancelAdd() {
-  emit('start-add', null)
+  isAdding.value = false
   newChildName.value = ''
-}
-
-// --- Rename ---
-const renamingId = ref<number | null>(null)
-const renameValue = ref('')
-const renameInputRef = ref<HTMLInputElement | null>(null)
-
-// Expose for parent to trigger rename
-defineExpose({
-  startRename(account: Account) {
-    renamingId.value = account.id
-    renameValue.value = account.full_name.split(':').pop() || ''
-    nextTick(() => {
-      renameInputRef.value?.focus()
-      renameInputRef.value?.select?.()
-    })
-  },
-})
-
-async function confirmRename(account: Account) {
-  const name = renameValue.value.trim()
-  if (!name || name === account.full_name.split(':').pop()) {
-    cancelRename()
-    return
-  }
-  const segments = account.full_name.split(':')
-  segments[segments.length - 1] = name
-  const newFullName = segments.join(':')
-  // Check sibling duplicate
-  const siblings = props.accounts.filter((a) => a.parent_id === account.parent_id)
-  if (siblings.some((a) => a.id !== account.id && a.full_name === newFullName)) {
-    cancelRename()
-    return
-  }
-  renamingId.value = null
-  renameValue.value = ''
-  await accountStore.renameAccount(account.id, newFullName)
-}
-
-function cancelRename() {
-  renamingId.value = null
-  renameValue.value = ''
 }
 
 // --- Helpers ---
@@ -261,6 +237,10 @@ function shortName(fullName: string): string {
   min-height: 36px;
 }
 
+.draggable-wrapper {
+  display: contents;
+}
+
 .card-wrapper {
   display: flex;
   flex-direction: column;
@@ -273,6 +253,9 @@ function shortName(fullName: string): string {
   cursor: pointer;
   background: #fff;
   min-width: 140px;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   user-select: none;
 }
@@ -333,7 +316,10 @@ function shortName(fullName: string): string {
   background: #f5f5f5;
   border-radius: 10px;
   padding: 0 6px;
-  line-height: 18px;
+  line-height: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .expand-arrow {
@@ -357,6 +343,7 @@ function shortName(fullName: string): string {
   border-radius: 4px;
   font-size: 16px;
   font-weight: bold;
+  line-height: 18px;
   color: #52c41a;
   cursor: pointer;
   transition: background 0.2s;
@@ -366,22 +353,21 @@ function shortName(fullName: string): string {
   background: rgba(82, 196, 26, 0.12);
 }
 
-.inline-add-row {
+.sub-add-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 8px;
-  padding: 6px;
-  background: #fafafa;
-  border-radius: 4px;
+  padding: 8px 12px;
+  border: 1px solid #52c41a;
+  border-radius: 6px;
+  background: rgba(82, 196, 26, 0.05);
+  min-width: 140px;
+  min-height: 50px;
+  box-sizing: border-box;
 }
 
-.inline-input {
+.sub-add-input {
   width: 130px;
-}
-
-.rename-input {
-  width: 120px;
 }
 
 .closed-tag {
@@ -393,5 +379,29 @@ function shortName(fullName: string): string {
   padding-left: 24px;
   margin-top: 8px;
   border-left: 2px solid #f0f0f0;
+}
+
+.add-card-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px dashed #d9d9d9;
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 140px;
+  min-height: 50px;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.add-card-box:hover {
+  border-color: #52c41a;
+}
+
+.add-card-text {
+  color: #52c41a;
+  font-weight: 500;
+  font-size: 14px;
 }
 </style>

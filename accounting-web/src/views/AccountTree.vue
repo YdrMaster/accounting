@@ -6,16 +6,14 @@
 
     <div class="cards-area">
       <AccountCards
-        ref="rootCardsRef"
-        :parent-id="null"
+        :key="activeTab"
+        :parent-id="rootAccount?.id ?? null"
         :type="activeTab"
         :accounts="accounts"
         :selected-id="selectedId"
         :expanded-id="expandedId"
-        :adding-parent-id="addingParentId"
         @update:selected="onSelectedChange"
         @update:expanded="onExpandedChange"
-        @start-add="addingParentId = $event"
       />
     </div>
 
@@ -95,15 +93,14 @@ const memberStore = useMemberStore()
 const activeTab = ref('Asset')
 const selectedId = ref<number | null>(null)
 const expandedId = ref<number | null>(null)
-const addingParentId = ref<number | null>(null)
-
-const rootCardsRef = ref<InstanceType<typeof AccountCards> | null>(null)
 
 const accounts = computed(() => accountStore.accounts)
+const rootAccount = computed(() =>
+  accounts.value.find(a => a.account_type === activeTab.value && a.parent_id == null) || null
+)
 
 const tabTypes = [
   { value: 'Asset', label: '资产' },
-  { value: 'Liability', label: '负债' },
   { value: 'Income', label: '收入' },
   { value: 'Expense', label: '支出' },
   { value: 'Equity', label: '权益' },
@@ -112,7 +109,6 @@ const tabTypes = [
 function resetAll() {
   selectedId.value = null
   expandedId.value = null
-  addingParentId.value = null
 }
 
 function onSelectedChange(id: number | null) {

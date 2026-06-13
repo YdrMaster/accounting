@@ -400,6 +400,23 @@ html.dark .inline-add-row {
 html.dark .drag-handle {
   color: #666;
 }
+html.dark .add-card:hover {
+  border-color: #73d13d;
+  background: rgba(115, 209, 61, 0.08);
+}
+html.dark .add-card-box {
+  border-color: #434343;
+}
+html.dark .add-card-box:hover {
+  border-color: #73d13d;
+}
+html.dark .add-card-text {
+  color: #73d13d;
+}
+html.dark .sub-add-row {
+  background: rgba(115, 209, 61, 0.08);
+  border-color: #52c41a;
+}
 html.dark .child-count {
   color: #888;
   background: #333;

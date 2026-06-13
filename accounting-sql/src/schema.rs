@@ -285,7 +285,6 @@ END;
 const SEED_ACCOUNTS_ROOT_EN: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('Assets', 1, NULL, 1),
-('Liabilities', 2, NULL, 1),
 ('Equity', 3, NULL, 1),
 ('Income', 4, NULL, 1),
 ('Expenses', 5, NULL, 1);
@@ -294,18 +293,16 @@ INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) V
 const SEED_ACCOUNTS_CHILD_EN: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('Equity:OpeningBalances', 3, (SELECT id FROM accounts WHERE full_name = 'Equity'), 1),
-('Income:Uncategorized', 4, (SELECT id FROM accounts WHERE full_name = 'Income'), 1),
-('Expenses:Uncategorized', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
 ('Expenses:Fees', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
 ('Expenses:Discounts', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
 ('Expenses:InstallmentFees', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
+('Assets:Cash', 1, (SELECT id FROM accounts WHERE full_name = 'Assets'), 1),
 ('Assets:Cashback', 1, (SELECT id FROM accounts WHERE full_name = 'Assets'), 1);
 "#;
 
 const SEED_ACCOUNTS_ROOT_ZH: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('资产', 1, NULL, 1),
-('负债', 2, NULL, 1),
 ('权益', 3, NULL, 1),
 ('收入', 4, NULL, 1),
 ('支出', 5, NULL, 1);
@@ -314,11 +311,10 @@ INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) V
 const SEED_ACCOUNTS_CHILD_ZH: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('权益:期初余额', 3, (SELECT id FROM accounts WHERE full_name = '权益'), 1),
-('收入:未分类', 4, (SELECT id FROM accounts WHERE full_name = '收入'), 1),
-('支出:未分类', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
 ('支出:手续费', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
 ('支出:折扣', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
 ('支出:分期手续费', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
+('资产:现金', 1, (SELECT id FROM accounts WHERE full_name = '资产'), 1),
 ('资产:返现', 1, (SELECT id FROM accounts WHERE full_name = '资产'), 1);
 "#;
 
@@ -411,7 +407,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 12);
+        assert_eq!(count, 10);
 
         let count: i64 = conn
             .query_row(

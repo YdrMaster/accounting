@@ -311,7 +311,7 @@ mod tests {
         let (conn, repo) = setup();
         let account = Account {
             id: AccountId(0),
-            full_name: "Assets:Cash".to_string(),
+            full_name: "Assets:Bank".to_string(),
             account_type: AccountType::Asset,
             parent_id: None,
             closed_at: None,
@@ -322,7 +322,7 @@ mod tests {
         };
         let id = repo.create(&conn, &account).unwrap();
         let fetched = repo.get(&conn, id).unwrap().unwrap();
-        assert_eq!(fetched.full_name, "Assets:Cash");
+        assert_eq!(fetched.full_name, "Assets:Bank");
         assert_eq!(fetched.account_type, AccountType::Asset);
         assert!(!fetched.is_system);
     }
