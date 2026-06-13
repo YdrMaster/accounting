@@ -30,7 +30,6 @@
             :key="acc.id"
             class="account-btn"
             :class="{
-              'is-leaf': isLeaf(acc),
               'is-selected': selectedAccount?.id === acc.id,
             }"
             @click="handleSelect(acc)"
@@ -269,17 +268,8 @@ watch(() => props.modelValue, () => {
 }
 
 .account-btn:hover {
-  border-color: #40a9ff;
+  border-color: #91d5ff;
   background: #f0f5ff;
-}
-
-.account-btn.is-leaf {
-  border-color: #52c41a;
-}
-
-.account-btn.is-leaf:hover {
-  border-color: #52c41a;
-  background: #f6ffed;
 }
 
 .account-btn.is-selected {
@@ -350,15 +340,6 @@ html.dark .account-btn {
 html.dark .account-btn:hover {
   border-color: #177ddc;
   background: #111d2c;
-}
-
-html.dark .account-btn.is-leaf {
-  border-color: #49aa19;
-}
-
-html.dark .account-btn.is-leaf:hover {
-  border-color: #49aa19;
-  background: #162312;
 }
 
 html.dark .account-btn.is-selected {

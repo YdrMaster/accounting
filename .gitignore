@@ -3,5 +3,7 @@
 /AGENTS.md
 /CLAUDE.md
 *.db
+*.db-shm
+*.db-wal
 /accounting-web/dist
 /accounting-web/node_modules
