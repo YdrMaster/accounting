@@ -1,5 +1,7 @@
 /target
-/.kimi-code
+/.*/**
 /AGENTS.md
+/CLAUDE.md
 *.db
-.superpowers/
+/accounting-web/dist
+/accounting-web/node_modules

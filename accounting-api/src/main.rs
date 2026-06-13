@@ -79,15 +79,44 @@ async fn main() {
             true
         };
         if needs_build {
-            println!("前端需要编译，正在自动构建...");
-            let status = std::process::Command::new("npm")
-                .args(["run", "build"])
-                .current_dir(web_dir)
-                .status();
-            match status {
-                Ok(s) if s.success() => println!("前端编译完成"),
-                Ok(s) => eprintln!("前端编译失败 (exit: {})", s),
-                Err(e) => eprintln!("无法执行 npm: {} (请确保已安装 Node.js)", e),
+            // 检查依赖是否已安装
+            let deps_installed = web_dir
+                .join("node_modules")
+                .join(".bin")
+                .join("vue-tsc")
+                .exists();
+            let mut skip_build = false;
+            if !deps_installed {
+                println!("前端依赖未安装，正在 npm install...");
+                let install = std::process::Command::new("npm")
+                    .args(["install"])
+                    .current_dir(web_dir)
+                    .status();
+                match install {
+                    Ok(s) if s.success() => println!("依赖安装完成"),
+                    Ok(s) => {
+                        eprintln!("依赖安装失败 (exit: {})", s);
+                        skip_build = true;
+                    }
+                    Err(e) => {
+                        eprintln!("无法执行 npm install: {}", e);
+                        skip_build = true;
+                    }
+                }
+            }
+            if !skip_build {
+                println!("前端需要编译，正在自动构建...");
+                let status = std::process::Command::new("npm")
+                    .args(["run", "build"])
+                    .current_dir(web_dir)
+                    .status();
+                match status {
+                    Ok(s) if s.success() => println!("前端编译完成"),
+                    Ok(s) => eprintln!("前端编译失败 (exit: {})", s),
+                    Err(e) => eprintln!("无法执行 npm: {} (请确保已安装 Node.js)", e),
+                }
+            } else {
+                eprintln!("跳过前端编译，将使用已有 dist 或报 404");
             }
         }
     }
