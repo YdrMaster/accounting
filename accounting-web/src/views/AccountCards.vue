@@ -150,9 +150,6 @@ function handleSelectCard(account: Account) {
     emit('update:selected', null)
   } else {
     emit('update:selected', account.id)
-    if (props.expandedId !== account.id) {
-      emit('update:expanded', null)
-    }
   }
 }
 

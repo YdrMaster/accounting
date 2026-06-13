@@ -375,4 +375,42 @@ html.dark .total-label {
 html.dark .col-commodity {
   color: #d9d9d9;
 }
+
+/* Account cards */
+html.dark .account-card {
+  background: #1f1f1f;
+  border-color: #434343;
+}
+html.dark .account-card:hover {
+  border-color: #177ddc;
+}
+html.dark .account-card.selected {
+  background: #111d2c;
+  border-color: #177ddc;
+}
+html.dark .cards-grid {
+  background: transparent;
+}
+html.dark .sub-cards {
+  border-left-color: #434343;
+}
+html.dark .inline-add-row {
+  background: #262626;
+}
+html.dark .drag-handle {
+  color: #666;
+}
+html.dark .child-count {
+  color: #888;
+  background: #333;
+}
+html.dark .expand-arrow {
+  color: #888;
+}
+html.dark .detail-panel {
+  border-top-color: #434343;
+}
+html.dark .detail-label {
+  color: #888;
+}
 </style>
