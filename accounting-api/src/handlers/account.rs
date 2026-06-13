@@ -1,6 +1,8 @@
 //! 账户 API handler
 
-use crate::dto::{AccountDto, CreateAccountRequest, SetAccountOwnersRequest};
+use crate::dto::{
+    AccountDto, CreateAccountRequest, RenameAccountRequest, ReorderRequest, SetAccountOwnersRequest,
+};
 use crate::handlers::member::AppState;
 use accounting::id::{AccountId, MemberId};
 use accounting_sql::database::Database;
@@ -41,6 +43,7 @@ async fn list_accounts(
             is_system: a.is_system,
             billing_day: a.billing_day,
             repayment_day: a.repayment_day,
+            position: a.position,
             owner_ids: owners.get(&a.id.0).cloned().unwrap_or_default(),
         })
         .collect();
@@ -100,10 +103,73 @@ async fn set_owner(
     Ok("ok".to_string())
 }
 
+/// 重命名账户
+async fn rename_account(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<RenameAccountRequest>,
+) -> Result<String, String> {
+    let db = state.db().map_err(|e| e.to_string())?;
+    let conn = db.connection();
+    let accounts = db.account_repo().list(&conn).map_err(|e| e.to_string())?;
+    let target = accounts.iter().find(|a| a.id.0 == id).ok_or("账户不存在")?;
+    // 同层级检查同名
+    let mut siblings = accounts.iter().filter(|a| a.parent_id == target.parent_id);
+    if siblings.any(|a| a.id.0 != id && a.full_name == req.full_name) {
+        return Err("同名账户已存在".to_string());
+    }
+    db.account_repo()
+        .rename(&conn, AccountId(id), &req.full_name)
+        .map_err(|e| e.to_string())?;
+    Ok("renamed".to_string())
+}
+
+/// 关闭账户
+async fn close_account(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Result<String, String> {
+    let db = state.db().map_err(|e| e.to_string())?;
+    db.account_repo()
+        .close(&db.connection(), AccountId(id))
+        .map_err(|e| e.to_string())?;
+    Ok("closed".to_string())
+}
+
+/// 重开账户
+async fn reopen_account(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Result<String, String> {
+    let db = state.db().map_err(|e| e.to_string())?;
+    let conn = db.connection();
+    db.account_repo()
+        .reopen(&conn, AccountId(id))
+        .map_err(|e| e.to_string())?;
+    Ok("reopened".to_string())
+}
+
+/// 重排账户
+async fn reorder_accounts(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ReorderRequest>,
+) -> Result<String, String> {
+    let db = state.db().map_err(|e| e.to_string())?;
+    let ids: Vec<AccountId> = req.ids.into_iter().map(AccountId).collect();
+    db.account_repo()
+        .reorder(&db.connection(), &ids)
+        .map_err(|e| e.to_string())?;
+    Ok("reordered".to_string())
+}
+
 /// 账户路由
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/accounts", get(list_accounts).post(create_account))
         .route("/api/accounts/:id/balance", get(get_balance))
         .route("/api/accounts/:id/owner", put(set_owner))
+        .route("/api/accounts/:id/rename", put(rename_account))
+        .route("/api/accounts/:id/close", put(close_account))
+        .route("/api/accounts/:id/open", put(reopen_account))
+        .route("/api/accounts/reorder", put(reorder_accounts))
 }

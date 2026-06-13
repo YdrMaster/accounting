@@ -219,6 +219,7 @@ mod tests {
             is_system: false,
             billing_day: None,
             repayment_day: None,
+            position: 0,
         };
         let id = tx.account_repo().create(&tx.conn(), &account).unwrap();
         tx.commit().await.unwrap();
@@ -242,6 +243,7 @@ mod tests {
                 is_system: false,
                 billing_day: None,
                 repayment_day: None,
+                position: 0,
             };
             let id = tx.account_repo().create(&tx.conn(), &account).unwrap();
             id // tx dropped here without commit

@@ -7,9 +7,11 @@ export interface Account {
   full_name: string
   account_type: string
   parent_id?: number
+  closed_at?: string
   is_system: boolean
   billing_day?: number
   repayment_day?: number
+  position: number
   owner_ids?: number[]
 }
 
@@ -44,10 +46,30 @@ export const useAccountStore = defineStore('account', () => {
     await fetchAccounts()
   }
 
+  async function renameAccount(id: number, fullName: string) {
+    await api.put(`/accounts/${id}/rename`, { full_name: fullName })
+    await fetchAccounts()
+  }
+
+  async function closeAccount(id: number) {
+    await api.put(`/accounts/${id}/close`)
+    await fetchAccounts()
+  }
+
+  async function reopenAccount(id: number) {
+    await api.put(`/accounts/${id}/open`)
+    await fetchAccounts()
+  }
+
   async function setOwners(accountId: number, ownerIds: number[]) {
     await api.put(`/accounts/${accountId}/owner`, { owner_ids: ownerIds })
     await fetchAccounts()
   }
 
-  return { accounts, loading, fetchAccounts, createAccount, setOwners }
+  async function reorderAccounts(ids: number[]) {
+    await api.put('/accounts/reorder', { ids })
+    await fetchAccounts()
+  }
+
+  return { accounts, loading, fetchAccounts, createAccount, renameAccount, closeAccount, reopenAccount, setOwners, reorderAccounts }
 })

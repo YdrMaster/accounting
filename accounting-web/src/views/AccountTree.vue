@@ -1,209 +1,193 @@
 <template>
-  <div class="account-tree">
-    <a-tree
-      :tree-data="treeData"
-      v-model:expanded-keys="expandedKeys"
-      :selected-keys="selectedKey ? [selectedKey] : []"
-      @select="handleSelect"
-      class="tree"
-      block-node
-    >
-      <template #title="{ title, key, dataRef }">
-        <template v-if="key === '__new__'">
-          <div class="new-node-row">
-            <a-input
-              ref="newInputRef"
-              v-model:value="newAccountName"
-              size="small"
-              placeholder="输入账户名"
-              class="inline-input"
-              @press-enter="handleConfirmNew"
-            />
-            <a-button size="small" type="primary" @click.stop="handleConfirmNew">确认</a-button>
-            <a-button size="small" @click.stop="cancelAdd">取消</a-button>
-          </div>
-        </template>
-        <template v-else>
-          <div class="node-row">
-            <span
-              class="node-title"
-              :class="{ system: dataRef?.is_system }"
-            >
-              {{ title }}
-            </span>
-            <a-button
-              type="link"
-              size="small"
-              class="add-btn"
-              @click.stop="handleAddChild(Number(key))"
-            >
-              <PlusOutlined />
-            </a-button>
-          </div>
-        </template>
-      </template>
-    </a-tree>
+  <div class="account-tabs">
+    <a-tabs v-model:activeKey="activeTab" @change="resetAll">
+      <a-tab-pane v-for="t in tabTypes" :key="t.value" :tab="t.label" />
+    </a-tabs>
 
-    <!-- 详情面板 -->
+    <div class="cards-area">
+      <AccountCards
+        ref="rootCardsRef"
+        :parent-id="null"
+        :type="activeTab"
+        :accounts="accounts"
+        :selected-id="selectedId"
+        :expanded-id="expandedId"
+        :adding-parent-id="addingParentId"
+        @update:selected="onSelectedChange"
+        @update:expanded="onExpandedChange"
+        @start-add="addingParentId = $event"
+      />
+    </div>
+
     <div v-if="selectedAccount" class="detail-panel">
       <div class="detail-header">
         <h3>账户详情</h3>
         <a-tag v-if="selectedAccount.is_system" color="orange">系统内置账户</a-tag>
+        <a-tag v-if="selectedAccount.closed_at" color="default">已关闭</a-tag>
       </div>
+
       <div class="detail-row">
         <span class="detail-label">名称</span>
-        <span>{{ selectedAccount.full_name }}</span>
+        <span v-if="renamingId !== selectedAccount.id" class="detail-value-wrap">
+          <span>{{ selectedAccount.full_name }}</span>
+          <a-button
+            v-if="!selectedAccount.is_system"
+            type="link"
+            size="small"
+            @click="startRename"
+          >重命名</a-button>
+        </span>
+        <span v-else class="rename-row">
+          <a-input
+            ref="detailRenameInput"
+            v-model:value="renameValue"
+            size="small"
+            class="detail-rename-input"
+            @press-enter="confirmRename"
+          />
+          <a-button size="small" type="primary" @click="confirmRename">确认</a-button>
+          <a-button size="small" @click="cancelRename">取消</a-button>
+        </span>
       </div>
+
       <div class="detail-row">
         <span class="detail-label">类型</span>
         <span>{{ selectedAccount.account_type }}</span>
       </div>
+
       <div v-if="selectedAccount.account_type === 'Asset'" class="detail-row owners-row">
         <span class="detail-label">所有者</span>
         <a-checkbox-group
           :value="selectedAccount.owner_ids || []"
           :options="memberOptions"
+          :disabled="selectedAccount.is_system"
           @change="handleUpdateOwners"
         />
+      </div>
+
+      <div v-if="!selectedAccount.is_system" class="detail-actions">
+        <a-button
+          v-if="!selectedAccount.closed_at"
+          danger
+          size="small"
+          @click="handleClose"
+        >关闭账户</a-button>
+        <a-button
+          v-else
+          size="small"
+          @click="handleReopen"
+        >重新打开</a-button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, computed } from 'vue'
-import { PlusOutlined } from '@ant-design/icons-vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { useAccountStore } from '@/stores/account'
+import type { Account } from '@/stores/account'
 import { useMemberStore } from '@/stores/member'
-
-interface TreeNode {
-  title: string
-  key: string
-  is_system?: boolean
-  children: TreeNode[]
-}
+import AccountCards from './AccountCards.vue'
 
 const accountStore = useAccountStore()
 const memberStore = useMemberStore()
 
-const treeData = ref<TreeNode[]>([])
+const activeTab = ref('Asset')
+const selectedId = ref<number | null>(null)
+const expandedId = ref<number | null>(null)
 const addingParentId = ref<number | null>(null)
-const newAccountName = ref('')
-const newInputRef = ref<HTMLInputElement | null>(null)
-const selectedKey = ref<string | null>(null)
-const expandedKeys = ref<string[]>([])
 
+const rootCardsRef = ref<InstanceType<typeof AccountCards> | null>(null)
+
+const accounts = computed(() => accountStore.accounts)
+
+const tabTypes = [
+  { value: 'Asset', label: '资产' },
+  { value: 'Liability', label: '负债' },
+  { value: 'Income', label: '收入' },
+  { value: 'Expense', label: '支出' },
+  { value: 'Equity', label: '权益' },
+]
+
+function resetAll() {
+  selectedId.value = null
+  expandedId.value = null
+  addingParentId.value = null
+}
+
+function onSelectedChange(id: number | null) {
+  selectedId.value = id
+}
+
+function onExpandedChange(id: number | null) {
+  expandedId.value = id
+}
+
+// --- Selected account ---
+const selectedAccount = computed<Account | null>(() => {
+  if (selectedId.value === null) return null
+  return accountStore.accounts.find((a) => a.id === selectedId.value) || null
+})
+
+// --- Rename ---
+const renamingId = ref<number | null>(null)
+const renameValue = ref('')
+const detailRenameInput = ref<HTMLInputElement | null>(null)
+
+function startRename() {
+  if (!selectedAccount.value) return
+  renamingId.value = selectedAccount.value.id
+  renameValue.value = selectedAccount.value.full_name.split(':').pop() || ''
+  nextTick(() => {
+    detailRenameInput.value?.focus()
+    detailRenameInput.value?.select?.()
+  })
+}
+
+async function confirmRename() {
+  if (!selectedAccount.value) return
+  const name = renameValue.value.trim()
+  if (!name) {
+    cancelRename()
+    return
+  }
+  const account = selectedAccount.value
+  // Check sibling duplicate
+  const siblings = accountStore.accounts.filter((a) => a.parent_id === account.parent_id)
+  const segments = account.full_name.split(':')
+  segments[segments.length - 1] = name
+  const newFullName = segments.join(':')
+  if (siblings.some((a) => a.id !== account.id && a.full_name === newFullName)) {
+    cancelRename()
+    return
+  }
+  renamingId.value = null
+  renameValue.value = ''
+  await accountStore.renameAccount(account.id, newFullName)
+  // Re-select after refresh (id stays same)
+}
+
+function cancelRename() {
+  renamingId.value = null
+  renameValue.value = ''
+}
+
+// --- Close / Reopen ---
+async function handleClose() {
+  if (!selectedAccount.value) return
+  await accountStore.closeAccount(selectedAccount.value.id)
+}
+
+async function handleReopen() {
+  if (!selectedAccount.value) return
+  await accountStore.reopenAccount(selectedAccount.value.id)
+}
+
+// --- Owners ---
 const members = computed(() => memberStore.members)
-
 const memberOptions = computed(() =>
   members.value.map((m) => ({ label: m.name, value: m.id }))
 )
-
-const selectedAccount = computed(() => {
-  if (!selectedKey.value) return null
-  return accountStore.accounts.find((a) => String(a.id) === selectedKey.value) || null
-})
-
-function buildTreeData(): TreeNode[] {
-  const accounts = accountStore.accounts
-  const map = new Map<number, TreeNode>()
-  const roots: TreeNode[] = []
-
-  accounts.forEach((acc) => {
-    const segments = acc.full_name.split(':')
-    map.set(acc.id, {
-      title: segments[segments.length - 1],
-      key: String(acc.id),
-      is_system: acc.is_system,
-      children: [],
-    })
-  })
-
-  accounts.forEach((acc) => {
-    const node = map.get(acc.id)
-    if (!node) return
-    if (acc.parent_id && map.has(acc.parent_id)) {
-      map.get(acc.parent_id)!.children.push(node)
-    } else {
-      roots.push(node)
-    }
-  })
-
-  if (addingParentId.value !== null) {
-    const parentNode = findNode(roots, String(addingParentId.value))
-    if (parentNode) {
-      parentNode.children.push({
-        title: '__new__',
-        key: '__new__',
-        children: [],
-      })
-    }
-  }
-
-  return roots
-}
-
-function findNode(nodes: TreeNode[], key: string): TreeNode | null {
-  for (const node of nodes) {
-    if (node.key === key) return node
-    const found = findNode(node.children, key)
-    if (found) return found
-  }
-  return null
-}
-
-function handleAddChild(parentId: number) {
-  addingParentId.value = parentId
-  newAccountName.value = ''
-  treeData.value = buildTreeData()
-  // 确保父节点展开
-  const parentKey = String(parentId)
-  if (!expandedKeys.value.includes(parentKey)) {
-    expandedKeys.value = [...expandedKeys.value, parentKey]
-  }
-  nextTick(() => {
-    newInputRef.value?.focus()
-  })
-}
-
-async function handleConfirmNew() {
-  const name = newAccountName.value.trim()
-  if (!name) {
-    cancelAdd()
-    return
-  }
-
-  let fullName = name
-  if (addingParentId.value !== null) {
-    const parent = accountStore.accounts.find((a) => a.id === addingParentId.value)
-    if (parent) {
-      fullName = `${parent.full_name}:${name}`
-    }
-  }
-
-  addingParentId.value = null
-  newAccountName.value = ''
-  await accountStore.createAccount(fullName)
-}
-
-function cancelAdd() {
-  addingParentId.value = null
-  newAccountName.value = ''
-  treeData.value = buildTreeData()
-}
-
-function handleSelect(keys: (string | number)[], info: any) {
-  const key = String(keys[0] ?? '')
-  if (!key) return
-  selectedKey.value = key
-  // 非叶子节点选中时自动展开
-  const node = info?.node
-  if (node && node.children && node.children.length > 0) {
-    if (!expandedKeys.value.includes(key)) {
-      expandedKeys.value = [...expandedKeys.value, key]
-    }
-  }
-}
 
 async function handleUpdateOwners(checkedValues: (string | number)[]) {
   if (!selectedAccount.value) return
@@ -212,17 +196,6 @@ async function handleUpdateOwners(checkedValues: (string | number)[]) {
   await accountStore.setOwners(selectedAccount.value.id, ids)
 }
 
-watch(
-  () => accountStore.accounts,
-  () => {
-    treeData.value = buildTreeData()
-    // 自动展开根节点（1级）
-    const roots = treeData.value
-    expandedKeys.value = roots.map((r) => r.key)
-  },
-  { deep: true }
-)
-
 onMounted(() => {
   accountStore.fetchAccounts()
   memberStore.fetchMembers()
@@ -230,71 +203,21 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.account-tree {
-  width: 100%;
-  background: transparent;
-}
-
-.tree {
-  font-size: 16px;
-}
-
-.account-tree :deep(.ant-tree-treenode-selected) .node-title {
-  color: #1890ff;
-}
-
-.node-row {
-  display: flex;
-  align-items: center;
+.account-tabs {
   width: 100%;
 }
 
-.node-title {
-  flex: 1;
-  padding: 2px 4px;
+.cards-area {
+  min-height: 48px;
+  padding: 4px 0;
 }
 
-.node-title.system {
-  text-decoration: underline;
-}
-
-.add-btn {
-  opacity: 0;
-  transition: opacity 0.2s, background 0.2s;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  font-size: 14px;
-  font-weight: bold;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #52c41a !important;
-  border: none !important;
-  border-radius: 4px;
-  background: transparent;
-}
-
-.add-btn:hover {
-  background: rgba(82, 196, 26, 0.15) !important;
-}
-
-.inline-input {
-  width: 140px;
-}
-
-.new-node-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
+/* --- Detail panel --- */
 .detail-panel {
   margin-top: 24px;
   background: transparent;
   padding: 24px;
+  border-top: 1px solid #f0f0f0;
 }
 
 .detail-header {
@@ -315,7 +238,7 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 
-.owners-row {
+.detail-row.owners-row {
   align-items: flex-start;
 }
 
@@ -324,5 +247,27 @@ onMounted(() => {
   color: #666;
   font-weight: 500;
   flex-shrink: 0;
+}
+
+.detail-value-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rename-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-rename-input {
+  width: 160px;
+}
+
+.detail-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
 }
 </style>

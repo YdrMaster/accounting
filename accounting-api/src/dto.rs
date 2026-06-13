@@ -37,6 +37,8 @@ pub struct AccountDto {
     pub billing_day: Option<u8>,
     /// 还款日。
     pub repayment_day: Option<u8>,
+    /// 排序位置。
+    pub position: i64,
     /// 所有者成员 ID 列表。
     pub owner_ids: Vec<i64>,
 }
@@ -222,4 +224,18 @@ pub struct MeDto {
 pub struct SetMeRequest {
     /// 目标成员 ID。
     pub member_id: i64,
+}
+
+/// 重命名账户请求。
+#[derive(Deserialize)]
+pub struct RenameAccountRequest {
+    /// 新完整名称。
+    pub full_name: String,
+}
+
+/// 账户排序请求。
+#[derive(Deserialize)]
+pub struct ReorderRequest {
+    /// 账户 ID 列表（按新顺序排列）。
+    pub ids: Vec<i64>,
 }

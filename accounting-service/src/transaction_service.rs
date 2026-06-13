@@ -288,6 +288,7 @@ mod tests {
             is_system: false,
             billing_day: None,
             repayment_day: None,
+            position: 0,
         }
     }
 

@@ -134,6 +134,7 @@ impl<D: Database> AccountService<D> {
                 is_system: false,
                 billing_day: if is_leaf { billing_day } else { None },
                 repayment_day: if is_leaf { repayment_day } else { None },
+                position: 0,
             };
 
             let id = tx
@@ -310,6 +311,7 @@ mod tests {
             is_system: false,
             billing_day: None,
             repayment_day: None,
+            position: 0,
         }
     }
 

@@ -21,6 +21,8 @@ pub struct Account {
     pub billing_day: Option<u8>,
     /// 还款日（信用卡等账户使用）
     pub repayment_day: Option<u8>,
+    /// 排序位置
+    pub position: i64,
 }
 
 #[cfg(test)]
@@ -39,6 +41,7 @@ mod tests {
             is_system: false,
             billing_day: None,
             repayment_day: None,
+            position: 0,
         };
         assert_eq!(a.full_name, "Assets:Cash");
         assert!(!a.is_system);

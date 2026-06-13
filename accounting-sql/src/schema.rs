@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     updated_at TEXT NOT NULL DEFAULT (date('now')),
     is_system INTEGER NOT NULL DEFAULT 0,
     billing_day INTEGER CHECK(billing_day BETWEEN 1 AND 31),
-    repayment_day INTEGER CHECK(repayment_day BETWEEN 1 AND 31)
+    repayment_day INTEGER CHECK(repayment_day BETWEEN 1 AND 31),
+    position INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS account_ancestors (
