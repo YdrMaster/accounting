@@ -9,7 +9,6 @@ use crate::repo::transaction::TransactionRepo;
 use crate::transaction::Transaction;
 
 /// 数据库 trait，聚合所有 Repository
-#[allow(async_fn_in_trait)]
 pub trait Database: Send + Sync {
     /// 事务类型
     type Tx: Transaction;
@@ -35,5 +34,6 @@ pub trait Database: Send + Sync {
     fn connection(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection>;
 
     /// 开始事务
+    #[allow(async_fn_in_trait)]
     async fn transaction(&self) -> Result<Self::Tx, crate::error::DbError>;
 }

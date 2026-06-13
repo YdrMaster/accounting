@@ -1,7 +1,5 @@
 //! 请求/响应 DTO
 
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 
 /// 通用错误响应。

@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-accounting = { path = "../accounting" }
-accounting-sql = { path = "../accounting-sql" }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
-rust_decimal = "1.36"
+accounting.workspace = true
+accounting-sql.workspace = true
+rusqlite.workspace = true
+chrono.workspace = true
+rust_decimal.workspace = true
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio.workspace = true

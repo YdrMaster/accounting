@@ -8,7 +8,6 @@ use crate::repo::tag::TagRepo;
 use crate::repo::transaction::TransactionRepo;
 
 /// 事务 trait，包含所有 Repository 与提交能力
-#[allow(async_fn_in_trait)]
 pub trait Transaction: Send {
     /// 获取 AccountRepo
     fn account_repo(&self) -> &dyn AccountRepo;
@@ -31,5 +30,6 @@ pub trait Transaction: Send {
     fn conn(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection>;
 
     /// 提交事务
+    #[allow(async_fn_in_trait)]
     async fn commit(self) -> Result<(), crate::error::DbError>;
 }

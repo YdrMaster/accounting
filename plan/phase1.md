@@ -2393,7 +2393,6 @@ use crate::repo::transaction::TransactionRepo;
 use crate::repo::posting::PostingRepo;
 
 /// 数据库 trait，聚合所有 Repository
-#[allow(async_fn_in_trait)]
 pub trait Database: Send + Sync {
     type Tx: Transaction;
 
@@ -2424,7 +2423,6 @@ use crate::repo::transaction::TransactionRepo;
 use crate::repo::posting::PostingRepo;
 
 /// 事务 trait，继承所有 Repository
-#[allow(async_fn_in_trait)]
 pub trait Transaction: Send {
     fn account_repo(&self) -> &dyn AccountRepo;
     fn commodity_repo(&self) -> &dyn CommodityRepo;

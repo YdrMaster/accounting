@@ -448,7 +448,6 @@ trait AttachmentRepo {
 ### 7.4 Database / Transaction Traits
 
 ```rust
-#[allow(async_fn_in_trait)]
 trait Database: Send + Sync {
     type Tx: Transaction;
 
@@ -473,7 +472,6 @@ trait Database: Send + Sync {
     async fn transaction(&self) -> Result<Self::Tx, Error>
 }
 
-#[allow(async_fn_in_trait)]
 trait Transaction: Send {
     /// 事务上下文内的成员仓储
     fn member(&self) -> impl MemberRepo

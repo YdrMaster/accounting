@@ -75,7 +75,6 @@ pub struct ReportService<D: Database> {
     db: D,
 }
 
-#[allow(clippy::type_complexity)]
 impl<D: Database> ReportService<D> {
     /// 创建服务实例
     pub fn new(db: D) -> Self {

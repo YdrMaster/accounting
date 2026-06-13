@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rust_decimal = "1.36"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-thiserror = "2"
-rust-i18n = "3"
+thiserror.workspace = true
+chrono.workspace = true
+rust_decimal.workspace = true
+rust-i18n.workspace = true
