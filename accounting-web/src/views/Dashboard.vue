@@ -205,6 +205,15 @@ const filteredTransactions = computed(() => {
       })
     )
   }
+  if (mode.value === 'reimbursement') {
+    // 报销模式：只显示包含可报销 Expense 分录的交易
+    return txs.filter(tx =>
+      (tx.postings || []).some(p => {
+        const acc = accountStore.accounts.find(a => a.full_name === p.account)
+        return p.is_reimbursable && acc?.account_type === 'Expense'
+      })
+    )
+  }
   return txs
 })
 
@@ -386,9 +395,6 @@ function buildParams(): Record<string, unknown> {
   if (filterForm.value.keyword) {
     params.keyword = filterForm.value.keyword
   }
-  if (mode.value === 'reimbursement') {
-    params.reimbursable = true
-  }
   return params
 }
 
@@ -468,14 +474,9 @@ function cancelSelection() {
   drawerExpanded.value = false
 }
 
-watch(mode, (newMode, oldMode) => {
+watch(mode, () => {
   selectedPostingIds.value = new Set()
   drawerExpanded.value = false
-  // 仅在进入/离开报销模式时需要重抓数据（API 参数不同）
-  const needRefetch = newMode === 'reimbursement' || oldMode === 'reimbursement'
-  if (needRefetch) {
-    fetchData()
-  }
 })
 
 onMounted(() => {
