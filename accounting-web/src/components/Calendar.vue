@@ -61,10 +61,20 @@ const selectedDate = ref<string | null>(null)
 const rangeStart = ref<string | null>(null)
 const rangeEnd = ref<string | null>(null)
 
-watch(() => props.mode, () => {
-  selectedDate.value = null
-  rangeStart.value = null
-  rangeEnd.value = null
+watch(() => props.mode, (newMode, oldMode) => {
+  // 进入范围模式：当前选中日期 → 范围开始
+  if (newMode === 'range' && selectedDate.value) {
+    rangeStart.value = selectedDate.value
+    selectedDate.value = null
+    emit('selectRange', rangeStart.value!, rangeStart.value!)
+  }
+  // 离开范围模式：范围开始 → 选中日期
+  if (oldMode === 'range' && rangeStart.value) {
+    selectedDate.value = rangeStart.value
+    rangeStart.value = null
+    rangeEnd.value = null
+    emit('select', selectedDate.value!)
+  }
 })
 
 const weekdays = ['日', '一', '二', '三', '四', '五', '六']
