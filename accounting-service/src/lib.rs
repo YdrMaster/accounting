@@ -1,5 +1,7 @@
 //! 业务层：Service 封装
 
+rust_i18n::i18n!("locales", fallback = "en");
+
 /// 账户服务
 pub mod account_service;
 /// 商品/货币服务

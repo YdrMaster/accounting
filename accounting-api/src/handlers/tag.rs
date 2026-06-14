@@ -10,6 +10,7 @@ use axum::{
     extract::{Path, State},
     routing::{delete, get},
 };
+use rust_i18n::t;
 use std::sync::Arc;
 
 /// 获取标签列表
@@ -92,10 +93,10 @@ async fn delete_tag(
     let tag = tags
         .into_iter()
         .find(|t| t.id.0 == id)
-        .ok_or("标签不存在")?;
+        .ok_or(t!("tag_not_found").to_string())?;
 
     if tag.is_system {
-        return Err("不能删除系统标签".to_string());
+        return Err(t!("cannot_delete_system_tag").to_string());
     }
 
     db.tag_repo()

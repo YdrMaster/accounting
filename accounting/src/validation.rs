@@ -3,6 +3,7 @@ use crate::error::AccountingError;
 use crate::posting::Posting;
 use crate::transaction::TransactionKind;
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use std::collections::HashMap;
 
 /// 验证交易平衡性
@@ -14,7 +15,7 @@ use std::collections::HashMap;
 pub fn validate_transaction(postings: &[Posting]) -> Result<(), AccountingError> {
     if postings.len() < 2 {
         return Err(AccountingError::InvalidTransaction(
-            "交易至少包含两个分录".to_string(),
+            t!("tx_at_least_two_postings").to_string(),
         ));
     }
 
@@ -52,7 +53,7 @@ pub fn validate_transaction(postings: &[Posting]) -> Result<(), AccountingError>
         Ok(())
     } else {
         Err(AccountingError::InvalidTransaction(
-            "交易不平衡".to_string(),
+            t!("tx_unbalanced").to_string(),
         ))
     }
 }
@@ -71,14 +72,14 @@ pub fn validate_kind_consistency(
         TransactionKind::Normal => {
             if has_reversal {
                 return Err(AccountingError::InvalidTransaction(
-                    "普通交易不能包含冲减分录".to_string(),
+                    t!("normal_tx_no_reversal").to_string(),
                 ));
             }
         }
         TransactionKind::Refund | TransactionKind::Reimbursement => {
             if !has_reversal {
                 return Err(AccountingError::InvalidTransaction(
-                    "退款/报销交易必须包含冲减分录".to_string(),
+                    t!("refund_tx_must_have_reversal").to_string(),
                 ));
             }
         }
@@ -96,7 +97,7 @@ pub fn validate_reversal_direction(postings: &[Posting]) -> Result<(), Accountin
         }
         if posting.amount.is_zero() {
             return Err(AccountingError::InvalidTransaction(
-                "冲减分录金额不能为零".to_string(),
+                t!("reversal_amount_cannot_be_zero").to_string(),
             ));
         }
     }
@@ -117,10 +118,13 @@ pub fn validate_reversal_cap(
     let available = original_amount.abs();
     if used > available {
         return Err(AccountingError::InvalidTransaction(format!(
-            "冲减金额超出原分录剩余额度: 已冲减 {}, 本次冲减 {}, 原金额 {}",
-            existing_reversal_total.abs(),
-            linked_amount.abs(),
-            available,
+            "{}",
+            t!(
+                "reversal_cap_exceeded",
+                reversed = existing_reversal_total.abs(),
+                current = linked_amount.abs(),
+                original = available
+            )
         )));
     }
     Ok(())
@@ -137,7 +141,9 @@ pub fn validate_account_close(
         AccountType::Asset => {
             let non_zero: Vec<_> = balances.iter().filter(|(_, b)| !b.is_zero()).collect();
             if !non_zero.is_empty() {
-                return Err(AccountingError::AccountNotEmpty("账户余额非零".to_string()));
+                return Err(AccountingError::AccountNotEmpty(
+                    t!("account_balance_non_zero").to_string(),
+                ));
             }
         }
         AccountType::Liability

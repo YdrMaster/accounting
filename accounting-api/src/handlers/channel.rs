@@ -10,6 +10,7 @@ use axum::{
     extract::{Path, State},
     routing::{delete, get},
 };
+use rust_i18n::t;
 use std::sync::Arc;
 
 /// 列出所有渠道
@@ -66,7 +67,7 @@ async fn delete_channel(
         )
         .map_err(|e| e.to_string())?;
     if count > 0 {
-        return Err("渠道已被交易引用，无法删除".to_string());
+        return Err(t!("channel_in_use").to_string());
     }
     db.connection()
         .execute("DELETE FROM channels WHERE id = ?1", [id])

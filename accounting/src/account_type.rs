@@ -20,11 +20,15 @@ impl AccountType {
     }
 
     /// 返回该类型账户的关闭条件说明
-    pub fn close_conditions(self) -> &'static str {
+    pub fn close_conditions(self) -> String {
         match self {
-            AccountType::Asset | AccountType::Liability => "余额为零",
-            AccountType::Income => "无限制",
-            AccountType::Expense | AccountType::Equity => "余额为零",
+            AccountType::Asset | AccountType::Liability => {
+                rust_i18n::t!("close_condition_balance_zero").to_string()
+            }
+            AccountType::Income => rust_i18n::t!("close_condition_unlimited").to_string(),
+            AccountType::Expense | AccountType::Equity => {
+                rust_i18n::t!("close_condition_balance_zero").to_string()
+            }
         }
     }
 
@@ -88,6 +92,7 @@ mod tests {
 
     #[test]
     fn test_account_type_close_conditions() {
+        rust_i18n::set_locale("zh-CN");
         assert_eq!(AccountType::Asset.close_conditions(), "余额为零");
         assert_eq!(AccountType::Income.close_conditions(), "无限制");
     }

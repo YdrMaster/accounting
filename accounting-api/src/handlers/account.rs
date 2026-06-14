@@ -11,6 +11,7 @@ use axum::{
     extract::{Path, State},
     routing::{delete, get, put},
 };
+use rust_i18n::t;
 use std::sync::Arc;
 
 /// 账户列表
@@ -112,11 +113,14 @@ async fn rename_account(
     let db = state.db().map_err(|e| e.to_string())?;
     let conn = db.connection();
     let accounts = db.account_repo().list(&conn).map_err(|e| e.to_string())?;
-    let target = accounts.iter().find(|a| a.id.0 == id).ok_or("账户不存在")?;
+    let target = accounts
+        .iter()
+        .find(|a| a.id.0 == id)
+        .ok_or(t!("account_not_found").to_string())?;
     // 同层级检查同名
     let mut siblings = accounts.iter().filter(|a| a.parent_id == target.parent_id);
     if siblings.any(|a| a.id.0 != id && a.full_name == req.full_name) {
-        return Err("同名账户已存在".to_string());
+        return Err(t!("account_name_exists").to_string());
     }
     db.account_repo()
         .rename(&conn, AccountId(id), &req.full_name)
@@ -157,10 +161,13 @@ async fn delete_account(
     let db = state.db().map_err(|e| e.to_string())?;
     let conn = db.connection();
     let accounts = db.account_repo().list(&conn).map_err(|e| e.to_string())?;
-    let target = accounts.iter().find(|a| a.id.0 == id).ok_or("账户不存在")?;
+    let target = accounts
+        .iter()
+        .find(|a| a.id.0 == id)
+        .ok_or(t!("account_not_found").to_string())?;
 
     if target.is_system {
-        return Err("系统账户不能删除".to_string());
+        return Err(t!("cannot_delete_system_account").to_string());
     }
 
     let children = db
@@ -168,7 +175,7 @@ async fn delete_account(
         .list_children(&conn, AccountId(id))
         .map_err(|e| e.to_string())?;
     if !children.is_empty() {
-        return Err("请先删除子账户".to_string());
+        return Err(t!("delete_children_first").to_string());
     }
 
     let has_postings = db
@@ -176,7 +183,7 @@ async fn delete_account(
         .has_postings(&conn, AccountId(id))
         .map_err(|e| e.to_string())?;
     if has_postings {
-        return Err("该账户有关联分录，不能删除".to_string());
+        return Err(t!("account_has_postings").to_string());
     }
 
     db.account_repo()

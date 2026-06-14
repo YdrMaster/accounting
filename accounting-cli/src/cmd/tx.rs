@@ -201,10 +201,7 @@ fn parse_date_time(s: &str) -> Result<chrono::NaiveDateTime, AccountingError> {
     chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
         .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
         .map_err(|_| {
-            AccountingError::InvalidDate(format!(
-                "时间格式应为 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS: {}",
-                s
-            ))
+            AccountingError::InvalidDate(format!("{}", t!("invalid_date_format", value = s)))
         })
 }
 
@@ -218,8 +215,8 @@ async fn parse_postings(
         let parts: Vec<&str> = s.split(':').collect();
         if parts.len() < 3 {
             return Err(AccountingError::InvalidTransaction(format!(
-                "分录格式错误: {} (应为 account:commodity:amount 或 account:commodity:amount:cost_commodity:cost)",
-                s
+                "{}",
+                t!("invalid_posting_format", value = s)
             )));
         }
 
@@ -227,8 +224,8 @@ async fn parse_postings(
         let last_is_decimal = Decimal::from_str(parts.last().unwrap()).is_ok();
         if !last_is_decimal {
             return Err(AccountingError::InvalidTransaction(format!(
-                "金额格式错误: {}",
-                parts.last().unwrap()
+                "{}",
+                t!("invalid_amount_format", value = parts.last().unwrap())
             )));
         }
 
@@ -259,8 +256,8 @@ async fn parse_postings(
 
         if account_name.is_empty() {
             return Err(AccountingError::InvalidTransaction(format!(
-                "账户名不能为空: {}",
-                s
+                "{}",
+                t!("account_name_empty", value = s)
             )));
         }
 
@@ -272,7 +269,10 @@ async fn parse_postings(
             .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         let account_id = account
             .ok_or_else(|| {
-                AccountingError::AccountNotFound(format!("账户不存在: {}", account_name))
+                AccountingError::AccountNotFound(format!(
+                    "{}",
+                    t!("account_name_not_found", name = account_name)
+                ))
             })?
             .id;
 
@@ -282,7 +282,10 @@ async fn parse_postings(
             .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         let commodity_id = commodity
             .ok_or_else(|| {
-                AccountingError::CommodityNotFound(format!("商品不存在: {}", commodity_symbol))
+                AccountingError::CommodityNotFound(format!(
+                    "{}",
+                    t!("commodity_symbol_not_found", symbol = commodity_symbol)
+                ))
             })?
             .id;
 
@@ -295,8 +298,8 @@ async fn parse_postings(
             let cost_commodity_id = cost_commodity
                 .ok_or_else(|| {
                     AccountingError::CommodityNotFound(format!(
-                        "成本商品不存在: {}",
-                        cost_commodity_symbol
+                        "{}",
+                        t!("cost_commodity_not_found", symbol = cost_commodity_symbol)
                     ))
                 })?
                 .id;
@@ -336,7 +339,9 @@ async fn resolve_tags(
             .get_by_name(&conn, name)
             .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         let tag_id = tag
-            .ok_or_else(|| AccountingError::Unknown(format!("标签不存在: {}", name)))?
+            .ok_or_else(|| {
+                AccountingError::Unknown(format!("{}", t!("tag_name_not_found", name = name)))
+            })?
             .id;
         tag_ids.push(tag_id);
     }
@@ -370,8 +375,8 @@ fn build_filter(
             filter.tag_id = Some(tag.id);
         } else {
             return Err(AccountingError::Unknown(format!(
-                "标签不存在: {}",
-                tag_name
+                "{}",
+                t!("tag_name_not_found", name = tag_name)
             )));
         }
     }

@@ -10,6 +10,7 @@ use accounting::validation::validate_transaction;
 use accounting_sql::database::Database;
 use accounting_sql::transaction::Transaction as DbTransaction;
 use rust_decimal::Decimal;
+use rust_i18n::t;
 
 /// 交易服务
 pub struct TransactionService<D: Database> {
@@ -51,7 +52,7 @@ impl<D: Database> TransactionService<D> {
             }
 
             let linked_id = posting.linked_posting_id.ok_or_else(|| {
-                AccountingError::InvalidTransaction("退款/报销分录必须关联原分录".to_string())
+                AccountingError::InvalidTransaction(t!("refund_must_link").to_string())
             })?;
 
             let linked_posting = tx
@@ -60,20 +61,20 @@ impl<D: Database> TransactionService<D> {
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
                 .ok_or_else(|| {
                     AccountingError::InvalidTransaction(format!(
-                        "关联的原分录 {} 不存在",
-                        linked_id.0
+                        "{}",
+                        t!("linked_posting_not_found", id = linked_id.0)
                     ))
                 })?;
 
             if linked_posting.linked_posting_id.is_some() {
                 return Err(AccountingError::InvalidTransaction(
-                    "只能冲减普通分录".to_string(),
+                    t!("can_only_reverse_normal_posting").to_string(),
                 ));
             }
 
             if linked_posting.account_id != posting.account_id {
                 return Err(AccountingError::InvalidTransaction(
-                    "退款/报销必须冲减同一账户".to_string(),
+                    t!("refund_must_same_account").to_string(),
                 ));
             }
 
@@ -81,7 +82,7 @@ impl<D: Database> TransactionService<D> {
                 || (posting.amount < Decimal::ZERO && linked_posting.amount < Decimal::ZERO)
             {
                 return Err(AccountingError::InvalidTransaction(
-                    "退款/报销金额方向必须与原分录相反".to_string(),
+                    t!("refund_direction_must_opposite").to_string(),
                 ));
             }
 
@@ -139,7 +140,7 @@ impl<D: Database> TransactionService<D> {
             }
 
             let linked_id = posting.linked_posting_id.ok_or_else(|| {
-                AccountingError::InvalidTransaction("退款/报销分录必须关联原分录".to_string())
+                AccountingError::InvalidTransaction(t!("refund_must_link").to_string())
             })?;
 
             let linked_posting = tx
@@ -148,20 +149,20 @@ impl<D: Database> TransactionService<D> {
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
                 .ok_or_else(|| {
                     AccountingError::InvalidTransaction(format!(
-                        "关联的原分录 {} 不存在",
-                        linked_id.0
+                        "{}",
+                        t!("linked_posting_not_found", id = linked_id.0)
                     ))
                 })?;
 
             if linked_posting.linked_posting_id.is_some() {
                 return Err(AccountingError::InvalidTransaction(
-                    "只能冲减普通分录".to_string(),
+                    t!("can_only_reverse_normal_posting").to_string(),
                 ));
             }
 
             if linked_posting.account_id != posting.account_id {
                 return Err(AccountingError::InvalidTransaction(
-                    "退款/报销必须冲减同一账户".to_string(),
+                    t!("refund_must_same_account").to_string(),
                 ));
             }
 
@@ -169,7 +170,7 @@ impl<D: Database> TransactionService<D> {
                 || (posting.amount < Decimal::ZERO && linked_posting.amount < Decimal::ZERO)
             {
                 return Err(AccountingError::InvalidTransaction(
-                    "退款/报销金额方向必须与原分录相反".to_string(),
+                    t!("refund_direction_must_opposite").to_string(),
                 ));
             }
 

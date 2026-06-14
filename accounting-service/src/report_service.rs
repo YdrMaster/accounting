@@ -6,6 +6,7 @@ use accounting::transaction_filter::TransactionFilter;
 use accounting_sql::database::Database;
 use accounting_sql::transaction::Transaction;
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use std::collections::HashMap;
 
 /// 私有类型别名：按 Income/Expense 分组后的 (商品, 金额) 列表
@@ -222,7 +223,7 @@ impl<D: Database> ReportService<D> {
         let mut result = Vec::new();
         for (tag_id, (income, expense)) in groups {
             let tag = tags.get(&tag_id).cloned().ok_or_else(|| {
-                AccountingError::DatabaseError(format!("标签 {} 不存在", tag_id.0))
+                AccountingError::DatabaseError(t!("tag_not_found_id", id = tag_id.0).to_string())
             })?;
             result.push(TagStat {
                 tag,
@@ -268,7 +269,9 @@ impl<D: Database> ReportService<D> {
                 .get(&conn, member_id)
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
                 .ok_or_else(|| {
-                    AccountingError::DatabaseError(format!("成员 {} 不存在", member_id.0))
+                    AccountingError::DatabaseError(
+                        t!("member_not_found_id", id = member_id.0).to_string(),
+                    )
                 })?;
             result.push(MemberStat {
                 member,
@@ -314,7 +317,9 @@ impl<D: Database> ReportService<D> {
                 .get(&conn, channel_id)
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
                 .ok_or_else(|| {
-                    AccountingError::DatabaseError(format!("渠道 {} 不存在", channel_id.0))
+                    AccountingError::DatabaseError(
+                        t!("channel_not_found_id", id = channel_id.0).to_string(),
+                    )
                 })?;
             result.push(ChannelStat {
                 channel,

@@ -17,6 +17,7 @@ use axum::{
 };
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -41,12 +42,7 @@ fn parse_date_time(s: &str) -> Result<chrono::NaiveDateTime, AccountingError> {
     }
     chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
         .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
-        .map_err(|_| {
-            AccountingError::InvalidDate(format!(
-                "时间格式应为 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS: {}",
-                s
-            ))
-        })
+        .map_err(|_| AccountingError::InvalidDate(t!("invalid_date_format", value = s).to_string()))
 }
 
 /// 列出交易（含筛选）

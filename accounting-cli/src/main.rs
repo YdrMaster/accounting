@@ -27,7 +27,7 @@ async fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("错误: {}", e);
+        eprintln!("{}", rust_i18n::t!("error_prefix", msg = e));
         process::exit(1);
     }
 }

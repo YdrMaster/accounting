@@ -6,6 +6,7 @@ use accounting::validation::validate_account_close;
 use accounting_sql::database::Database;
 use accounting_sql::transaction::Transaction;
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use std::collections::HashMap;
 
 /// 账户服务
@@ -35,8 +36,8 @@ impl<D: Database> AccountService<D> {
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             if parent.is_none() {
                 return Err(AccountingError::AccountNotFound(format!(
-                    "父账户 {} 不存在",
-                    parent_id
+                    "{}",
+                    t!("parent_account_not_found", id = parent_id)
                 )));
             }
         }
@@ -79,13 +80,15 @@ impl<D: Database> AccountService<D> {
         let segments: Vec<&str> = full_name.split(':').collect();
         if segments.is_empty() {
             return Err(AccountingError::InvalidTransaction(
-                "账户名不能为空".to_string(),
+                t!("account_name_empty").to_string(),
             ));
         }
 
         // 从第一段推导 account_type
         let account_type = AccountType::from_prefix(segments[0]).ok_or_else(|| {
-            AccountingError::InvalidTransaction(format!("无法识别账户类型前缀: {}", segments[0]))
+            AccountingError::InvalidTransaction(
+                t!("unrecognized_account_prefix", prefix = segments[0]).to_string(),
+            )
         })?;
 
         let tx = self
@@ -113,8 +116,13 @@ impl<D: Database> AccountService<D> {
                 // 验证类型一致
                 if existing.account_type != account_type {
                     return Err(AccountingError::InvalidTransaction(format!(
-                        "账户 {} 已存在但类型不一致: 期望 {:?}, 实际 {:?}",
-                        current_path, account_type, existing.account_type
+                        "{}",
+                        t!(
+                            "account_exists_type_mismatch",
+                            id = current_path,
+                            expected = format!("{:?}", account_type),
+                            actual = format!("{:?}", existing.account_type)
+                        )
                     )));
                 }
                 parent_id = Some(existing.id);
@@ -158,7 +166,9 @@ impl<D: Database> AccountService<D> {
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        last_id.ok_or_else(|| AccountingError::InvalidTransaction("级联创建失败".to_string()))
+        last_id.ok_or_else(|| {
+            AccountingError::InvalidTransaction(t!("cascade_create_failed").to_string())
+        })
     }
 
     /// 关闭账户（含余额验证 + 级联关闭子账户）
@@ -173,8 +183,9 @@ impl<D: Database> AccountService<D> {
             .account_repo()
             .get(&tx.conn(), id)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        let account = account
-            .ok_or_else(|| AccountingError::AccountNotFound(format!("账户 {} 不存在", id)))?;
+        let account = account.ok_or_else(|| {
+            AccountingError::AccountNotFound(t!("account_not_found_id", id = id).to_string())
+        })?;
 
         // 验证余额
         let balances = tx

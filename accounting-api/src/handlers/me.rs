@@ -24,16 +24,25 @@ async fn get_me(State(state): State<Arc<AppState>>) -> Result<Json<MeDto>, Strin
         match s.parse::<i64>() {
             Ok(id) => id,
             Err(e) => {
-                eprintln!("无法解析 current_member_id '{}': {}", s, e);
+                eprintln!(
+                    "{}",
+                    rust_i18n::t!("parse_member_id_failed", id = s, error = e)
+                );
                 let members = db.member_repo().list(&conn).map_err(|e| e.to_string())?;
-                let first = members.into_iter().next().ok_or("没有成员")?;
+                let first = members
+                    .into_iter()
+                    .next()
+                    .ok_or(rust_i18n::t!("no_members").to_string())?;
                 first.id.0
             }
         }
     } else {
         // 未设置时返回第一个成员
         let members = db.member_repo().list(&conn).map_err(|e| e.to_string())?;
-        let first = members.into_iter().next().ok_or("没有成员")?;
+        let first = members
+            .into_iter()
+            .next()
+            .ok_or(rust_i18n::t!("no_members").to_string())?;
         first.id.0
     };
 
@@ -41,7 +50,7 @@ async fn get_me(State(state): State<Arc<AppState>>) -> Result<Json<MeDto>, Strin
         .member_repo()
         .get(&conn, accounting::id::MemberId(member_id))
         .map_err(|e| e.to_string())?
-        .ok_or("成员不存在")?;
+        .ok_or(rust_i18n::t!("member_not_found").to_string())?;
 
     Ok(Json(MeDto {
         member_id: member.id.0,

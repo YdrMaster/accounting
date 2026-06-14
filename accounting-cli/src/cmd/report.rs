@@ -158,7 +158,7 @@ impl ReportCmd {
             ReportCmd::Stat(args) => {
                 if !args.by_tag && !args.by_member && !args.by_channel {
                     return Err(AccountingError::Unknown(
-                        "请指定 --by-tag、--by-member 或 --by-channel".to_string(),
+                        t!("report_no_group_by").to_string(),
                     ));
                 }
 
@@ -182,7 +182,10 @@ impl ReportCmd {
                         .get_by_name(&conn, tag_name)
                         .map_err(|e| AccountingError::Unknown(e.to_string()))?
                         .ok_or_else(|| {
-                            AccountingError::Unknown(format!("标签不存在: {}", tag_name))
+                            AccountingError::Unknown(format!(
+                                "{}",
+                                t!("tag_name_not_found", name = tag_name)
+                            ))
                         })?;
                     filter.tag_id = Some(tag.id);
                 }
@@ -270,6 +273,7 @@ impl ReportCmd {
 }
 
 fn parse_date(s: &str) -> Result<chrono::NaiveDate, AccountingError> {
-    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
-        .map_err(|_| AccountingError::InvalidDate(format!("日期格式应为 YYYY-MM-DD: {}", s)))
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| {
+        AccountingError::InvalidDate(format!("{}", t!("invalid_date_only_format", value = s)))
+    })
 }

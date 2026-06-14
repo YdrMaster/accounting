@@ -9,6 +9,7 @@ use axum::{
     routing::get,
 };
 use chrono::NaiveDate;
+use rust_i18n::t;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -144,7 +145,7 @@ async fn stats(
                 expense: s.expense.into_iter().map(into_entry).collect(),
             })
             .collect(),
-        other => return Err(format!("不支持的统计维度: {}", other)),
+        other => return Err(t!("unsupported_stat_dimension", dimension = other).to_string()),
     };
 
     Ok(Json(items))

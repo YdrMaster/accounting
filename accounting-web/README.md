@@ -45,7 +45,7 @@ npm install
 npm run dev
 ```
 
-默认访问 http://localhost:5173，Vite 开发服务器会自动代理 `/api` 请求到 `http://localhost:3000`。
+默认访问 <http://localhost:5173，Vite> 开发服务器会自动代理 `/api` 请求到 `http://localhost:3000`。
 
 ### 4. 生产构建
 

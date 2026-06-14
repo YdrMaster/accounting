@@ -9,6 +9,7 @@ accounting-sql.workspace = true
 rusqlite.workspace = true
 chrono.workspace = true
 rust_decimal.workspace = true
+rust-i18n.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
