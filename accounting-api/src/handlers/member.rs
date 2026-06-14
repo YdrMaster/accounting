@@ -21,6 +21,8 @@ pub struct AppState {
 
 impl AppState {
     /// 根据 db_path 打开数据库
+    ///
+    /// 启动时已预热，保证数据库始终包含完整种子数据，此处只做打开。
     pub fn db(&self) -> Result<SqliteDatabase, AccountingError> {
         SqliteDatabase::open(&self.db_path)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))

@@ -45,17 +45,6 @@ impl SqliteDatabase {
         Ok(Self::new(pool))
     }
 
-    /// 初始化 seed 数据，支持语言选择
-    pub fn initialize(&self, lang: &str) -> Result<(), DbError> {
-        let conn = self.pool.get();
-        crate::schema::insert_seed_data(&conn, lang)?;
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('language', ?1)",
-            [lang],
-        )?;
-        Ok(())
-    }
-
     fn new(pool: ConnectionHandle) -> Self {
         Self {
             pool,
@@ -118,6 +107,17 @@ impl Database for SqliteDatabase {
             transaction_repo: SqliteTransactionRepo,
             posting_repo: SqlitePostingRepo,
         })
+    }
+
+    fn initialize(&self, lang: &str) -> Result<(), DbError> {
+        let conn = self.pool.get();
+        crate::schema::initialize_schema(&conn)?;
+        crate::schema::insert_seed_data(&conn, lang)?;
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('language', ?1)",
+            [lang],
+        )?;
+        Ok(())
     }
 }
 

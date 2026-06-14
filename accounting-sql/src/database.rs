@@ -36,4 +36,7 @@ pub trait Database: Send + Sync {
     /// 开始事务
     #[allow(async_fn_in_trait)]
     async fn transaction(&self) -> Result<Self::Tx, crate::error::DbError>;
+
+    /// 初始化数据库种子数据（包含 schema、内置账户、标签、货币、闭包表等）
+    fn initialize(&self, lang: &str) -> Result<(), crate::error::DbError>;
 }

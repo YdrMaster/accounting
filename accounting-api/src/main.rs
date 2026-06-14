@@ -5,6 +5,7 @@ mod handlers;
 mod router;
 
 use accounting::error::AccountingError;
+use accounting_sql::database::Database;
 use axum::{Json, http::StatusCode, response::IntoResponse};
 use dto::ErrorResponse;
 use std::sync::Arc;
@@ -16,6 +17,13 @@ pub fn account_error(err: AccountingError) -> impl IntoResponse {
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(ErrorResponse { error: msg }),
     )
+}
+
+fn detect_system_language() -> String {
+    if let Ok(lang) = std::env::var("LANG") {
+        return lang.split('.').next().unwrap_or("en").to_string();
+    }
+    "en".to_string()
 }
 
 use clap::Parser;
@@ -33,11 +41,16 @@ struct Args {
     /// 前端静态文件目录
     #[arg(long, default_value = "accounting-web/dist")]
     static_dir: String,
+    /// 语言（如 zh-CN、en），默认从环境变量 LANG 检测
+    #[arg(long)]
+    lang: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+
+    let lang = args.lang.clone().unwrap_or_else(detect_system_language);
 
     // 自动编译前端：检测 accounting-web 目录是否存在，dist 是否过期
     let dist_path = std::path::Path::new(&args.static_dir);
@@ -122,6 +135,15 @@ async fn main() {
     }
 
     let state = Arc::new(handlers::member::AppState { db_path: args.db });
+    // 预热：服务启动时确保数据库已初始化（schema + seed + language）
+    let db = state.db().unwrap_or_else(|e| {
+        eprintln!("Failed to open database: {}", e);
+        std::process::exit(1);
+    });
+    db.initialize(&lang).unwrap_or_else(|e| {
+        eprintln!("Failed to initialize database: {}", e);
+        std::process::exit(1);
+    });
     let app = router::create_app(state, &args.static_dir);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
