@@ -8,6 +8,10 @@ use accounting_sql::transaction::Transaction;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
+/// 私有类型别名：按 Income/Expense 分组后的 (商品, 金额) 列表
+/// 元组第一项为 Income，第二项为 Expense
+type IncomeExpensePairs = (Vec<(CommodityId, Decimal)>, Vec<(CommodityId, Decimal)>);
+
 /// 账户余额项
 #[derive(Debug, Clone)]
 pub struct AccountBalance {
@@ -196,8 +200,7 @@ impl<D: Database> ReportService<D> {
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 按 TagId 分组，区分 Income(4) 和 Expense(5)
-        let mut groups: HashMap<TagId, (Vec<(CommodityId, Decimal)>, Vec<(CommodityId, Decimal)>)> =
-            HashMap::new();
+        let mut groups: HashMap<TagId, IncomeExpensePairs> = HashMap::new();
         for (tag_id, commodity_id, account_type, amount) in raw {
             let entry = groups.entry(tag_id).or_default();
             match account_type {
@@ -247,10 +250,7 @@ impl<D: Database> ReportService<D> {
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 按 MemberId 分组，区分 Income(4) 和 Expense(5)
-        let mut groups: HashMap<
-            MemberId,
-            (Vec<(CommodityId, Decimal)>, Vec<(CommodityId, Decimal)>),
-        > = HashMap::new();
+        let mut groups: HashMap<MemberId, IncomeExpensePairs> = HashMap::new();
         for (member_id, commodity_id, account_type, amount) in raw {
             let entry = groups.entry(member_id).or_default();
             match account_type {
@@ -296,10 +296,7 @@ impl<D: Database> ReportService<D> {
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 按 ChannelId 分组，区分 Income(4) 和 Expense(5)
-        let mut groups: HashMap<
-            ChannelId,
-            (Vec<(CommodityId, Decimal)>, Vec<(CommodityId, Decimal)>),
-        > = HashMap::new();
+        let mut groups: HashMap<ChannelId, IncomeExpensePairs> = HashMap::new();
         for (channel_id, commodity_id, account_type, amount) in raw {
             let entry = groups.entry(channel_id).or_default();
             match account_type {
