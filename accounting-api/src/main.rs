@@ -1,5 +1,7 @@
 //! accounting-api: axum HTTP 服务入口
 
+rust_i18n::i18n!("locales", fallback = "en");
+
 mod dto;
 mod handlers;
 mod router;
@@ -7,8 +9,20 @@ mod router;
 use accounting::error::AccountingError;
 use accounting_sql::database::Database;
 use axum::{Json, http::StatusCode, response::IntoResponse};
+use clap::Parser;
 use dto::ErrorResponse;
+use std::io;
+use std::net::SocketAddr;
+use std::path::Path;
+use std::process::{Command, ExitStatus};
 use std::sync::Arc;
+
+fn detect_system_language() -> String {
+    if let Ok(lang) = std::env::var("LANG") {
+        return lang.split('.').next().unwrap_or("en").to_string();
+    }
+    "en".to_string()
+}
 
 /// 将 AccountingError 转换为 HTTP 响应
 pub fn account_error(err: AccountingError) -> impl IntoResponse {
@@ -18,16 +32,6 @@ pub fn account_error(err: AccountingError) -> impl IntoResponse {
         Json(ErrorResponse { error: msg }),
     )
 }
-
-fn detect_system_language() -> String {
-    if let Ok(lang) = std::env::var("LANG") {
-        return lang.split('.').next().unwrap_or("en").to_string();
-    }
-    "en".to_string()
-}
-
-use clap::Parser;
-use std::net::SocketAddr;
 
 #[derive(Parser)]
 #[command(name = "accounting-api")]
@@ -46,15 +50,51 @@ struct Args {
     lang: Option<String>,
 }
 
+/// 检测 PATH 中是否包含 npm
+fn find_npm_debug() {
+    if let Ok(path) = std::env::var("PATH") {
+        for segment in path.split(';') {
+            for name in &["npm.cmd", "npm", "npm.ps1"] {
+                let candidate = Path::new(segment).join(name);
+                if candidate.exists() {
+                    println!("{}", rust_i18n::t!("npm_found", path = candidate.display()));
+                    return;
+                }
+            }
+        }
+        println!("{}", rust_i18n::t!("npm_not_found"));
+    }
+}
+
+/// 在 Windows 上通过 cmd /c 调用 npm，其他平台直接调用
+fn npm_command(args: &[&str], cwd: &Path) -> io::Result<ExitStatus> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd_args = vec!["/c", "npm"];
+        cmd_args.extend(args);
+        Command::new("cmd")
+            .args(&cmd_args)
+            .current_dir(cwd)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("npm").args(args).current_dir(cwd).status()
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
 
     let lang = args.lang.clone().unwrap_or_else(detect_system_language);
+    rust_i18n::set_locale(&lang);
 
     // 自动编译前端：检测 accounting-web 目录是否存在，dist 是否过期
-    let dist_path = std::path::Path::new(&args.static_dir);
-    let web_dir = std::path::Path::new("accounting-web");
+    let dist_path = Path::new(&args.static_dir);
+    let web_dir = Path::new("accounting-web");
     if web_dir.exists() && web_dir.join("package.json").exists() {
         let needs_build = if !dist_path.exists() {
             true
@@ -70,7 +110,7 @@ async fn main() {
                 // 递归检查 src 目录下所有源文件
                 let src_dir = web_dir.join("src");
                 let mut newest_src = std::time::SystemTime::UNIX_EPOCH;
-                fn walk_dir(dir: &std::path::Path, newest: &mut std::time::SystemTime) {
+                fn walk_dir(dir: &Path, newest: &mut std::time::SystemTime) {
                     if let Ok(entries) = std::fs::read_dir(dir) {
                         for entry in entries.flatten() {
                             let path = entry.path();
@@ -100,36 +140,29 @@ async fn main() {
                 .exists();
             let mut skip_build = false;
             if !deps_installed {
-                println!("前端依赖未安装，正在 npm install...");
-                let install = std::process::Command::new("npm")
-                    .args(["install"])
-                    .current_dir(web_dir)
-                    .status();
-                match install {
-                    Ok(s) if s.success() => println!("依赖安装完成"),
+                println!("{}", rust_i18n::t!("npm_installing"));
+                find_npm_debug();
+                match npm_command(&["install"], web_dir) {
+                    Ok(s) if s.success() => println!("{}", rust_i18n::t!("npm_install_done")),
                     Ok(s) => {
-                        eprintln!("依赖安装失败 (exit: {})", s);
+                        eprintln!("{}", rust_i18n::t!("npm_install_failed", exit = s));
                         skip_build = true;
                     }
                     Err(e) => {
-                        eprintln!("无法执行 npm install: {}", e);
+                        eprintln!("{}", rust_i18n::t!("npm_install_exec_failed", error = e));
                         skip_build = true;
                     }
                 }
             }
             if !skip_build {
-                println!("前端需要编译，正在自动构建...");
-                let status = std::process::Command::new("npm")
-                    .args(["run", "build"])
-                    .current_dir(web_dir)
-                    .status();
-                match status {
-                    Ok(s) if s.success() => println!("前端编译完成"),
-                    Ok(s) => eprintln!("前端编译失败 (exit: {})", s),
-                    Err(e) => eprintln!("无法执行 npm: {} (请确保已安装 Node.js)", e),
+                println!("{}", rust_i18n::t!("frontend_building"));
+                match npm_command(&["run", "build"], web_dir) {
+                    Ok(s) if s.success() => println!("{}", rust_i18n::t!("frontend_build_done")),
+                    Ok(s) => eprintln!("{}", rust_i18n::t!("frontend_build_failed", exit = s)),
+                    Err(e) => eprintln!("{}", rust_i18n::t!("npm_exec_failed", error = e)),
                 }
             } else {
-                eprintln!("跳过前端编译，将使用已有 dist 或报 404");
+                eprintln!("{}", rust_i18n::t!("frontend_build_skipped"));
             }
         }
     }
@@ -147,7 +180,7 @@ async fn main() {
     let app = router::create_app(state, &args.static_dir);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
-    println!("Listening on http://{}", addr);
+    println!("Listening on http://localhost:{}", args.port);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 

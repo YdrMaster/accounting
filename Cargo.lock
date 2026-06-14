@@ -22,6 +22,7 @@ dependencies = [
  "axum",
  "chrono",
  "clap",
+ "rust-i18n",
  "rust_decimal",
  "serde",
  "serde_json",

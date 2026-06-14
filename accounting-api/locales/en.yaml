@@ -1,0 +1,12 @@
+_version: 1
+npm_installing: "Frontend dependencies not installed, running npm install..."
+npm_install_done: "Dependencies installed"
+npm_install_failed: "Dependency installation failed (exit: %{exit})"
+npm_install_exec_failed: "Cannot execute npm install: %{error}"
+frontend_building: "Frontend needs build, running npm run build..."
+frontend_build_done: "Frontend build completed"
+frontend_build_failed: "Frontend build failed (exit: %{exit})"
+npm_exec_failed: "Cannot execute npm: %{error} (make sure Node.js is installed)"
+frontend_build_skipped: "Skipping frontend build, will use existing dist or return 404"
+npm_found: "[debug] Found npm: %{path}"
+npm_not_found: "[debug] npm/npm.cmd/npm.ps1 not found in PATH"

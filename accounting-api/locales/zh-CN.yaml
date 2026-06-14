@@ -1,0 +1,12 @@
+_version: 1
+npm_installing: "前端依赖未安装，正在 npm install..."
+npm_install_done: "依赖安装完成"
+npm_install_failed: "依赖安装失败 (exit: %{exit})"
+npm_install_exec_failed: "无法执行 npm install: %{error}"
+frontend_building: "前端需要编译，正在自动构建..."
+frontend_build_done: "前端编译完成"
+frontend_build_failed: "前端编译失败 (exit: %{exit})"
+npm_exec_failed: "无法执行 npm: %{error} (请确保已安装 Node.js)"
+frontend_build_skipped: "跳过前端编译，将使用已有 dist 或报 404"
+npm_found: "[debug] 找到 npm: %{path}"
+npm_not_found: "[debug] PATH 中未找到 npm/npm.cmd/npm.ps1"
