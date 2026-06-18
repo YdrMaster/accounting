@@ -17,6 +17,7 @@
         >
           <template v-if="hasChildren(account.id)" #suffix>
             <button
+              type="button"
               class="expand-btn"
               :class="{ rotated: isExpanded(account.id) }"
               @click.stop="toggleExpand(account.id)"

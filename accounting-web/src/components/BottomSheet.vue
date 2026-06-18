@@ -17,7 +17,7 @@
         <div class="sheet-header" @click.stop>
           <div class="drag-handle" />
           <span class="sheet-title">{{ title }}</span>
-          <button class="sheet-close" @click="close">×</button>
+          <button type="button" class="sheet-close" @click="close">×</button>
         </div>
         <div class="sheet-body">
           <slot />
