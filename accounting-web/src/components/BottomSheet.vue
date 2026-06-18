@@ -45,20 +45,24 @@ const lastY = ref(0)
 const lastTime = ref(0)
 const velocity = ref(0)
 
-const sheetStyle = computed(() => ({
-  transform: `translateY(${Math.max(0, dragOffset.value)}px)`,
-  transition: isDragging.value ? 'none' : 'transform 0.2s ease-in',
-}))
+const sheetStyle = computed(() => {
+  if (!isDragging.value && dragOffset.value === 0) return {}
+  return {
+    transform: `translateY(${Math.max(0, dragOffset.value)}px)`,
+    transition: isDragging.value ? 'none' : 'transform 0.2s ease-in',
+  }
+})
 
 watch(() => props.open, (open) => {
   if (open) {
     dragOffset.value = 0
     visible.value = true
+  } else {
+    close()
   }
 })
 
 function close() {
-  dragOffset.value = sheetEl.value?.offsetHeight ?? window.innerHeight
   visible.value = false
 }
 
