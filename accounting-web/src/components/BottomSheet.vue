@@ -1,27 +1,29 @@
 <template>
   <Teleport to="body">
-    <Transition name="bottom-sheet-fade">
-      <div v-if="visible" class="bottom-sheet-overlay" @click.self="close">
-        <div
-          ref="sheetEl"
-          class="bottom-sheet"
-          :style="sheetStyle"
-          @transitionend="handleTransitionEnd"
-          @touchstart="handleTouchStart"
-          @touchmove="handleTouchMove"
-          @touchend="handleTouchEnd"
-        >
-          <div class="sheet-header" @click.stop>
-            <div class="drag-handle" />
-            <span class="sheet-title">{{ title }}</span>
-            <button class="sheet-close" @click="close">×</button>
-          </div>
-          <div class="sheet-body">
-            <slot />
-          </div>
+    <div
+      v-if="mounted"
+      class="bottom-sheet-overlay"
+      :style="overlayStyle"
+      @click.self="close"
+    >
+      <div
+        ref="sheetEl"
+        class="bottom-sheet"
+        :style="sheetStyle"
+        @touchstart="handleTouchStart"
+        @touchmove="handleTouchMove"
+        @touchend="handleTouchEnd"
+      >
+        <div class="sheet-header" @click.stop>
+          <div class="drag-handle" />
+          <span class="sheet-title">{{ title }}</span>
+          <button class="sheet-close" @click="close">×</button>
+        </div>
+        <div class="sheet-body">
+          <slot />
         </div>
       </div>
-    </Transition>
+    </div>
   </Teleport>
 </template>
 
@@ -37,65 +39,71 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
 }>()
 
-const visible = ref(false)
+const mounted = ref(false)
+const progress = ref(0)
 const sheetEl = ref<HTMLElement | null>(null)
-const dragOffset = ref(0)
 const isDragging = ref(false)
-const isOpening = ref(false)
-const isClosing = ref(false)
 const startY = ref(0)
 const lastY = ref(0)
 const lastTime = ref(0)
 const velocity = ref(0)
+const closeTimer = ref<number | null>(null)
+
+const sheetHeight = computed(() => sheetEl.value?.offsetHeight ?? 0)
 
 const sheetStyle = computed(() => ({
-  transform: `translateY(${Math.max(0, dragOffset.value)}px)`,
-  transition: isDragging.value
-    ? 'none'
-    : isOpening.value
-      ? 'transform 0.25s ease-out'
-      : 'transform 0.2s ease-in',
+  transform: `translateY(${(1 - progress.value) * sheetHeight.value}px)`,
+  transition: isDragging.value ? 'none' : 'transform 0.25s ease-out',
+}))
+
+const overlayStyle = computed(() => ({
+  opacity: progress.value,
+  transition: isDragging.value ? 'none' : 'opacity 0.25s ease-out',
+  pointerEvents: (progress.value > 0 ? 'auto' : 'none') as 'auto' | 'none',
 }))
 
 watch(() => props.open, (open) => {
+  if (closeTimer.value) {
+    clearTimeout(closeTimer.value)
+    closeTimer.value = null
+  }
   if (open) {
-    isClosing.value = false
-    isOpening.value = true
-    dragOffset.value = sheetEl.value?.offsetHeight ?? window.innerHeight
-    visible.value = true
+    mounted.value = true
     nextTick(() => {
       requestAnimationFrame(() => {
-        dragOffset.value = 0
+        progress.value = 1
       })
     })
-    setTimeout(() => {
-      isOpening.value = false
-    }, 250)
   } else {
-    close()
+    progress.value = 0
+    closeTimer.value = window.setTimeout(() => {
+      mounted.value = false
+      emit('update:open', false)
+      closeTimer.value = null
+    }, 250)
   }
 })
 
 function close() {
-  if (!visible.value) return
-  isClosing.value = true
-  isDragging.value = false
-  isOpening.value = false
-  dragOffset.value = sheetEl.value?.offsetHeight ?? window.innerHeight
-}
-
-function handleTransitionEnd(e: TransitionEvent) {
-  if (e.propertyName === 'transform' && isClosing.value) {
-    isClosing.value = false
-    visible.value = false
-    emit('update:open', false)
+  if (closeTimer.value) {
+    clearTimeout(closeTimer.value)
+    closeTimer.value = null
   }
+  progress.value = 0
+  closeTimer.value = window.setTimeout(() => {
+    mounted.value = false
+    emit('update:open', false)
+    closeTimer.value = null
+  }, 250)
 }
 
 function handleTouchStart(e: TouchEvent) {
   const target = e.target as HTMLElement
   if (!target.closest('.sheet-header')) return
-  isClosing.value = false
+  if (closeTimer.value) {
+    clearTimeout(closeTimer.value)
+    closeTimer.value = null
+  }
   isDragging.value = true
   startY.value = e.touches[0].clientY
   lastY.value = startY.value
@@ -111,7 +119,8 @@ function handleTouchMove(e: TouchEvent) {
   if (dt > 0) {
     velocity.value = (y - lastY.value) / dt
   }
-  dragOffset.value = Math.max(0, y - startY.value)
+  const offset = Math.max(0, y - startY.value)
+  progress.value = Math.max(0, 1 - offset / sheetHeight.value)
   lastY.value = y
   lastTime.value = now
 }
@@ -119,12 +128,10 @@ function handleTouchMove(e: TouchEvent) {
 function handleTouchEnd() {
   if (!isDragging.value) return
   isDragging.value = false
-  const threshold = (sheetEl.value?.offsetHeight ?? 0) * 0.4
-  if (dragOffset.value > threshold || velocity.value > 0.5) {
+  if (progress.value < 0.6 || velocity.value > 0.005) {
     close()
   } else {
-    isClosing.value = false
-    dragOffset.value = 0
+    progress.value = 1
   }
 }
 
@@ -140,6 +147,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
+  if (closeTimer.value) clearTimeout(closeTimer.value)
 })
 </script>
 
@@ -213,14 +221,5 @@ onUnmounted(() => {
   padding: 12px 16px;
   overflow-y: auto;
   flex: 1;
-}
-
-.bottom-sheet-fade-enter-active,
-.bottom-sheet-fade-leave-active {
-  transition: opacity 0.25s ease;
-}
-.bottom-sheet-fade-enter-from,
-.bottom-sheet-fade-leave-to {
-  opacity: 0;
 }
 </style>
