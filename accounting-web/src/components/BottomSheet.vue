@@ -78,11 +78,10 @@ watch(() => props.open, (open) => {
     progress.value = 0
     closeTimer.value = window.setTimeout(() => {
       mounted.value = false
-      emit('update:open', false)
       closeTimer.value = null
     }, 250)
   }
-})
+}, { immediate: true })
 
 function close() {
   if (closeTimer.value) {
