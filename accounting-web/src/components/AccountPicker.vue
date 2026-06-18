@@ -1,6 +1,12 @@
 <template>
   <div class="account-picker">
-    <button class="picker-trigger" :class="{ disabled: props.disabled }" @click="openSheet" :disabled="props.disabled">
+    <button
+      type="button"
+      class="picker-trigger"
+      :class="{ disabled: props.disabled }"
+      @click="openSheet"
+      :disabled="props.disabled"
+    >
       <span v-if="selectedAccount" class="selected-name">{{ selectedAccount.full_name }}</span>
       <span v-else class="placeholder">{{ placeholder }}</span>
     </button>
