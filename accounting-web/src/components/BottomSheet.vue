@@ -63,6 +63,8 @@ watch(() => props.open, (open) => {
 })
 
 function close() {
+  isDragging.value = false
+  dragOffset.value = 0
   visible.value = false
 }
 
