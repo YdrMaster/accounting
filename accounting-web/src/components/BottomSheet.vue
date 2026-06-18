@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <Transition name="bottom-sheet" @after-leave="onAfterLeave">
+    <Transition name="bottom-sheet-fade" @after-leave="onAfterLeave">
       <div v-if="visible" class="bottom-sheet-overlay" @click.self="close">
         <div
           ref="sheetEl"
@@ -25,7 +25,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 
 const props = defineProps<{
   open: boolean
@@ -40,32 +40,47 @@ const visible = ref(false)
 const sheetEl = ref<HTMLElement | null>(null)
 const dragOffset = ref(0)
 const isDragging = ref(false)
+const isOpening = ref(false)
 const startY = ref(0)
 const lastY = ref(0)
 const lastTime = ref(0)
 const velocity = ref(0)
 
-const sheetStyle = computed(() => {
-  if (!isDragging.value && dragOffset.value === 0) return {}
-  return {
-    transform: `translateY(${Math.max(0, dragOffset.value)}px)`,
-    transition: isDragging.value ? 'none' : 'transform 0.2s ease-in',
-  }
-})
+const sheetStyle = computed(() => ({
+  transform: `translateY(${Math.max(0, dragOffset.value)}px)`,
+  transition: isDragging.value
+    ? 'none'
+    : isOpening.value
+      ? 'transform 0.25s ease-out'
+      : 'transform 0.2s ease-in',
+}))
 
 watch(() => props.open, (open) => {
   if (open) {
-    dragOffset.value = 0
+    isOpening.value = true
+    dragOffset.value = sheetEl.value?.offsetHeight ?? window.innerHeight
     visible.value = true
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        dragOffset.value = 0
+      })
+    })
+    setTimeout(() => {
+      isOpening.value = false
+    }, 250)
   } else {
     close()
   }
 })
 
 function close() {
+  if (!visible.value) return
   isDragging.value = false
-  dragOffset.value = 0
-  visible.value = false
+  isOpening.value = false
+  dragOffset.value = sheetEl.value?.offsetHeight ?? window.innerHeight
+  setTimeout(() => {
+    visible.value = false
+  }, 200)
 }
 
 function onAfterLeave() {
@@ -147,6 +162,12 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
 }
+@media (max-width: 600px) {
+  .bottom-sheet {
+    width: calc(100% - 32px);
+    margin: 0 16px;
+  }
+}
 .sheet-header {
   display: flex;
   justify-content: space-between;
@@ -187,20 +208,12 @@ onUnmounted(() => {
   flex: 1;
 }
 
-.bottom-sheet-enter-active,
-.bottom-sheet-leave-active {
+.bottom-sheet-fade-enter-active,
+.bottom-sheet-fade-leave-active {
   transition: opacity 0.25s ease;
 }
-.bottom-sheet-enter-from,
-.bottom-sheet-leave-to {
+.bottom-sheet-fade-enter-from,
+.bottom-sheet-fade-leave-to {
   opacity: 0;
-}
-.bottom-sheet-enter-active .bottom-sheet,
-.bottom-sheet-leave-active .bottom-sheet {
-  transition: transform 0.25s ease-out;
-}
-.bottom-sheet-enter-from .bottom-sheet,
-.bottom-sheet-leave-to .bottom-sheet {
-  transform: translateY(100%);
 }
 </style>
