@@ -84,16 +84,8 @@ watch(() => props.open, (open) => {
 }, { immediate: true })
 
 function close() {
-  if (closeTimer.value) {
-    clearTimeout(closeTimer.value)
-    closeTimer.value = null
-  }
   progress.value = 0
-  closeTimer.value = window.setTimeout(() => {
-    mounted.value = false
-    emit('update:open', false)
-    closeTimer.value = null
-  }, 250)
+  emit('update:open', false)
 }
 
 function handleTouchStart(e: TouchEvent) {
