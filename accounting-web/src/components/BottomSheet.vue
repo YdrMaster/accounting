@@ -1,11 +1,12 @@
 <template>
   <Teleport to="body">
-    <Transition name="bottom-sheet-fade" @after-leave="onAfterLeave">
+    <Transition name="bottom-sheet-fade">
       <div v-if="visible" class="bottom-sheet-overlay" @click.self="close">
         <div
           ref="sheetEl"
           class="bottom-sheet"
           :style="sheetStyle"
+          @transitionend="handleTransitionEnd"
           @touchstart="handleTouchStart"
           @touchmove="handleTouchMove"
           @touchend="handleTouchEnd"
@@ -41,6 +42,7 @@ const sheetEl = ref<HTMLElement | null>(null)
 const dragOffset = ref(0)
 const isDragging = ref(false)
 const isOpening = ref(false)
+const isClosing = ref(false)
 const startY = ref(0)
 const lastY = ref(0)
 const lastTime = ref(0)
@@ -57,6 +59,7 @@ const sheetStyle = computed(() => ({
 
 watch(() => props.open, (open) => {
   if (open) {
+    isClosing.value = false
     isOpening.value = true
     dragOffset.value = sheetEl.value?.offsetHeight ?? window.innerHeight
     visible.value = true
@@ -75,21 +78,24 @@ watch(() => props.open, (open) => {
 
 function close() {
   if (!visible.value) return
+  isClosing.value = true
   isDragging.value = false
   isOpening.value = false
   dragOffset.value = sheetEl.value?.offsetHeight ?? window.innerHeight
-  setTimeout(() => {
-    visible.value = false
-  }, 200)
 }
 
-function onAfterLeave() {
-  emit('update:open', false)
+function handleTransitionEnd(e: TransitionEvent) {
+  if (e.propertyName === 'transform' && isClosing.value) {
+    isClosing.value = false
+    visible.value = false
+    emit('update:open', false)
+  }
 }
 
 function handleTouchStart(e: TouchEvent) {
   const target = e.target as HTMLElement
   if (!target.closest('.sheet-header')) return
+  isClosing.value = false
   isDragging.value = true
   startY.value = e.touches[0].clientY
   lastY.value = startY.value
@@ -117,6 +123,7 @@ function handleTouchEnd() {
   if (dragOffset.value > threshold || velocity.value > 0.5) {
     close()
   } else {
+    isClosing.value = false
     dragOffset.value = 0
   }
 }
