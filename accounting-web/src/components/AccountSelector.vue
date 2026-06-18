@@ -61,7 +61,7 @@ const emit = defineEmits<{
 
 const currentLevel = computed(() =>
   props.accounts
-    .filter((a) => a.parent_id === props.parentId && (!props.type || a.account_type === props.type))
+    .filter((a) => (a.parent_id ?? null) === props.parentId && (!props.type || a.account_type === props.type))
     .sort((a, b) => a.position - b.position)
 )
 
