@@ -431,4 +431,53 @@ html.dark .detail-panel {
 html.dark .detail-label {
   color: #888;
 }
+
+/* ========== AccountCard / AccountSelector (scoped component overrides) ========== */
+html.dark .account-card {
+  background: #1f1f1f !important;
+  border-color: #434343 !important;
+}
+html.dark .account-card:hover {
+  border-color: #177ddc !important;
+}
+html.dark .account-card.selected {
+  background: #111d2c !important;
+  border-color: #177ddc !important;
+}
+html.dark .account-card.expanded {
+  border-color: #177ddc !important;
+}
+html.dark .card-name {
+  color: #fff !important;
+}
+html.dark .expand-btn {
+  color: #888 !important;
+}
+html.dark .empty-state {
+  color: #888 !important;
+}
+
+/* ========== BottomSheet ========== */
+html.dark .bottom-sheet {
+  background: #1f1f1f !important;
+  border-top-color: #434343 !important;
+}
+html.dark .bottom-sheet-overlay {
+  background: rgba(0, 0, 0, 0.25) !important;
+}
+html.dark .sheet-header {
+  border-bottom-color: #303030 !important;
+}
+html.dark .sheet-title {
+  color: #e0e0e0 !important;
+}
+html.dark .sheet-close {
+  color: #999 !important;
+}
+html.dark .sheet-close:hover {
+  color: #fff !important;
+}
+html.dark .drag-handle {
+  background: #555 !important;
+}
 </style>
