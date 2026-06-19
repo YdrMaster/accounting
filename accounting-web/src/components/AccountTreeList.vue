@@ -1,102 +1,104 @@
 <template>
   <div class="account-tree-list">
     <div class="cards-grid">
-      <template v-for="item in visibleItems" :key="item.id">
-        <AccountCard
-          v-if="item.type === 'account'"
-          :account="item.account"
-          :selected="isSelected(item.account.id)"
-          :expanded="isExpanded(item.account.id)"
-          @click="handleSelect(item.account)"
-        >
-          <template v-if="allowDrag" #prefix>
-            <span class="drag-handle" @click.stop>⠿</span>
-          </template>
-          <template #suffix>
-            <span v-if="item.account.closed_at" class="closed-tag">
-              <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
-            </span>
-            <span class="card-actions">
-              <template v-if="hasChildren(item.account.id)">
-                <span class="child-count">{{ childrenCount(item.account.id) }}</span>
-                <button
-                  type="button"
-                  class="expand-btn"
-                  :class="{ rotated: isExpanded(item.account.id) }"
-                  @click.stop="handleToggleExpand(item.account)"
-                >▼</button>
+      <draggable
+        v-model="sortableItems"
+        item-key="id"
+        handle=".drag-handle"
+        :animation="200"
+        class="draggable-wrapper"
+        @end="onDragEnd"
+      >
+        <template #item="{ element: item }">
+          <div class="card-wrapper">
+            <AccountCard
+              v-if="item.type === 'account'"
+              :account="item.account"
+              :selected="isSelected(item.account.id)"
+              :expanded="isExpanded(item.account.id)"
+              @click="handleSelect(item.account)"
+            >
+              <template #prefix>
+                <span v-if="allowDrag" class="drag-handle" @click.stop>⠿</span>
               </template>
-              <button
-                v-else-if="allowAdd"
-                type="button"
-                class="add-btn"
-                @click.stop="handleAdd(item.account.id)"
-              >+</button>
-            </span>
-          </template>
-        </AccountCard>
+              <template #suffix>
+                <span v-if="item.account.closed_at" class="closed-tag">
+                  <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
+                </span>
+                <span class="card-actions">
+                  <template v-if="hasChildren(item.account.id)">
+                    <span class="child-count">{{ childrenCount(item.account.id) }}</span>
+                    <button
+                      type="button"
+                      class="expand-btn"
+                      :class="{ rotated: isExpanded(item.account.id) }"
+                      @click.stop="handleToggleExpand(item.account)"
+                    >▼</button>
+                  </template>
+                  <button
+                    v-else-if="allowAdd"
+                    type="button"
+                    class="add-btn"
+                    @click.stop="handleAdd(item.account.id)"
+                  >+</button>
+                </span>
+              </template>
+            </AccountCard>
 
-        <div
-          v-else-if="item.type === 'sub-cards'"
-          class="sub-cards"
-        >
-          <div class="sub-cards-arrow"></div>
-          <AccountTreeList
-            :accounts="accounts"
-            :parent-id="item.parentId"
-            :type="type"
-            :model-value="modelValue"
-            :active-id="activeId"
-            :mode="mode"
-            :allow-add="allowAdd"
-            :allow-drag="allowDrag"
-            v-model:expanded-stack="expandedStack"
-            @update:model-value="emit('update:modelValue', $event)"
-            @update:active-id="emit('update:activeId', $event)"
-            @add="emit('add', $event)"
-            @reorder="emit('reorder', $event)"
-          />
-        </div>
+            <div
+              v-else
+              class="account-card add-card-box"
+              @click="handleAdd(parentId)"
+            >
+              <span class="add-card-text">+ 添加</span>
+            </div>
 
-        <div
-          v-else-if="item.type === 'add-card'"
-          class="account-card add-card-box"
-          @click="handleAdd(item.parentId)"
-        >
-          <span class="add-card-text">+ 添加</span>
-        </div>
-      </template>
+            <div
+              v-if="item.type === 'account' && isExpanded(item.account.id) && hasChildren(item.account.id)"
+              class="sub-cards"
+            >
+              <div class="sub-cards-arrow"></div>
+              <AccountTreeList
+                :accounts="accounts"
+                :parent-id="item.account.id"
+                :type="type"
+                :model-value="modelValue"
+                :active-id="activeId"
+                :mode="mode"
+                :allow-add="allowAdd"
+                :allow-drag="allowDrag"
+                v-model:expanded-stack="expandedStack"
+                @update:model-value="emit('update:modelValue', $event)"
+                @update:active-id="emit('update:activeId', $event)"
+                @add="emit('add', $event)"
+                @reorder="emit('reorder', $event)"
+              />
+            </div>
+          </div>
+        </template>
+      </draggable>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import draggable from 'vuedraggable'
 import AccountCard from './AccountCard.vue'
 import type { Account } from '@/stores/account'
 
-interface AccountItem {
-  id: string
+interface SortableAccountItem {
   type: 'account'
+  id: number
   account: Account
-  parentId: null
 }
 
-interface SubCardsItem {
-  id: string
-  type: 'sub-cards'
-  account: null
-  parentId: number
+interface SortableAddItem {
+  type: 'add'
+  id: '__add__'
 }
 
-interface AddCardItem {
-  id: string
-  type: 'add-card'
-  account: null
-  parentId: number | null
-}
-
-type VisibleItem = AccountItem | SubCardsItem | AddCardItem
+type SortableItem = SortableAccountItem | SortableAddItem
 
 const props = defineProps<{
   accounts: Account[]
@@ -129,6 +131,28 @@ const accountById = computed(() => {
   props.accounts.forEach((a) => map.set(a.id, a))
   return map
 })
+
+function buildSortableItems(): SortableItem[] {
+  const items: SortableItem[] = currentLevel.value.map((account) => ({
+    type: 'account',
+    id: account.id,
+    account,
+  }))
+  if (props.allowAdd) {
+    items.push({ type: 'add', id: '__add__' })
+  }
+  return items
+}
+
+const sortableItems = ref<SortableItem[]>(buildSortableItems())
+
+watch(
+  () => [currentLevel.value.length, props.allowAdd] as const,
+  () => {
+    sortableItems.value = buildSortableItems()
+  },
+  { flush: 'post' }
+)
 
 function hasChildren(id: number): boolean {
   return props.accounts.some((a) => a.parent_id === id)
@@ -179,19 +203,19 @@ function handleAdd(parentId: number | null) {
   emit('add', parentId)
 }
 
-const visibleItems = computed<VisibleItem[]>(() => {
-  const items: VisibleItem[] = []
-  currentLevel.value.forEach((account) => {
-    items.push({ id: `acc-${account.id}`, type: 'account', account, parentId: null })
-    if (isExpanded(account.id) && hasChildren(account.id)) {
-      items.push({ id: `sub-${account.id}`, type: 'sub-cards', account: null, parentId: account.id })
-    }
-  })
-  if (props.allowAdd) {
-    items.push({ id: `add-${props.parentId ?? 'root'}`, type: 'add-card', account: null, parentId: props.parentId })
+function onDragEnd() {
+  const list = sortableItems.value
+  const addIndex = list.findIndex((i) => i.type === 'add')
+  if (addIndex >= 0 && addIndex !== list.length - 1) {
+    const addItem = list[addIndex]
+    const newList = [...list.filter((i) => i.type !== 'add'), addItem] as SortableItem[]
+    sortableItems.value = newList
   }
-  return items
-})
+  const ids = sortableItems.value
+    .filter((i): i is SortableAccountItem => i.type === 'account')
+    .map((i) => i.id)
+  emit('reorder', ids)
+}
 </script>
 
 <style scoped>
@@ -203,6 +227,12 @@ const visibleItems = computed<VisibleItem[]>(() => {
   flex-wrap: wrap;
   gap: 12px;
   align-items: flex-start;
+}
+.draggable-wrapper {
+  display: contents;
+}
+.card-wrapper {
+  display: contents;
 }
 .sub-cards {
   --bubble-border: #d9d9d9;
