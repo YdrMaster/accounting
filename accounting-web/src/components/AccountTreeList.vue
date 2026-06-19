@@ -39,7 +39,6 @@
         <div
           v-else-if="item.type === 'sub-cards'"
           class="sub-cards"
-          :style="{ '--bubble-border': '#d9d9d9', '--bubble-bg': '#fafafa' }"
         >
           <div class="sub-cards-arrow"></div>
           <AccountTreeList
@@ -51,6 +50,7 @@
             :mode="mode"
             :allow-add="allowAdd"
             :allow-drag="allowDrag"
+            v-model:expanded-stack="expandedStack"
             @update:model-value="emit('update:modelValue', $event)"
             @update:active-id="emit('update:activeId', $event)"
             @add="emit('add', $event)"
@@ -124,6 +124,12 @@ const currentLevel = computed(() =>
 
 const expandedStack = defineModel<number[]>('expandedStack', { default: () => [] })
 
+const accountById = computed(() => {
+  const map = new Map<number, Account>()
+  props.accounts.forEach((a) => map.set(a.id, a))
+  return map
+})
+
 function hasChildren(id: number): boolean {
   return props.accounts.some((a) => a.parent_id === id)
 }
@@ -143,10 +149,10 @@ function isExpanded(id: number): boolean {
 
 function ancestorPath(id: number): number[] {
   const path: number[] = []
-  let current = props.accounts.find((a) => a.id === id)
+  let current = accountById.value.get(id)
   while (current && current.parent_id != null) {
     path.unshift(current.parent_id)
-    current = props.accounts.find((a) => a.id === current!.parent_id)
+    current = accountById.value.get(current.parent_id)
   }
   return path
 }
@@ -199,6 +205,8 @@ const visibleItems = computed<VisibleItem[]>(() => {
   align-items: flex-start;
 }
 .sub-cards {
+  --bubble-border: #d9d9d9;
+  --bubble-bg: #fafafa;
   order: 1;
   flex-basis: 100%;
   position: relative;
