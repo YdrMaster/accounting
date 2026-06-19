@@ -70,7 +70,7 @@
             </div>
 
             <div
-              v-if="item.type === 'account' && isExpanded(item.account.id) && hasChildren(item.account.id)"
+              v-if="item.type === 'account' && isExpanded(item.account.id) && (hasChildren(item.account.id) || props.addingParentId === item.account.id)"
               class="sub-cards"
             >
               <div class="sub-cards-arrow"></div>
@@ -245,6 +245,12 @@ function handleToggleExpand(account: Account) {
 }
 
 function handleAdd(parentId: number | null) {
+  if (parentId != null && !hasChildren(parentId)) {
+    const account = accountById.value.get(parentId)
+    if (account) {
+      expandedStack.value = [...ancestorPath(parentId), parentId]
+    }
+  }
   emit('add', parentId)
 }
 
