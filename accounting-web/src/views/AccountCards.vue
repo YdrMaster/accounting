@@ -20,6 +20,9 @@
               <span class="drag-handle" @click.stop>⠿</span>
             </template>
             <template #suffix>
+              <span v-if="account.closed_at" class="closed-tag">
+                <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
+              </span>
               <span class="card-actions">
                 <template v-if="childrenCount(account.id) > 0">
                   <span class="child-count">{{ childrenCount(account.id) }}</span>
@@ -30,9 +33,6 @@
                   >▼</span>
                 </template>
                 <span v-else class="add-btn" @click.stop="handleStartAdd(account)">+</span>
-              </span>
-              <span v-if="account.closed_at" class="closed-tag">
-                <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
               </span>
             </template>
           </AccountCard>
@@ -302,23 +302,6 @@ onMounted(() => nextTick(updateTriangle))
 
 .account-card:hover {
   border-color: #91d5ff;
-}
-
-.account-card.selected {
-  border-color: #1890ff;
-  background: #e6f7ff;
-}
-
-.account-card.expanded {
-  border-color: #1890ff;
-}
-
-.account-card.closed {
-  opacity: 0.55;
-}
-
-.account-card.system {
-  border-style: dashed;
 }
 
 .drag-handle {
