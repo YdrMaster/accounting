@@ -376,54 +376,9 @@ html.dark .col-commodity {
   color: #d9d9d9;
 }
 
-/* Account cards */
-html.dark .account-card {
-  background: #1f1f1f;
-  border-color: #434343;
-}
-html.dark .account-card:hover {
-  border-color: #177ddc;
-}
-html.dark .account-card.selected {
-  background: #111d2c;
-  border-color: #177ddc;
-}
+/* Account page layout */
 html.dark .cards-grid {
   background: transparent;
-}
-html.dark .sub-cards {
-  --bubble-border: #434343;
-  --bubble-bg: #1f1f1f;
-}
-html.dark .inline-add-row {
-  background: #262626;
-}
-html.dark .drag-handle {
-  color: #666;
-}
-html.dark .add-card:hover {
-  border-color: #73d13d;
-  background: rgba(115, 209, 61, 0.08);
-}
-html.dark .add-card-box {
-  border-color: #434343;
-}
-html.dark .add-card-box:hover {
-  border-color: #73d13d;
-}
-html.dark .add-card-text {
-  color: #73d13d;
-}
-html.dark .sub-add-row {
-  background: rgba(115, 209, 61, 0.08);
-  border-color: #52c41a;
-}
-html.dark .child-count {
-  color: #888;
-  background: #333;
-}
-html.dark .expand-arrow {
-  color: #888;
 }
 html.dark .detail-panel {
   border-top-color: #434343;
@@ -479,5 +434,59 @@ html.dark .sheet-close:hover {
 }
 html.dark .drag-handle {
   background: #555 !important;
+}
+
+/* ========== AccountPicker 触发按钮 ========== */
+html.dark .picker-trigger {
+  background: #1f1f1f !important;
+  border-color: #434343 !important;
+  color: #fff !important;
+}
+html.dark .picker-trigger:hover {
+  border-color: #177ddc !important;
+}
+html.dark .picker-trigger .placeholder {
+  color: #888 !important;
+}
+html.dark .picker-trigger .selected-name {
+  color: #fff !important;
+}
+
+/* ========== AccountTreeList 暗色模式 ========== */
+html.dark .account-tree-list .sub-cards {
+  --bubble-border: #434343 !important;
+  --bubble-bg: #1f1f1f !important;
+}
+html.dark .account-tree-list .sub-cards-arrow {
+  border-bottom-color: #434343 !important;
+}
+html.dark .account-tree-list .sub-cards-arrow::after {
+  border-bottom-color: #1f1f1f !important;
+}
+html.dark .account-tree-list .add-card-box {
+  border-color: #434343 !important;
+  color: #73d13d !important;
+}
+html.dark .account-tree-list .add-card-box:hover {
+  background: rgba(115, 209, 61, 0.08) !important;
+}
+html.dark .account-tree-list .drag-handle {
+  color: #666 !important;
+}
+html.dark .account-tree-list .expand-btn {
+  color: #888 !important;
+}
+html.dark .account-tree-list .child-count {
+  color: #888 !important;
+  background: #333 !important;
+}
+html.dark .account-tree-list .inline-add-row {
+  background: rgba(82, 196, 26, 0.08) !important;
+  border-color: #52c41a !important;
+}
+html.dark .account-tree-list .closed-tag .ant-tag {
+  color: #888 !important;
+  border-color: #434343 !important;
+  background: #262626 !important;
 }
 </style>
