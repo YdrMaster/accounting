@@ -20,8 +20,11 @@
         mode="select"
         :allow-add="true"
         :allow-drag="false"
+        :adding-parent-id="addingParentId"
         @update:model-value="handleSelect"
         @add="handleAdd"
+        @confirm-add="confirmAdd"
+        @cancel-add="cancelAdd"
       />
     </BottomSheet>
   </div>
@@ -47,6 +50,13 @@ const emit = defineEmits<{
 
 const accountStore = useAccountStore()
 const showSheet = ref(false)
+const addingChildOf = ref<number | null>(null)
+const addingAtRoot = ref(false)
+
+const addingParentId = computed(() => {
+  if (addingAtRoot.value) return null
+  return addingChildOf.value
+})
 
 const selectedAccount = computed(() => {
   if (!props.modelValue) return null
@@ -61,9 +71,36 @@ function handleSelect(id: number) {
   emit('update:modelValue', id)
 }
 
-function handleAdd(_parentId: number | null) {
-  // 临时提示，任务 6 会替换为内联添加输入
-  message.info('添加账户功能即将接入')
+function handleAdd(parentId: number | null) {
+  if (parentId == null) {
+    addingAtRoot.value = true
+    addingChildOf.value = null
+  } else {
+    addingChildOf.value = parentId
+    addingAtRoot.value = false
+  }
+}
+
+async function confirmAdd(parentId: number | null, name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    cancelAdd()
+    return
+  }
+  const parent = accountStore.accounts.find((a) => a.id === parentId)
+  const fullName = parent ? `${parent.full_name}:${trimmed}` : trimmed
+  const siblings = accountStore.accounts.filter((a) => a.parent_id === parentId)
+  if (siblings.some((a) => a.full_name === fullName)) {
+    message.warning('同名账户已存在')
+    return
+  }
+  cancelAdd()
+  await accountStore.createAccount(fullName)
+}
+
+function cancelAdd() {
+  addingChildOf.value = null
+  addingAtRoot.value = false
 }
 </script>
 
