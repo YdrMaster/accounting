@@ -119,7 +119,7 @@ function handleTouchMove(e: TouchEvent) {
 function handleTouchEnd() {
   if (!isDragging.value) return
   isDragging.value = false
-  if (progress.value < 0.6 || velocity.value > 0.005) {
+  if (progress.value < 0.6 || velocity.value > 0.5) {
     close()
   } else {
     progress.value = 1
