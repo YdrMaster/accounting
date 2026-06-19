@@ -10,8 +10,7 @@
         :parent-id="rootAccount?.id ?? null"
         :type="activeTab"
         :accounts="accounts"
-        :expanded-stack="expandedStack"
-        @navigate="navigateTo"
+        v-model:expanded-stack="expandedStack"
       />
     </div>
 
@@ -124,42 +123,6 @@ const tabTypes = [
 
 function resetAll() {
   expandedStack.value = []
-}
-
-function navigateTo(id: number, pushOnly: boolean) {
-  const stack = expandedStack.value
-  const target = accounts.value.find(a => a.id === id)
-  if (!target) return
-
-  const segments = target.full_name.split(':')
-  const ancestorFullNames = new Set<string>()
-  for (let i = 1; i < segments.length; i++) {
-    ancestorFullNames.add(segments.slice(0, i).join(':'))
-  }
-
-  let deepestPos = -1
-  for (let i = stack.length - 1; i >= 0; i--) {
-    const acc = accounts.value.find(a => a.id === stack[i])
-    if (acc && ancestorFullNames.has(acc.full_name)) {
-      deepestPos = i
-      break
-    }
-  }
-
-  const newStack = stack.slice(0, deepestPos + 1)
-
-  if (pushOnly && stack.length > 0 && stack[stack.length - 1] === id) {
-    expandedStack.value = newStack
-    return
-  }
-
-  if (newStack.length > 0 && newStack[newStack.length - 1] === id) {
-    expandedStack.value = newStack
-    return
-  }
-
-  newStack.push(id)
-  expandedStack.value = newStack
 }
 
 // --- Selected account ---

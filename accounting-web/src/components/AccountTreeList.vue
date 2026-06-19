@@ -46,11 +46,27 @@
             </AccountCard>
 
             <div
-              v-else
+              v-else-if="item.type === 'add'"
               class="account-card add-card-box"
               @click="handleAdd(parentId)"
             >
               <span class="add-card-text">+ 添加</span>
+            </div>
+
+            <div
+              v-else-if="item.type === 'inline-add'"
+              class="inline-add-row"
+              @click.stop
+            >
+              <a-input
+                ref="addInputRef"
+                v-model:value="addName"
+                size="small"
+                placeholder="输入子账户名"
+                @press-enter="confirmAdd"
+              />
+              <a-button size="small" type="primary" @click="confirmAdd">确认</a-button>
+              <a-button size="small" @click="cancelAdd">取消</a-button>
             </div>
 
             <div
@@ -67,11 +83,14 @@
                 :mode="mode"
                 :allow-add="allowAdd"
                 :allow-drag="allowDrag"
+                :adding-parent-id="addingParentId"
                 v-model:expanded-stack="expandedStack"
                 @update:model-value="emit('update:modelValue', $event)"
                 @update:active-id="emit('update:activeId', $event)"
                 @add="emit('add', $event)"
                 @reorder="emit('reorder', $event)"
+                @confirm-add="(...args) => emit('confirm-add', ...args)"
+                @cancel-add="emit('cancel-add')"
               />
             </div>
           </div>
@@ -82,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import draggable from 'vuedraggable'
 import AccountCard from './AccountCard.vue'
 import type { Account } from '@/stores/account'
@@ -98,7 +117,12 @@ interface SortableAddItem {
   id: '__add__'
 }
 
-type SortableItem = SortableAccountItem | SortableAddItem
+interface SortableInlineAddItem {
+  type: 'inline-add'
+  id: '__inline_add__'
+}
+
+type SortableItem = SortableAccountItem | SortableAddItem | SortableInlineAddItem
 
 const props = defineProps<{
   accounts: Account[]
@@ -109,6 +133,7 @@ const props = defineProps<{
   mode: 'select' | 'manage'
   allowAdd: boolean
   allowDrag: boolean
+  addingParentId?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -116,6 +141,8 @@ const emit = defineEmits<{
   'update:activeId': [id: number | null]
   'add': [parentId: number | null]
   'reorder': [ids: number[]]
+  'confirm-add': [parentId: number | null, name: string]
+  'cancel-add': []
 }>()
 
 const currentLevel = computed(() =>
@@ -139,7 +166,11 @@ function buildSortableItems(): SortableItem[] {
     account,
   }))
   if (props.allowAdd) {
-    items.push({ type: 'add', id: '__add__' })
+    if (props.addingParentId === props.parentId) {
+      items.push({ type: 'inline-add', id: '__inline_add__' })
+    } else {
+      items.push({ type: 'add', id: '__add__' })
+    }
   }
   return items
 }
@@ -147,9 +178,23 @@ function buildSortableItems(): SortableItem[] {
 const sortableItems = ref<SortableItem[]>(buildSortableItems())
 
 watch(
-  () => [currentLevel.value.length, props.allowAdd] as const,
+  () => [currentLevel.value.length, props.allowAdd, props.addingParentId] as const,
   () => {
     sortableItems.value = buildSortableItems()
+  },
+  { flush: 'post' }
+)
+
+const addName = ref('')
+const addInputRef = ref<HTMLInputElement | null>(null)
+
+watch(
+  () => props.addingParentId,
+  (val) => {
+    if (val !== undefined) {
+      addName.value = ''
+      nextTick(() => addInputRef.value?.focus())
+    }
   },
   { flush: 'post' }
 )
@@ -203,12 +248,27 @@ function handleAdd(parentId: number | null) {
   emit('add', parentId)
 }
 
+function confirmAdd() {
+  emit('confirm-add', props.parentId ?? null, addName.value)
+}
+
+function cancelAdd() {
+  emit('cancel-add')
+  addName.value = ''
+}
+
 function onDragEnd() {
   const list = sortableItems.value
   const addIndex = list.findIndex((i) => i.type === 'add')
   if (addIndex >= 0 && addIndex !== list.length - 1) {
     const addItem = list[addIndex]
     const newList = [...list.filter((i) => i.type !== 'add'), addItem] as SortableItem[]
+    sortableItems.value = newList
+  }
+  const inlineAddIndex = list.findIndex((i) => i.type === 'inline-add')
+  if (inlineAddIndex >= 0 && inlineAddIndex !== list.length - 1) {
+    const inlineAddItem = list[inlineAddIndex]
+    const newList = [...list.filter((i) => i.type !== 'inline-add'), inlineAddItem] as SortableItem[]
     sortableItems.value = newList
   }
   const ids = sortableItems.value
@@ -280,6 +340,21 @@ function onDragEnd() {
 }
 .add-card-box:hover {
   background: rgba(115, 209, 61, 0.08);
+}
+.inline-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid #52c41a;
+  border-radius: 6px;
+  background: rgba(82, 196, 26, 0.05);
+  min-height: 50px;
+  box-sizing: border-box;
+  width: 140px;
+}
+.inline-add-row :deep(.ant-input) {
+  width: 130px;
 }
 .drag-handle {
   cursor: grab;
