@@ -10,24 +10,16 @@
     >
       <template #item="{ element: account }">
         <div class="card-wrapper">
-          <div
-            class="account-card"
-            :class="{
-              selected: selectedId === account.id,
-              expanded: isExpanded(account.id),
-              closed: account.closed_at,
-              system: account.is_system,
-            }"
+          <AccountCard
+            :account="account"
+            :selected="selectedId === account.id"
+            :expanded="isExpanded(account.id)"
             @click="handleSelectCard(account)"
           >
-            <div class="card-header">
+            <template #prefix>
               <span class="drag-handle" @click.stop>⠿</span>
-              <span class="card-name" :title="account.full_name">
-                {{ shortName(account.full_name) }}
-              </span>
-              <span v-if="account.closed_at" class="closed-tag">
-                <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
-              </span>
+            </template>
+            <template #suffix>
               <span class="card-actions">
                 <template v-if="childrenCount(account.id) > 0">
                   <span class="child-count">{{ childrenCount(account.id) }}</span>
@@ -39,8 +31,11 @@
                 </template>
                 <span v-else class="add-btn" @click.stop="handleStartAdd(account)">+</span>
               </span>
-            </div>
-          </div>
+              <span v-if="account.closed_at" class="closed-tag">
+                <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
+              </span>
+            </template>
+          </AccountCard>
 
           <!-- Recursive children / inline add -->
           <div v-if="isExpanded(account.id) && (childrenCount(account.id) > 0 || addingChildOf === account.id)" class="sub-cards">
@@ -104,6 +99,7 @@ import draggable from 'vuedraggable'
 import { message } from 'ant-design-vue'
 import type { Account } from '@/stores/account'
 import { useAccountStore } from '@/stores/account'
+import AccountCard from '@/components/AccountCard.vue'
 
 const props = defineProps<{
   parentId: number | null
@@ -232,11 +228,6 @@ function cancelAdd() {
   newChildName.value = ''
 }
 
-// --- Helpers ---
-function shortName(fullName: string): string {
-  return fullName.split(':').pop() || fullName
-}
-
 // --- Triangle positioning ---
 const gridEl = ref<HTMLElement | null>(null)
 
@@ -330,13 +321,6 @@ onMounted(() => nextTick(updateTriangle))
   border-style: dashed;
 }
 
-.card-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-}
-
 .drag-handle {
   cursor: grab;
   color: #999;
@@ -347,14 +331,6 @@ onMounted(() => nextTick(updateTriangle))
 
 .drag-handle:active {
   cursor: grabbing;
-}
-
-.card-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
 }
 
 .card-actions {
