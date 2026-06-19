@@ -46,12 +46,12 @@ function handleClick() {
 
 <style scoped>
 .account-card {
+  width: 140px;
   border: 1px solid #d9d9d9;
   border-radius: 6px;
   padding: 8px 12px;
   cursor: pointer;
   background: #fff;
-  min-width: 140px;
   min-height: 50px;
   display: flex;
   align-items: center;
