@@ -32,8 +32,6 @@ pub trait AccountRepo {
         conn: &Connection,
         parent_id: AccountId,
     ) -> Result<Vec<Account>, crate::error::DbError>;
-    /// 重新排序账户（按 ids 顺序设置 position）
-    fn reorder(&self, conn: &Connection, ids: &[AccountId]) -> Result<(), crate::error::DbError>;
     /// 重命名账户
     fn rename(
         &self,
@@ -79,8 +77,8 @@ impl AccountRepo for SqliteAccountRepo {
     ) -> Result<AccountId, crate::error::DbError> {
         conn.execute(
             "INSERT INTO accounts
-             (full_name, account_type, parent_id, is_system, billing_day, repayment_day, position)
-             SELECT ?1, ?2, ?3, ?4, ?5, ?6, COALESCE(MAX(position), -1) + 1 FROM accounts WHERE parent_id IS ?3",
+             (full_name, account_type, parent_id, is_system, billing_day, repayment_day)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 account.full_name,
                 account.account_type as i32,
@@ -99,7 +97,7 @@ impl AccountRepo for SqliteAccountRepo {
         id: AccountId,
     ) -> Result<Option<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day, position
+            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
              FROM accounts WHERE id = ?1"
         )?;
         let mut rows = stmt.query(params![id.0])?;
@@ -116,7 +114,7 @@ impl AccountRepo for SqliteAccountRepo {
         name: &str,
     ) -> Result<Option<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day, position
+            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
              FROM accounts WHERE full_name = ?1"
         )?;
         let mut rows = stmt.query(params![name])?;
@@ -129,8 +127,8 @@ impl AccountRepo for SqliteAccountRepo {
 
     fn list(&self, conn: &Connection) -> Result<Vec<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day, position
-             FROM accounts ORDER BY position"
+            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
+             FROM accounts ORDER BY id"
         )?;
         let rows = stmt.query_map([], map_account)?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
@@ -142,21 +140,11 @@ impl AccountRepo for SqliteAccountRepo {
         parent_id: AccountId,
     ) -> Result<Vec<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day, position
-             FROM accounts WHERE parent_id = ?1 ORDER BY position"
+            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
+             FROM accounts WHERE parent_id = ?1 ORDER BY id"
         )?;
         let rows = stmt.query_map(params![parent_id.0], map_account)?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
-    }
-
-    fn reorder(&self, conn: &Connection, ids: &[AccountId]) -> Result<(), crate::error::DbError> {
-        for (i, id) in ids.iter().enumerate() {
-            conn.execute(
-                "UPDATE accounts SET position = ?1 WHERE id = ?2",
-                params![i as i64, id.0],
-            )?;
-        }
-        Ok(())
     }
 
     fn rename(
@@ -301,7 +289,6 @@ fn map_account(row: &rusqlite::Row) -> Result<Account, rusqlite::Error> {
         is_system: row.get::<_, i32>(5)? != 0,
         billing_day: row.get::<_, Option<i32>>(6)?.map(|v| v as u8),
         repayment_day: row.get::<_, Option<i32>>(7)?.map(|v| v as u8),
-        position: row.get::<_, i64>(8)?,
     })
 }
 
@@ -332,7 +319,6 @@ mod tests {
             is_system: false,
             billing_day: None,
             repayment_day: None,
-            position: 0,
         };
         let id = repo.create(&conn, &account).unwrap();
         let fetched = repo.get(&conn, id).unwrap().unwrap();
@@ -368,7 +354,6 @@ mod tests {
             is_system: false,
             billing_day: None,
             repayment_day: None,
-            position: 0,
         };
         let parent_id = repo.create(&conn, &parent).unwrap();
 
@@ -381,7 +366,6 @@ mod tests {
             is_system: false,
             billing_day: None,
             repayment_day: None,
-            position: 0,
         };
         repo.create(&conn, &child).unwrap();
 

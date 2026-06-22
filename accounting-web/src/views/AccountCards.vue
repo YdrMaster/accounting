@@ -1,74 +1,66 @@
 <template>
-  <div ref="gridEl" class="cards-grid">
-    <draggable
-      v-model="localList"
-      item-key="id"
-      handle=".drag-handle"
-      :animation="200"
-      @end="onDragEnd"
-      class="draggable-wrapper"
+  <div class="cards-grid">
+    <div
+      v-for="account in sortedAccounts"
+      :key="account.id"
+      class="card-wrapper"
     >
-      <template #item="{ element: account }">
-        <div class="card-wrapper">
-          <div
-            class="account-card"
-            :class="{
-              selected: selectedId === account.id,
-              expanded: isExpanded(account.id),
-              closed: account.closed_at,
-              system: account.is_system,
-            }"
-            @click="handleSelectCard(account)"
-          >
-            <div class="card-header">
-              <span class="drag-handle" @click.stop>⠿</span>
-              <span class="card-name" :title="account.full_name">
-                {{ shortName(account.full_name) }}
-              </span>
-              <span v-if="account.closed_at" class="closed-tag">
-                <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
-              </span>
-              <span class="card-actions">
-                <template v-if="childrenCount(account.id) > 0">
-                  <span class="child-count">{{ childrenCount(account.id) }}</span>
-                  <span
-                    class="expand-arrow"
-                    :class="{ rotated: isExpanded(account.id) }"
-                    @click.stop="handleToggleExpand(account)"
-                  >▼</span>
-                </template>
-                <span v-else class="add-btn" @click.stop="handleStartAdd(account)">+</span>
-              </span>
-            </div>
-          </div>
-
-          <!-- Recursive children / inline add -->
-          <div v-if="isExpanded(account.id) && (childrenCount(account.id) > 0 || addingChildOf === account.id)" class="sub-cards">
-            <AccountCards
-              v-if="childrenCount(account.id) > 0"
-              :parent-id="account.id"
-              :type="type"
-              :accounts="accounts"
-              :expanded-stack="expandedStack"
-              @navigate="(id, pushOnly) => emit('navigate', id, pushOnly)"
-            />
-            <div v-if="addingChildOf === account.id && selectedId === account.id" class="sub-add-row">
-              <a-input
-                ref="addInputRef"
-                v-model:value="newChildName"
-                size="small"
-                placeholder="输入子账户名"
-                class="sub-add-input"
-                @press-enter="confirmAdd(account)"
-                @click.stop
-              />
-              <a-button size="small" type="primary" @click.stop="confirmAdd(account)">确认</a-button>
-              <a-button size="small" @click.stop="cancelAdd">取消</a-button>
-            </div>
-          </div>
+      <div
+        class="account-card"
+        :class="{
+          selected: selectedId === account.id,
+          expanded: isExpanded(account.id),
+          closed: account.closed_at,
+          system: account.is_system,
+        }"
+        @click="handleSelectCard(account)"
+      >
+        <div class="card-header">
+          <span class="card-name" :title="account.full_name">
+            {{ shortName(account.full_name) }}
+          </span>
+          <span v-if="account.closed_at" class="closed-tag">
+            <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
+          </span>
+          <span class="card-actions">
+            <template v-if="childrenCount(account.id) > 0">
+              <span class="child-count">{{ childrenCount(account.id) }}</span>
+              <span
+                class="expand-arrow"
+                :class="{ rotated: isExpanded(account.id) }"
+                @click.stop="handleToggleExpand(account)"
+              >▼</span>
+            </template>
+            <span v-else class="add-btn" @click.stop="handleStartAdd(account)">+</span>
+          </span>
         </div>
-      </template>
-    </draggable>
+      </div>
+
+      <!-- Recursive children / inline add -->
+      <div v-if="isExpanded(account.id) && (childrenCount(account.id) > 0 || addingChildOf === account.id)" class="sub-cards">
+        <AccountCards
+          v-if="childrenCount(account.id) > 0"
+          :parent-id="account.id"
+          :type="type"
+          :accounts="accounts"
+          :expanded-stack="expandedStack"
+          @navigate="(id, pushOnly) => emit('navigate', id, pushOnly)"
+        />
+        <div v-if="addingChildOf === account.id && selectedId === account.id" class="sub-add-row">
+          <a-input
+            ref="addInputRef"
+            v-model:value="newChildName"
+            size="small"
+            placeholder="输入子账户名"
+            class="sub-add-input"
+            @press-enter="confirmAdd(account)"
+            @click.stop
+          />
+          <a-button size="small" type="primary" @click.stop="confirmAdd(account)">确认</a-button>
+          <a-button size="small" @click.stop="cancelAdd">取消</a-button>
+        </div>
+      </div>
+    </div>
 
     <!-- Inline add for this level -->
     <div v-if="addingAtRoot" class="sub-add-row">
@@ -99,8 +91,7 @@ export default { name: 'AccountCards' }
 </script>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
-import draggable from 'vuedraggable'
+import { ref, computed, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
 import type { Account } from '@/stores/account'
 import { useAccountStore } from '@/stores/account'
@@ -127,25 +118,11 @@ function isExpanded(id: number): boolean {
   return props.expandedStack.includes(id)
 }
 
-// --- Drag & drop ---
-const localList = ref<Account[]>([])
-
-watch(
-  () => {
-    return props.accounts
-      .filter((a) => a.parent_id === props.parentId && a.account_type === props.type)
-      .sort((a, b) => a.position - b.position)
-  },
-  (val) => {
-    localList.value = [...val]
-  },
-  { immediate: true }
+const sortedAccounts = computed(() =>
+  props.accounts
+    .filter((a) => a.parent_id === props.parentId && a.account_type === props.type)
+    .sort((a, b) => a.id - b.id)
 )
-
-function onDragEnd() {
-  const ids = localList.value.map((a) => a.id)
-  accountStore.reorderAccounts(ids)
-}
 
 // --- Children count (prebuilt Map for O(1) lookup) ---
 const childrenCountMap = computed(() => {
@@ -236,45 +213,6 @@ function cancelAdd() {
 function shortName(fullName: string): string {
   return fullName.split(':').pop() || fullName
 }
-
-// --- Triangle positioning ---
-const gridEl = ref<HTMLElement | null>(null)
-
-const expandedIndex = computed(() => {
-  const stack = props.expandedStack
-  if (stack.length === 0) return -1
-  const children = props.accounts
-    .filter(a => a.parent_id === props.parentId && a.account_type === props.type)
-    .sort((a, b) => a.position - b.position)
-  for (let i = stack.length - 1; i >= 0; i--) {
-    const idx = children.findIndex(c => c.id === stack[i])
-    if (idx >= 0) return idx
-  }
-  return -1
-})
-
-function updateTriangle() {
-  const idx = expandedIndex.value
-  if (idx < 0 || !gridEl.value) return
-  const draggable = gridEl.value.querySelector(':scope > .draggable-wrapper')
-  const container = draggable || gridEl.value
-  const cards = container.querySelectorAll(':scope > .card-wrapper > .account-card')
-  const card = cards[idx] as HTMLElement | undefined
-  if (!card) return
-  const cardWrapper = card.closest('.card-wrapper')
-  const subCards = cardWrapper?.querySelector('.sub-cards') as HTMLElement | undefined
-  if (!subCards) return
-  const cardRect = card.getBoundingClientRect()
-  const gridRect = gridEl.value.getBoundingClientRect()
-  const left = cardRect.left + cardRect.width / 2 - gridRect.left
-  subCards.style.setProperty('--tri-left', `${left}px`)
-}
-
-watch(() => props.expandedStack, () => {
-  nextTick(updateTriangle)
-}, { deep: true })
-
-onMounted(() => nextTick(updateTriangle))
 </script>
 
 <style scoped>
@@ -284,10 +222,6 @@ onMounted(() => nextTick(updateTriangle))
   gap: 12px;
   min-height: 36px;
   align-items: flex-start;
-}
-
-.draggable-wrapper {
-  display: contents;
 }
 
 .card-wrapper {
@@ -335,18 +269,6 @@ onMounted(() => nextTick(updateTriangle))
   align-items: center;
   gap: 6px;
   width: 100%;
-}
-
-.drag-handle {
-  cursor: grab;
-  color: #999;
-  font-size: 14px;
-  flex-shrink: 0;
-  line-height: 1;
-}
-
-.drag-handle:active {
-  cursor: grabbing;
 }
 
 .card-name {

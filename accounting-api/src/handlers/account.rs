@@ -1,8 +1,6 @@
 //! 账户 API handler
 
-use crate::dto::{
-    AccountDto, CreateAccountRequest, RenameAccountRequest, ReorderRequest, SetAccountOwnersRequest,
-};
+use crate::dto::{AccountDto, CreateAccountRequest, RenameAccountRequest, SetAccountOwnersRequest};
 use crate::handlers::member::AppState;
 use accounting::id::{AccountId, MemberId};
 use accounting_sql::database::Database;
@@ -44,7 +42,6 @@ async fn list_accounts(
             is_system: a.is_system,
             billing_day: a.billing_day,
             repayment_day: a.repayment_day,
-            position: a.position,
             owner_ids: owners.get(&a.id.0).cloned().unwrap_or_default(),
         })
         .collect();
@@ -192,19 +189,6 @@ async fn delete_account(
     Ok("deleted".to_string())
 }
 
-/// 重排账户
-async fn reorder_accounts(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<ReorderRequest>,
-) -> Result<String, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let ids: Vec<AccountId> = req.ids.into_iter().map(AccountId).collect();
-    db.account_repo()
-        .reorder(&db.connection(), &ids)
-        .map_err(|e| e.to_string())?;
-    Ok("reordered".to_string())
-}
-
 /// 账户路由
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -215,5 +199,4 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/accounts/{id}/close", put(close_account))
         .route("/api/accounts/{id}/open", put(reopen_account))
         .route("/api/accounts/{id}", delete(delete_account))
-        .route("/api/accounts/reorder", put(reorder_accounts))
 }

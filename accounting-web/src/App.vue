@@ -398,9 +398,6 @@ html.dark .sub-cards {
 html.dark .inline-add-row {
   background: #262626;
 }
-html.dark .drag-handle {
-  color: #666;
-}
 html.dark .add-card:hover {
   border-color: #73d13d;
   background: rgba(115, 209, 61, 0.08);

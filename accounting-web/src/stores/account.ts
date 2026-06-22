@@ -11,7 +11,6 @@ export interface Account {
   is_system: boolean
   billing_day?: number
   repayment_day?: number
-  position: number
   owner_ids?: number[]
 }
 
@@ -71,10 +70,5 @@ export const useAccountStore = defineStore('account', () => {
     await fetchAccounts()
   }
 
-  async function reorderAccounts(ids: number[]) {
-    await api.put('/accounts/reorder', { ids })
-    await fetchAccounts()
-  }
-
-  return { accounts, loading, fetchAccounts, createAccount, renameAccount, closeAccount, reopenAccount, deleteAccount, setOwners, reorderAccounts }
+  return { accounts, loading, fetchAccounts, createAccount, renameAccount, closeAccount, reopenAccount, deleteAccount, setOwners }
 })
