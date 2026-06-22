@@ -59,7 +59,7 @@ pub trait PostingRepo {
     /// 按标签汇总分录金额（支持 TransactionFilter 过滤）
     ///
     /// 返回 `(TagId, CommodityId, account_type, Decimal)` 列表，
-    /// 其中 `account_type` 为 4(Income) 或 5(Expense)，用于区分收入/支出方向。
+    /// 其中 `account_type` 为 3(Income) 或 4(Expense)，用于区分收入/支出方向。
     fn sum_by_tag(
         &self,
         conn: &Connection,
@@ -657,20 +657,20 @@ mod tests {
         AccountId(conn.last_insert_rowid())
     }
 
-    /// 插入 Income 类型账户（account_type = 4）
+    /// 插入 Income 类型账户（account_type = 3）
     fn insert_income_account(conn: &Connection, name: &str) -> AccountId {
         conn.execute(
-            "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 4, 0)",
+            "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 3, 0)",
             [name],
         )
         .unwrap();
         AccountId(conn.last_insert_rowid())
     }
 
-    /// 插入 Expense 类型账户（account_type = 5）
+    /// 插入 Expense 类型账户（account_type = 4）
     fn insert_expense_account(conn: &Connection, name: &str) -> AccountId {
         conn.execute(
-            "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 5, 0)",
+            "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 4, 0)",
             [name],
         )
         .unwrap();
@@ -808,8 +808,8 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 2);
 
-        let income_row = results.iter().find(|r| r.2 == 4).unwrap();
-        let expense_row = results.iter().find(|r| r.2 == 5).unwrap();
+        let income_row = results.iter().find(|r| r.2 == 3).unwrap();
+        let expense_row = results.iter().find(|r| r.2 == 4).unwrap();
         assert_eq!(income_row.0, tag_id);
         assert_eq!(income_row.1, CommodityId(1));
         assert_eq!(income_row.3, Decimal::from_str("100.00").unwrap());
@@ -868,8 +868,8 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 2);
 
-        let income_row = results.iter().find(|r| r.2 == 4).unwrap();
-        let expense_row = results.iter().find(|r| r.2 == 5).unwrap();
+        let income_row = results.iter().find(|r| r.2 == 3).unwrap();
+        let expense_row = results.iter().find(|r| r.2 == 4).unwrap();
         assert_eq!(income_row.0, member_id);
         assert_eq!(income_row.1, CommodityId(1));
         assert_eq!(income_row.3, Decimal::from_str("200.00").unwrap());
@@ -932,8 +932,8 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 2);
 
-        let income_row = results.iter().find(|r| r.2 == 4).unwrap();
-        let expense_row = results.iter().find(|r| r.2 == 5).unwrap();
+        let income_row = results.iter().find(|r| r.2 == 3).unwrap();
+        let expense_row = results.iter().find(|r| r.2 == 4).unwrap();
         assert_eq!(income_row.0, channel_id);
         assert_eq!(income_row.1, CommodityId(1));
         assert_eq!(income_row.3, Decimal::from_str("300.00").unwrap());

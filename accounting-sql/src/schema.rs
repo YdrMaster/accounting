@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS commodities (
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     full_name TEXT NOT NULL UNIQUE,
-    account_type INTEGER NOT NULL CHECK(account_type BETWEEN 1 AND 5),
+    account_type INTEGER NOT NULL CHECK(account_type BETWEEN 1 AND 4),
     parent_id INTEGER REFERENCES accounts(id),
     created_at TEXT NOT NULL DEFAULT (date('now')),
     closed_at TEXT,
@@ -285,17 +285,17 @@ END;
 const SEED_ACCOUNTS_ROOT_EN: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('Assets', 1, NULL, 1),
-('Equity', 3, NULL, 1),
-('Income', 4, NULL, 1),
-('Expenses', 5, NULL, 1);
+('Equity', 2, NULL, 1),
+('Income', 3, NULL, 1),
+('Expenses', 4, NULL, 1);
 "#;
 
 const SEED_ACCOUNTS_CHILD_EN: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
-('Equity:OpeningBalances', 3, (SELECT id FROM accounts WHERE full_name = 'Equity'), 1),
-('Expenses:Fees', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
-('Expenses:Discounts', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
-('Expenses:InstallmentFees', 5, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
+('Equity:OpeningBalances', 2, (SELECT id FROM accounts WHERE full_name = 'Equity'), 1),
+('Expenses:Fees', 4, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
+('Expenses:Discounts', 4, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
+('Expenses:InstallmentFees', 4, (SELECT id FROM accounts WHERE full_name = 'Expenses'), 1),
 ('Assets:Cash', 1, (SELECT id FROM accounts WHERE full_name = 'Assets'), 1),
 ('Assets:Cashback', 1, (SELECT id FROM accounts WHERE full_name = 'Assets'), 1);
 "#;
@@ -303,17 +303,17 @@ INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) V
 const SEED_ACCOUNTS_ROOT_ZH: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
 ('资产', 1, NULL, 1),
-('权益', 3, NULL, 1),
-('收入', 4, NULL, 1),
-('支出', 5, NULL, 1);
+('权益', 2, NULL, 1),
+('收入', 3, NULL, 1),
+('支出', 4, NULL, 1);
 "#;
 
 const SEED_ACCOUNTS_CHILD_ZH: &str = r#"
 INSERT OR IGNORE INTO accounts (full_name, account_type, parent_id, is_system) VALUES
-('权益:期初余额', 3, (SELECT id FROM accounts WHERE full_name = '权益'), 1),
-('支出:手续费', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
-('支出:折扣', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
-('支出:分期手续费', 5, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
+('权益:期初余额', 2, (SELECT id FROM accounts WHERE full_name = '权益'), 1),
+('支出:手续费', 4, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
+('支出:折扣', 4, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
+('支出:分期手续费', 4, (SELECT id FROM accounts WHERE full_name = '支出'), 1),
 ('资产:现金', 1, (SELECT id FROM accounts WHERE full_name = '资产'), 1),
 ('资产:返现', 1, (SELECT id FROM accounts WHERE full_name = '资产'), 1);
 "#;

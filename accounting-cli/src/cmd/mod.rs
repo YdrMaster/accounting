@@ -53,7 +53,6 @@ pub enum Commands {
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
 pub enum AccountTypeArg {
     Asset,
-    Liability,
     Equity,
     Income,
     Expense,
@@ -63,7 +62,6 @@ impl From<AccountTypeArg> for accounting::account_type::AccountType {
     fn from(arg: AccountTypeArg) -> Self {
         match arg {
             AccountTypeArg::Asset => accounting::account_type::AccountType::Asset,
-            AccountTypeArg::Liability => accounting::account_type::AccountType::Liability,
             AccountTypeArg::Equity => accounting::account_type::AccountType::Equity,
             AccountTypeArg::Income => accounting::account_type::AccountType::Income,
             AccountTypeArg::Expense => accounting::account_type::AccountType::Expense,

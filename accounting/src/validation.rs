@@ -132,7 +132,7 @@ pub fn validate_reversal_cap(
 
 /// 验证账户是否可以关闭
 ///
-/// 仅 Asset 要求余额为零；Income、Expense、Equity、Liability 无限制
+/// 仅 Asset 要求余额为零；Equity、Income、Expense 无条件关闭
 pub fn validate_account_close(
     account_type: AccountType,
     balances: &[(crate::id::CommodityId, Decimal)],
@@ -146,10 +146,7 @@ pub fn validate_account_close(
                 ));
             }
         }
-        AccountType::Liability
-        | AccountType::Income
-        | AccountType::Expense
-        | AccountType::Equity => {}
+        AccountType::Equity | AccountType::Income | AccountType::Expense => {}
     }
     Ok(())
 }
@@ -310,5 +307,17 @@ mod tests {
     fn test_close_income_unconditionally_ok() {
         let balances = vec![(CommodityId(1), Decimal::from_str("100").unwrap())];
         assert!(validate_account_close(AccountType::Income, &balances).is_ok());
+    }
+
+    #[test]
+    fn test_close_equity_unconditionally_ok() {
+        let balances = vec![(CommodityId(1), Decimal::from_str("100").unwrap())];
+        assert!(validate_account_close(AccountType::Equity, &balances).is_ok());
+    }
+
+    #[test]
+    fn test_close_expense_unconditionally_ok() {
+        let balances = vec![(CommodityId(1), Decimal::from_str("100").unwrap())];
+        assert!(validate_account_close(AccountType::Expense, &balances).is_ok());
     }
 }

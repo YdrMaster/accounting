@@ -278,10 +278,9 @@ fn map_account(row: &rusqlite::Row) -> Result<Account, rusqlite::Error> {
     let type_int: i32 = row.get(2)?;
     let account_type = match type_int {
         1 => AccountType::Asset,
-        2 => AccountType::Liability,
-        3 => AccountType::Equity,
-        4 => AccountType::Income,
-        5 => AccountType::Expense,
+        2 => AccountType::Equity,
+        3 => AccountType::Income,
+        4 => AccountType::Expense,
         _ => AccountType::Asset,
     };
 

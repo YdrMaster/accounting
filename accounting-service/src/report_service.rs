@@ -27,8 +27,6 @@ pub struct AccountBalance {
 pub struct BalanceSheet {
     /// 资产类账户余额
     pub assets: Vec<AccountBalance>,
-    /// 负债类账户余额
-    pub liabilities: Vec<AccountBalance>,
     /// 权益类账户余额
     pub equity: Vec<AccountBalance>,
 }
@@ -119,7 +117,6 @@ impl<D: Database> ReportService<D> {
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         let mut assets = Vec::new();
-        let mut liabilities = Vec::new();
         let mut equity = Vec::new();
 
         for account in accounts {
@@ -137,17 +134,12 @@ impl<D: Database> ReportService<D> {
             };
             match account.account_type {
                 AccountType::Asset => assets.push(item),
-                AccountType::Liability => liabilities.push(item),
                 AccountType::Equity => equity.push(item),
                 _ => {}
             }
         }
 
-        Ok(BalanceSheet {
-            assets,
-            liabilities,
-            equity,
-        })
+        Ok(BalanceSheet { assets, equity })
     }
 
     /// 损益表
@@ -200,13 +192,13 @@ impl<D: Database> ReportService<D> {
             .sum_by_tag(&conn, &filter)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        // 按 TagId 分组，区分 Income(4) 和 Expense(5)
+        // 按 TagId 分组，区分 Income(3) 和 Expense(4)
         let mut groups: HashMap<TagId, IncomeExpensePairs> = HashMap::new();
         for (tag_id, commodity_id, account_type, amount) in raw {
             let entry = groups.entry(tag_id).or_default();
             match account_type {
-                4 => entry.0.push((commodity_id, amount)), // Income
-                5 => entry.1.push((commodity_id, amount)), // Expense
+                3 => entry.0.push((commodity_id, amount)), // Income
+                4 => entry.1.push((commodity_id, amount)), // Expense
                 _ => {}
             }
         }
@@ -250,13 +242,13 @@ impl<D: Database> ReportService<D> {
             .sum_by_member(&conn, &filter)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        // 按 MemberId 分组，区分 Income(4) 和 Expense(5)
+        // 按 MemberId 分组，区分 Income(3) 和 Expense(4)
         let mut groups: HashMap<MemberId, IncomeExpensePairs> = HashMap::new();
         for (member_id, commodity_id, account_type, amount) in raw {
             let entry = groups.entry(member_id).or_default();
             match account_type {
-                4 => entry.0.push((commodity_id, amount)), // Income
-                5 => entry.1.push((commodity_id, amount)), // Expense
+                3 => entry.0.push((commodity_id, amount)), // Income
+                4 => entry.1.push((commodity_id, amount)), // Expense
                 _ => {}
             }
         }
@@ -298,13 +290,13 @@ impl<D: Database> ReportService<D> {
             .sum_by_channel(&conn, &filter)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        // 按 ChannelId 分组，区分 Income(4) 和 Expense(5)
+        // 按 ChannelId 分组，区分 Income(3) 和 Expense(4)
         let mut groups: HashMap<ChannelId, IncomeExpensePairs> = HashMap::new();
         for (channel_id, commodity_id, account_type, amount) in raw {
             let entry = groups.entry(channel_id).or_default();
             match account_type {
-                4 => entry.0.push((commodity_id, amount)), // Income
-                5 => entry.1.push((commodity_id, amount)), // Expense
+                3 => entry.0.push((commodity_id, amount)), // Income
+                4 => entry.1.push((commodity_id, amount)), // Expense
                 _ => {}
             }
         }
@@ -437,6 +429,189 @@ mod tests {
 
         let balance = report_service.get_balance(id1).await.unwrap();
         assert_eq!(balance[&CommodityId(1)], Decimal::from_str("100").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_balance_sheet_excludes_zero_balance_and_income_expense() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
+        let report_service = ReportService::new(db);
+
+        let _ = {
+            let conn = report_service.db.connection();
+
+            let bank = sample_account("Assets:Bank", AccountType::Asset);
+            let salary = sample_account("Income:Salary", AccountType::Income);
+            let food = sample_account("Expenses:Food", AccountType::Expense);
+
+            let bank_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &bank)
+                .unwrap();
+            let salary_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &salary)
+                .unwrap();
+            let food_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &food)
+                .unwrap();
+
+            // Equity:OpeningBalances is a seeded system account, reuse it instead of recreating
+            let opening = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Equity:OpeningBalances")
+                .unwrap()
+                .expect("seeded Equity:OpeningBalances account should exist");
+            let opening_id = opening.id;
+
+            // Tx1: Bank +100, OpeningBalances -100
+            let tx1 = Transaction {
+                id: TransactionId(0),
+                date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                description: "Initial balance".to_string(),
+                kind: TransactionKind::Normal,
+                member_id: None,
+                channel_id: None,
+                is_template: false,
+            };
+            let tx1_id = report_service
+                .db
+                .transaction_repo()
+                .insert(&conn, &tx1, &[])
+                .unwrap();
+
+            let mut p1 = sample_posting(bank_id, "100");
+            p1.transaction_id = tx1_id;
+            let mut p2 = sample_posting(opening_id, "-100");
+            p2.transaction_id = tx1_id;
+            report_service.db.posting_repo().insert(&conn, &p1).unwrap();
+            report_service.db.posting_repo().insert(&conn, &p2).unwrap();
+
+            // Tx2: Salary +200, Bank -200
+            let tx2 = Transaction {
+                id: TransactionId(0),
+                date_time: NaiveDate::from_ymd_opt(2024, 6, 2)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                description: "Salary".to_string(),
+                kind: TransactionKind::Normal,
+                member_id: None,
+                channel_id: None,
+                is_template: false,
+            };
+            let tx2_id = report_service
+                .db
+                .transaction_repo()
+                .insert(&conn, &tx2, &[])
+                .unwrap();
+
+            let mut p3 = sample_posting(salary_id, "200");
+            p3.transaction_id = tx2_id;
+            let mut p4 = sample_posting(bank_id, "-200");
+            p4.transaction_id = tx2_id;
+            report_service.db.posting_repo().insert(&conn, &p3).unwrap();
+            report_service.db.posting_repo().insert(&conn, &p4).unwrap();
+
+            (bank_id, opening_id, salary_id, food_id)
+        };
+
+        let sheet = report_service.balance_sheet().await.unwrap();
+
+        // Compile-time assertion that BalanceSheet has only assets and equity fields
+        let BalanceSheet { assets, equity } = sheet;
+
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].account.full_name, "Assets:Bank");
+        assert_eq!(assets[0].balances.len(), 1);
+        assert_eq!(assets[0].balances[0].0, CommodityId(1));
+        assert_eq!(assets[0].balances[0].1, Decimal::from_str("-100").unwrap());
+
+        assert_eq!(equity.len(), 1);
+        assert_eq!(equity[0].account.full_name, "Equity:OpeningBalances");
+        assert_eq!(equity[0].balances.len(), 1);
+        assert_eq!(equity[0].balances[0].0, CommodityId(1));
+        assert_eq!(equity[0].balances[0].1, Decimal::from_str("-100").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_income_statement_includes_income_and_expense() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        db.initialize("en").unwrap();
+        let report_service = ReportService::new(db);
+
+        let _ = {
+            let conn = report_service.db.connection();
+
+            let salary = sample_account("Income:Salary", AccountType::Income);
+            let food = sample_account("Expenses:Food", AccountType::Expense);
+
+            let salary_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &salary)
+                .unwrap();
+            let food_id = report_service
+                .db
+                .account_repo()
+                .create(&conn, &food)
+                .unwrap();
+
+            let tx = Transaction {
+                id: TransactionId(0),
+                date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                description: "Income statement test".to_string(),
+                kind: TransactionKind::Normal,
+                member_id: None,
+                channel_id: None,
+                is_template: false,
+            };
+            let tx_id = report_service
+                .db
+                .transaction_repo()
+                .insert(&conn, &tx, &[])
+                .unwrap();
+
+            let mut p1 = sample_posting(salary_id, "500");
+            p1.transaction_id = tx_id;
+            let mut p2 = sample_posting(food_id, "-500");
+            p2.transaction_id = tx_id;
+            report_service.db.posting_repo().insert(&conn, &p1).unwrap();
+            report_service.db.posting_repo().insert(&conn, &p2).unwrap();
+
+            (salary_id, food_id)
+        };
+
+        let statement = report_service.income_statement().await.unwrap();
+
+        assert_eq!(statement.income.len(), 1);
+        assert_eq!(statement.income[0].account.full_name, "Income:Salary");
+        assert_eq!(statement.income[0].balances.len(), 1);
+        assert_eq!(statement.income[0].balances[0].0, CommodityId(1));
+        assert_eq!(
+            statement.income[0].balances[0].1,
+            Decimal::from_str("500").unwrap()
+        );
+
+        assert_eq!(statement.expenses.len(), 1);
+        assert_eq!(statement.expenses[0].account.full_name, "Expenses:Food");
+        assert_eq!(statement.expenses[0].balances.len(), 1);
+        assert_eq!(statement.expenses[0].balances[0].0, CommodityId(1));
+        assert_eq!(
+            statement.expenses[0].balances[0].1,
+            Decimal::from_str("-500").unwrap()
+        );
     }
 
     #[tokio::test]

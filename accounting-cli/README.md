@@ -54,7 +54,7 @@ accounting my.db account add <FULL_NAME>  [--billing-day <D>] [--repayment-day <
 # 查看账户详情
 accounting my.db account show <ID>
 
-# 关闭账户（Asset/Liability 需余额为零）
+# 关闭账户（Asset 需余额为零）
 accounting my.db account close <ID>
 
 # 重新开启账户
@@ -64,7 +64,7 @@ accounting my.db account reopen <ID>
 accounting my.db account balance <ID>
 ```
 
-**账户类型**：`asset`, `liability`, `equity`, `income`, `expense`
+**账户类型**：`asset`, `equity`, `income`, `expense`
 
 ## 商品/货币管理
 

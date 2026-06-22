@@ -10,19 +10,17 @@
 enum AccountType {
     /// 你拥有的东西：现金、银行卡、房产
     Asset = 1,
-    /// 你欠别人的东西：信用卡欠款、贷款
-    Liability = 2,
     /// 净资产：初始投资、累计利润
-    Equity = 3,
+    Equity = 2,
     /// 收入来源：工资、投资收益
-    Income = 4,
+    Income = 3,
     /// 支出：食品、交通
-    Expense = 5,
+    Expense = 4,
 }
 ```
 
-- Asset / Liability / Equity 关闭时要求所有 commodity 余额为 0
-- Income / Expense 无条件关闭，余额保留为总收支
+- Asset 关闭时要求所有 commodity 余额为 0
+- Equity / Income / Expense 无条件关闭；Income / Expense 余额保留为总收支
 
 ### 1.2 分期方式
 
@@ -84,7 +82,7 @@ struct Account {
 **派生行为**：
 
 - `billing_day` 或 `repayment_day` 有值 → 该账户为信用账户
-- `account_type` 为 Asset / Liability / Equity → 关闭时须余额为 0
+- `account_type` 为 Asset → 关闭时须余额为 0
 
 ### 1.5 Commodity
 
@@ -291,14 +289,14 @@ flowchart LR
 ```mermaid
 flowchart TD
     A["输入: Account + balances"] --> B{"account_type?"}
-    B -->|Income / Expense| C["无条件通过 ✅"]
-    B -->|Asset / Liability / Equity| D{"所有 commodity<br/>余额 == 0?"}
+    B -->|Equity / Income / Expense| C["无条件通过 ✅"]
+    B -->|Asset| D{"所有 commodity<br/>余额 == 0?"}
     D -->|否| E["NonZeroBalance<br/>commodity, balance"]
     D -->|是| F["Ok(()) ✅"]
 ```
 
-- Income / Expense：无条件通过
-- Asset / Liability / Equity：检查每个 commodity 余额是否为零；任一非零 → `NonZeroBalance(commodity, balance)`
+- Equity / Income / Expense：无条件通过
+- Asset：检查每个 commodity 余额是否为零；任一非零 → `NonZeroBalance(commodity, balance)`
 
 **级联关闭**：
 
@@ -392,7 +390,7 @@ flowchart TD
 | `EmptyTransaction` | 交易无任何 posting |
 | `SinglePosting` | 交易仅有 1 个 posting |
 | `UnbalancedTransaction(commodity, actual)` | 某 commodity 维度总和 ≠ 0 |
-| `NonZeroBalanceOnClose(commodity, balance)` | Asset/Liability/Equity 关闭时余额非零 |
+| `NonZeroBalanceOnClose(commodity, balance)` | Asset 关闭时余额非零 |
 | `AccountNotFound(id)` | 账户不存在 |
 | `CommodityNotFound(symbol)` | Commodity 不存在 |
 | `MemberNotFound(id)` | 成员不存在 |

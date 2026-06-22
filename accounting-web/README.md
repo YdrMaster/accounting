@@ -79,7 +79,7 @@ cargo run --bin accounting-api -- --db my.db --static-dir accounting-web/dist --
 
 ### 账户（AccountTree）
 
-- **账户树**：层级展示所有账户（Assets / Liabilities / Equity / Income / Expenses）
+- **账户树**：层级展示所有账户（Assets / Equity / Income / Expenses）
 - **创建账户**：输入 `:` 分隔的完整名称自动级联创建父级（如 `Assets:Bank:Card`）
 - **设置所有者**：为账户指定归属成员
 - **账单日/还款日**：信用卡等账户可设置账单日与还款日
@@ -91,7 +91,7 @@ cargo run --bin accounting-api -- --db my.db --static-dir accounting-web/dist --
 
 ### 报表（Reports）
 
-- **资产负债表（BS）**：按账户类型汇总资产与负债
+- **资产负债表（BS）**：按账户类型汇总资产与权益
 - **损益表（IS）**：收入与支出汇总
 
 ## 全局功能

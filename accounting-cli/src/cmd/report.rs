@@ -84,7 +84,7 @@ impl ReportCmd {
                 }
             }
             ReportCmd::Bs => {
-                // 生成资产负债表并按资产/负债/权益分类输出
+                // 生成资产负债表并按资产/权益分类输出
                 let service = accounting_service::report_service::ReportService::new(db);
                 let bs = service.balance_sheet().await?;
                 let mut rows = Vec::new();
@@ -93,16 +93,6 @@ impl ReportCmd {
                         rows.push(ReportBalanceRow {
                             account_id: item.account.id.0,
                             account_name: format!("[资产] {}", item.account.full_name),
-                            commodity_id: cid.0,
-                            amount: amount.to_string(),
-                        });
-                    }
-                }
-                for item in &bs.liabilities {
-                    for (cid, amount) in &item.balances {
-                        rows.push(ReportBalanceRow {
-                            account_id: item.account.id.0,
-                            account_name: format!("[负债] {}", item.account.full_name),
                             commodity_id: cid.0,
                             amount: amount.to_string(),
                         });

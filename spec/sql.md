@@ -48,7 +48,7 @@ erDiagram
     ACCOUNTS {
         int id PK
         string full_name "唯一, Assets:Bank:Checking"
-        int type "1=ASSET, 2=LIABILITY, 3=EQUITY, 4=INCOME, 5=EXPENSE"
+        int account_type "1=ASSET, 2=EQUITY, 3=INCOME, 4=EXPENSE"
         int parent_id FK "直接父账户, 可选"
         date opened_at
         date closed_at "可选"
@@ -128,7 +128,7 @@ erDiagram
 |------|------|------|------|
 | `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | |
 | `full_name` | TEXT | UNIQUE NOT NULL | 完整层次路径 |
-| `type` | INTEGER | NOT NULL CHECK(type BETWEEN 1 AND 5) | 1=A, 2=L, 3=E, 4=I, 5=X |
+| `account_type` | INTEGER | NOT NULL CHECK(account_type BETWEEN 1 AND 4) | 1=Asset, 2=Equity, 3=Income, 4=Expense |
 | `parent_id` | INTEGER | FK → accounts(id) | 直接父账户 |
 | `opened_at` | DATE | NOT NULL | |
 | `closed_at` | DATE | | 关闭日期 |
@@ -138,14 +138,17 @@ erDiagram
 
 **内置数据**（`is_system = 1`）：
 
-| full_name | type | opened_at |
-|-----------|------|-----------|
-| Equity:OpeningBalances | 3 (Equity) | 1970-01-01 |
-| Income:Uncategorized | 4 (Income) | 1970-01-01 |
-| Expenses:Uncategorized | 5 (Expense) | 1970-01-01 |
-| Expenses:Fees | 5 (Expense) | 1970-01-01 |
-| Expenses:Discounts | 5 (Expense) | 1970-01-01 |
-| Expenses:InstallmentFees | 5 (Expense) | 1970-01-01 |
+| full_name | account_type | opened_at |
+|-----------|--------------|-----------|
+| Assets | 1 (Asset) | 1970-01-01 |
+| Equity | 2 (Equity) | 1970-01-01 |
+| Income | 3 (Income) | 1970-01-01 |
+| Expenses | 4 (Expense) | 1970-01-01 |
+| Equity:OpeningBalances | 2 (Equity) | 1970-01-01 |
+| Expenses:Fees | 4 (Expense) | 1970-01-01 |
+| Expenses:Discounts | 4 (Expense) | 1970-01-01 |
+| Expenses:InstallmentFees | 4 (Expense) | 1970-01-01 |
+| Assets:Cash | 1 (Asset) | 1970-01-01 |
 | Assets:Cashback | 1 (Asset) | 1970-01-01 |
 
 ### 2.3 `account_ancestors`
@@ -250,7 +253,7 @@ erDiagram
 |----|---------|------|
 | `accounts` | `full_name` | UNIQUE，快速定位账户 |
 | `accounts` | `parent_id` | 查询子账户 |
-| `accounts` | `type` | 按类型筛选 |
+| `accounts` | `account_type` | 按类型筛选 |
 | `account_ancestors` | `ancestor_id` | 查询某账户的所有后代 |
 | `account_ancestors` | `account_id` | 查询某账户的所有祖先 |
 | `postings` | `transaction_id` | 查询交易的分录 |

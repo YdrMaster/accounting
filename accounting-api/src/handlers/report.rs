@@ -17,7 +17,6 @@ use std::sync::Arc;
 #[derive(Serialize)]
 struct BalanceSheetResponse {
     assets: Vec<AccountBalanceItem>,
-    liabilities: Vec<AccountBalanceItem>,
     equity: Vec<AccountBalanceItem>,
 }
 
@@ -68,7 +67,6 @@ async fn balance_sheet(
 
     Ok(Json(BalanceSheetResponse {
         assets: sheet.assets.into_iter().map(into_item).collect(),
-        liabilities: sheet.liabilities.into_iter().map(into_item).collect(),
         equity: sheet.equity.into_iter().map(into_item).collect(),
     }))
 }

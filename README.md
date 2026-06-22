@@ -41,7 +41,7 @@ accounting          ← 核心库（纯数据模型 + 算法）
 | **SQLite** | 单机使用，零运维成本，严格关系化 schema |
 | **闭包表** | `account_ancestors` 表维护账户层次，支持 `O(1)` 后代查询 |
 | **硬删除** | 交易和分录采用级联硬删除，符合复式记账的审计要求 |
-| **内置节点** | `Equity:OpeningBalances`, `Income:Uncategorized` 等 7 个系统账户 + `repayment` 标签 |
+| **内置节点** | 10 个系统账户：4 个根账户（Assets / Equity / Income / Expenses）和 6 个子账户（Equity:OpeningBalances / Expenses:Fees / Expenses:Discounts / Expenses:InstallmentFees / Assets:Cash / Assets:Cashback），以及 `repayment` 标签 |
 | **精度动态化** | Posting 金额按 commodity 的实际 precision 缩放存储 |
 
 ## CLI 用法

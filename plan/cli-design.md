@@ -1,3 +1,7 @@
+> 注：本文档包含已废弃的 `Liability` / `负债` 账户类型引用，仅供参考。当前系统仅保留 `Asset`、`Equity`、`Income`、`Expense` 四种类型。
+>
+> 相关变更见：`docs/superpowers/specs/2026-06-22-remove-liability-design.md`
+
 # CLI 设计文档
 
 > 范围：accounting-cli 命令行工具

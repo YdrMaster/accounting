@@ -1,3 +1,7 @@
+> 注：本文档包含已废弃的 `Liability` / `负债` 账户类型引用，仅供参考。当前系统仅保留 `Asset`、`Equity`、`Income`、`Expense` 四种类型。
+>
+> 相关变更见：`docs/superpowers/specs/2026-06-22-remove-liability-design.md`
+
 # accounting-stat 实现计划
 
 > **面向 AI 代理的工作者：** 使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans` 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。

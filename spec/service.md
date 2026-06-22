@@ -65,7 +65,7 @@ impl<D: Database> AccountService<D> {
     async fn close(&self, id: AccountId) -> Result<(), Error> {
         let tx = self.db.transaction().await?;
         let account = tx.account().get(&tx.conn(), id)?.ok_or(Error::NotFound)?;
-        // Asset/Liability/Equity 需余额为 0
+        // Asset 需余额为 0
         if account.account_type.requires_zero_balance_on_close() {
             let balances = tx.posting().sum_by_account(&tx.conn(), id)?;
             validate_account_close(&account, &balances)?;
@@ -142,12 +142,12 @@ struct ReportService<D: Database> {
 }
 
 impl<D: Database> ReportService<D> {
-    /// 资产负债表：查询所有 Asset/Liability/Equity 账户的余额
+    /// 资产负债表：查询所有 Asset/Equity 账户的余额
     async fn balance_sheet(&self) -> Result<Vec<(Account, HashMap<String, Decimal>)>, Error> {
         let accounts = self.db.account().list(&self.db.conn())?;
         let mut result = vec![];
         for account in accounts {
-            if matches!(account.account_type, Asset | Liability | Equity) {
+            if matches!(account.account_type, Asset | Equity) {
                 let balances = self.db.posting().sum_by_account(&self.db.conn(), account.id)?;
                 result.push((account, balances));
             }

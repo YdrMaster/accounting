@@ -1,4 +1,8 @@
-﻿User: 把这个网页 <https://martin.kleppmann.com/2011/03/07/accounting-for-computer-scientists.html> 的正文翻译成中文，用 markdown 格式输出。图片可以直接链接到原网站
+> 注：本文档包含已废弃的 `Liability` / `负债` 账户类型引用，仅供参考。当前系统仅保留 `Asset`、`Equity`、`Income`、`Expense` 四种类型。
+>
+> 相关变更见：`docs/superpowers/specs/2026-06-22-remove-liability-design.md`
+
+User: 把这个网页 <https://martin.kleppmann.com/2011/03/07/accounting-for-computer-scientists.html> 的正文翻译成中文，用 markdown 格式输出。图片可以直接链接到原网站
 Kimi: 现在我已经获取了文章的完整内容。让我将它翻译成中文 Markdown 格式。
 已完成翻译，以下是《写给计算机科学家的会计学》的中文 Markdown 全文：
 
