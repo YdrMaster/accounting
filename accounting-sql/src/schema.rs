@@ -108,7 +108,9 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
+    value TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS postings (
@@ -276,6 +278,14 @@ BEGIN
     UPDATE transaction_tags SET updated_at = datetime('now')
     WHERE transaction_id = NEW.transaction_id AND tag_id = NEW.tag_id;
 END;
+
+CREATE TRIGGER IF NOT EXISTS update_settings_updated_at
+AFTER UPDATE ON settings
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE settings SET updated_at = datetime('now') WHERE key = NEW.key;
+END;
 "#;
 
 const SEED_ACCOUNTS_ROOT_EN: &str = r#"
@@ -432,6 +442,7 @@ mod tests {
             "postings",
             "attachments",
             "transaction_tags",
+            "settings",
         ];
 
         for table in tables {
