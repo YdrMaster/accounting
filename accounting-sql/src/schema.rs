@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS commodities (
     symbol TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     precision INTEGER NOT NULL DEFAULT 2,
-    created_at TEXT NOT NULL DEFAULT (date('now')),
-    updated_at TEXT NOT NULL DEFAULT (date('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS accounts (
@@ -46,9 +46,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     full_name TEXT NOT NULL UNIQUE,
     account_type INTEGER NOT NULL CHECK(account_type BETWEEN 1 AND 4),
     parent_id INTEGER REFERENCES accounts(id),
-    created_at TEXT NOT NULL DEFAULT (date('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
     closed_at TEXT,
-    updated_at TEXT NOT NULL DEFAULT (date('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     is_system INTEGER NOT NULL DEFAULT 0,
     billing_day INTEGER CHECK(billing_day BETWEEN 1 AND 31),
     repayment_day INTEGER CHECK(repayment_day BETWEEN 1 AND 31)
@@ -58,32 +58,32 @@ CREATE TABLE IF NOT EXISTS account_ancestors (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     ancestor_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     depth INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (date('now')),
-    updated_at TEXT NOT NULL DEFAULT (date('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (account_id, ancestor_id)
 );
 
 CREATE TABLE IF NOT EXISTS account_owners (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT (date('now')),
-    updated_at TEXT NOT NULL DEFAULT (date('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (account_id, member_id)
 );
 
 CREATE TABLE IF NOT EXISTS members (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (date('now')),
-    updated_at TEXT NOT NULL DEFAULT (date('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS channels (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     description TEXT,
-    created_at TEXT NOT NULL DEFAULT (date('now')),
-    updated_at TEXT NOT NULL DEFAULT (date('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -91,8 +91,8 @@ CREATE TABLE IF NOT EXISTS tags (
     name TEXT NOT NULL UNIQUE,
     description TEXT,
     is_system INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (date('now')),
-    updated_at TEXT NOT NULL DEFAULT (date('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
@@ -102,8 +102,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     member_id INTEGER REFERENCES members(id),
     channel_id INTEGER REFERENCES channels(id),
     kind INTEGER NOT NULL DEFAULT 1 CHECK(kind BETWEEN 1 AND 3),
-    created_at TEXT NOT NULL DEFAULT (date('now')),
-    updated_at TEXT NOT NULL DEFAULT (date('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -123,8 +123,8 @@ CREATE TABLE IF NOT EXISTS postings (
     is_reimbursable INTEGER NOT NULL DEFAULT 0,
     linked_posting_id INTEGER REFERENCES postings(id),
     reversal_total INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (date('now')),
-    updated_at TEXT NOT NULL DEFAULT (date('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS attachments (
@@ -132,15 +132,15 @@ CREATE TABLE IF NOT EXISTS attachments (
     transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     filename TEXT NOT NULL,
     data BLOB NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (date('now')),
-    updated_at TEXT NOT NULL DEFAULT (date('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS transaction_tags (
     transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT (date('now')),
-    updated_at TEXT NOT NULL DEFAULT (date('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (transaction_id, tag_id)
 );
 
@@ -164,7 +164,7 @@ AFTER UPDATE ON commodities
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE commodities SET updated_at = date('now') WHERE id = NEW.id;
+    UPDATE commodities SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_accounts_updated_at
@@ -172,7 +172,7 @@ AFTER UPDATE ON accounts
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE accounts SET updated_at = date('now') WHERE id = NEW.id;
+    UPDATE accounts SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_account_ancestors_updated_at
@@ -180,7 +180,7 @@ AFTER UPDATE ON account_ancestors
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE account_ancestors SET updated_at = date('now')
+    UPDATE account_ancestors SET updated_at = datetime('now')
     WHERE account_id = NEW.account_id AND ancestor_id = NEW.ancestor_id;
 END;
 
@@ -189,7 +189,7 @@ AFTER UPDATE ON account_owners
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE account_owners SET updated_at = date('now')
+    UPDATE account_owners SET updated_at = datetime('now')
     WHERE account_id = NEW.account_id AND member_id = NEW.member_id;
 END;
 
@@ -198,7 +198,7 @@ AFTER UPDATE ON members
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE members SET updated_at = date('now') WHERE id = NEW.id;
+    UPDATE members SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_channels_updated_at
@@ -206,7 +206,7 @@ AFTER UPDATE ON channels
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE channels SET updated_at = date('now') WHERE id = NEW.id;
+    UPDATE channels SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_tags_updated_at
@@ -214,7 +214,7 @@ AFTER UPDATE ON tags
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE tags SET updated_at = date('now') WHERE id = NEW.id;
+    UPDATE tags SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_transactions_updated_at
@@ -222,7 +222,7 @@ AFTER UPDATE ON transactions
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE transactions SET updated_at = date('now') WHERE id = NEW.id;
+    UPDATE transactions SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_postings_updated_at
@@ -230,7 +230,7 @@ AFTER UPDATE ON postings
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE postings SET updated_at = date('now') WHERE id = NEW.id;
+    UPDATE postings SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_postings_reversal_insert
@@ -265,7 +265,7 @@ AFTER UPDATE ON attachments
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE attachments SET updated_at = date('now') WHERE id = NEW.id;
+    UPDATE attachments SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_transaction_tags_updated_at
@@ -273,7 +273,7 @@ AFTER UPDATE ON transaction_tags
 FOR EACH ROW
 WHEN OLD.updated_at = NEW.updated_at
 BEGIN
-    UPDATE transaction_tags SET updated_at = date('now')
+    UPDATE transaction_tags SET updated_at = datetime('now')
     WHERE transaction_id = NEW.transaction_id AND tag_id = NEW.tag_id;
 END;
 "#;
