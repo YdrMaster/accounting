@@ -32,22 +32,18 @@ impl AccountType {
         };
         rust_i18n::t!(key).to_string()
     }
+}
 
-    /// 根据账户名前缀解析账户类型（支持中英文、单复数）
-    pub fn from_prefix(prefix: &str) -> Option<Self> {
-        let lower = prefix.to_lowercase();
+impl std::str::FromStr for AccountType {
+    type Err = String;
+    fn from_str(root_name: &str) -> Result<Self, Self::Err> {
+        let lower = root_name.to_lowercase();
         match lower.as_str() {
-            // 英文（单复数兼容）
-            "asset" | "assets" => Some(Self::Asset),
-            "equity" => Some(Self::Equity),
-            "income" => Some(Self::Income),
-            "expense" | "expenses" => Some(Self::Expense),
-            // 中文（与 seed 数据和 display_name 一致）
-            "资产" => Some(Self::Asset),
-            "权益" => Some(Self::Equity),
-            "收入" => Some(Self::Income),
-            "支出" => Some(Self::Expense),
-            _ => None,
+            "asset" | "assets" | "资产" => Ok(Self::Asset),
+            "equity" | "权益" => Ok(Self::Equity),
+            "income" | "收入" => Ok(Self::Income),
+            "expense" | "expenses" | "支出" => Ok(Self::Expense),
+            _ => Err(format!("unknown account root name: {}", root_name)),
         }
     }
 }
@@ -110,38 +106,28 @@ mod tests {
     }
 
     #[test]
-    fn test_from_prefix() {
+    fn test_from_str() {
+        use std::str::FromStr;
+
         // 英文单复数
-        assert_eq!(AccountType::from_prefix("asset"), Some(AccountType::Asset));
-        assert_eq!(AccountType::from_prefix("assets"), Some(AccountType::Asset));
-        assert_eq!(
-            AccountType::from_prefix("equity"),
-            Some(AccountType::Equity)
-        );
-        assert_eq!(
-            AccountType::from_prefix("income"),
-            Some(AccountType::Income)
-        );
-        assert_eq!(
-            AccountType::from_prefix("expense"),
-            Some(AccountType::Expense)
-        );
-        assert_eq!(
-            AccountType::from_prefix("expenses"),
-            Some(AccountType::Expense)
-        );
+        assert_eq!(AccountType::from_str("asset"), Ok(AccountType::Asset));
+        assert_eq!(AccountType::from_str("assets"), Ok(AccountType::Asset));
+        assert_eq!(AccountType::from_str("equity"), Ok(AccountType::Equity));
+        assert_eq!(AccountType::from_str("income"), Ok(AccountType::Income));
+        assert_eq!(AccountType::from_str("expense"), Ok(AccountType::Expense));
+        assert_eq!(AccountType::from_str("expenses"), Ok(AccountType::Expense));
 
         // 中文
-        assert_eq!(AccountType::from_prefix("资产"), Some(AccountType::Asset));
-        assert_eq!(AccountType::from_prefix("权益"), Some(AccountType::Equity));
-        assert_eq!(AccountType::from_prefix("收入"), Some(AccountType::Income));
-        assert_eq!(AccountType::from_prefix("支出"), Some(AccountType::Expense));
+        assert_eq!(AccountType::from_str("资产"), Ok(AccountType::Asset));
+        assert_eq!(AccountType::from_str("权益"), Ok(AccountType::Equity));
+        assert_eq!(AccountType::from_str("收入"), Ok(AccountType::Income));
+        assert_eq!(AccountType::from_str("支出"), Ok(AccountType::Expense));
 
         // 大小写不敏感
-        assert_eq!(AccountType::from_prefix("ASSET"), Some(AccountType::Asset));
+        assert_eq!(AccountType::from_str("ASSET"), Ok(AccountType::Asset));
 
-        // 无效前缀
-        assert_eq!(AccountType::from_prefix("foo"), None);
-        assert_eq!(AccountType::from_prefix("负债"), None);
+        // 无效根节点名
+        assert!(AccountType::from_str("foo").is_err());
+        assert!(AccountType::from_str("负债").is_err());
     }
 }

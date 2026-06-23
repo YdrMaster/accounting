@@ -44,7 +44,6 @@ CREATE TABLE IF NOT EXISTS commodities (
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    account_type INTEGER NOT NULL CHECK(account_type BETWEEN 1 AND 4),
     parent_id INTEGER REFERENCES accounts(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     closed_at TEXT,
@@ -148,7 +147,6 @@ CREATE TABLE IF NOT EXISTS transaction_tags (
 );
 
 CREATE INDEX IF NOT EXISTS idx_accounts_parent ON accounts(parent_id);
-CREATE INDEX IF NOT EXISTS idx_accounts_type ON accounts(account_type);
 CREATE INDEX IF NOT EXISTS idx_account_ancestors_ancestor ON account_ancestors(ancestor_id);
 CREATE INDEX IF NOT EXISTS idx_account_ancestors_account ON account_ancestors(account_id);
 CREATE INDEX IF NOT EXISTS idx_postings_tx ON postings(transaction_id);
@@ -290,39 +288,39 @@ END;
 "#;
 
 const SEED_ACCOUNTS_ROOT_EN: &str = r#"
-INSERT OR IGNORE INTO accounts (name, account_type, parent_id, is_system) VALUES
-('Assets', 1, NULL, 1),
-('Equity', 2, NULL, 1),
-('Income', 3, NULL, 1),
-('Expenses', 4, NULL, 1);
+INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
+('Assets', NULL, 1),
+('Equity', NULL, 1),
+('Income', NULL, 1),
+('Expenses', NULL, 1);
 "#;
 
 const SEED_ACCOUNTS_CHILD_EN: &str = r#"
-INSERT OR IGNORE INTO accounts (name, account_type, parent_id, is_system) VALUES
-('OpeningBalances', 2, (SELECT id FROM accounts WHERE name = 'Equity' AND parent_id IS NULL), 1),
-('Fees', 4, (SELECT id FROM accounts WHERE name = 'Expenses' AND parent_id IS NULL), 1),
-('Discounts', 4, (SELECT id FROM accounts WHERE name = 'Expenses' AND parent_id IS NULL), 1),
-('InstallmentFees', 4, (SELECT id FROM accounts WHERE name = 'Expenses' AND parent_id IS NULL), 1),
-('Cash', 1, (SELECT id FROM accounts WHERE name = 'Assets' AND parent_id IS NULL), 1),
-('Cashback', 1, (SELECT id FROM accounts WHERE name = 'Assets' AND parent_id IS NULL), 1);
+INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
+('OpeningBalances', (SELECT id FROM accounts WHERE name = 'Equity' AND parent_id IS NULL), 1),
+('Fees', (SELECT id FROM accounts WHERE name = 'Expenses' AND parent_id IS NULL), 1),
+('Discounts', (SELECT id FROM accounts WHERE name = 'Expenses' AND parent_id IS NULL), 1),
+('InstallmentFees', (SELECT id FROM accounts WHERE name = 'Expenses' AND parent_id IS NULL), 1),
+('Cash', (SELECT id FROM accounts WHERE name = 'Assets' AND parent_id IS NULL), 1),
+('Cashback', (SELECT id FROM accounts WHERE name = 'Assets' AND parent_id IS NULL), 1);
 "#;
 
 const SEED_ACCOUNTS_ROOT_ZH: &str = r#"
-INSERT OR IGNORE INTO accounts (name, account_type, parent_id, is_system) VALUES
-('资产', 1, NULL, 1),
-('权益', 2, NULL, 1),
-('收入', 3, NULL, 1),
-('支出', 4, NULL, 1);
+INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
+('资产', NULL, 1),
+('权益', NULL, 1),
+('收入', NULL, 1),
+('支出', NULL, 1);
 "#;
 
 const SEED_ACCOUNTS_CHILD_ZH: &str = r#"
-INSERT OR IGNORE INTO accounts (name, account_type, parent_id, is_system) VALUES
-('期初余额', 2, (SELECT id FROM accounts WHERE name = '权益' AND parent_id IS NULL), 1),
-('手续费', 4, (SELECT id FROM accounts WHERE name = '支出' AND parent_id IS NULL), 1),
-('折扣', 4, (SELECT id FROM accounts WHERE name = '支出' AND parent_id IS NULL), 1),
-('分期手续费', 4, (SELECT id FROM accounts WHERE name = '支出' AND parent_id IS NULL), 1),
-('现金', 1, (SELECT id FROM accounts WHERE name = '资产' AND parent_id IS NULL), 1),
-('返现', 1, (SELECT id FROM accounts WHERE name = '资产' AND parent_id IS NULL), 1);
+INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
+('期初余额', (SELECT id FROM accounts WHERE name = '权益' AND parent_id IS NULL), 1),
+('手续费', (SELECT id FROM accounts WHERE name = '支出' AND parent_id IS NULL), 1),
+('折扣', (SELECT id FROM accounts WHERE name = '支出' AND parent_id IS NULL), 1),
+('分期手续费', (SELECT id FROM accounts WHERE name = '支出' AND parent_id IS NULL), 1),
+('现金', (SELECT id FROM accounts WHERE name = '资产' AND parent_id IS NULL), 1),
+('返现', (SELECT id FROM accounts WHERE name = '资产' AND parent_id IS NULL), 1);
 "#;
 
 const SEED_COMMODITIES: &str = r#"

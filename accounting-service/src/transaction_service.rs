@@ -269,7 +269,6 @@ impl<D: Database> TransactionService<D> {
 mod tests {
     use super::*;
     use accounting::account::Account;
-    use accounting::account_type::AccountType;
     use accounting::id::{AccountId, CommodityId, PostingId, TransactionId};
     use accounting::posting::Posting;
     use accounting::transaction::Transaction;
@@ -279,11 +278,10 @@ mod tests {
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
-    fn sample_account(name: &str, account_type: AccountType) -> Account {
+    fn sample_account(name: &str) -> Account {
         Account {
             id: AccountId(0),
             name: name.to_string(),
-            account_type,
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -308,8 +306,8 @@ mod tests {
         }
     }
 
-    fn create_test_account(db: &SqliteDatabase, name: &str, ty: AccountType) -> AccountId {
-        let account = sample_account(name, ty);
+    fn create_test_account(db: &SqliteDatabase, name: &str) -> AccountId {
+        let account = sample_account(name);
         db.account_repo()
             .create(&db.connection(), &account)
             .unwrap()
@@ -321,8 +319,8 @@ mod tests {
         db.initialize("en").unwrap();
         let tx_service = TransactionService::new(db);
 
-        let id1 = create_test_account(&tx_service.db, "Assets:A", AccountType::Asset);
-        let id2 = create_test_account(&tx_service.db, "Assets:B", AccountType::Asset);
+        let id1 = create_test_account(&tx_service.db, "Assets:A");
+        let id2 = create_test_account(&tx_service.db, "Assets:B");
 
         let tx = Transaction {
             id: TransactionId(0),
@@ -347,8 +345,8 @@ mod tests {
         db.initialize("en").unwrap();
         let tx_service = TransactionService::new(db);
 
-        let id1 = create_test_account(&tx_service.db, "Assets:C", AccountType::Asset);
-        let id2 = create_test_account(&tx_service.db, "Assets:D", AccountType::Asset);
+        let id1 = create_test_account(&tx_service.db, "Assets:C");
+        let id2 = create_test_account(&tx_service.db, "Assets:D");
 
         let tx = Transaction {
             id: TransactionId(0),
@@ -376,8 +374,8 @@ mod tests {
         db.initialize("en").unwrap();
         let tx_service = TransactionService::new(db);
 
-        let id1 = create_test_account(&tx_service.db, "Assets:E", AccountType::Asset);
-        let id2 = create_test_account(&tx_service.db, "Assets:F", AccountType::Asset);
+        let id1 = create_test_account(&tx_service.db, "Assets:E");
+        let id2 = create_test_account(&tx_service.db, "Assets:F");
 
         let tx = Transaction {
             id: TransactionId(0),
@@ -429,8 +427,8 @@ mod tests {
         db.initialize("en").unwrap();
         let tx_service = TransactionService::new(db);
 
-        let id1 = create_test_account(&tx_service.db, "Assets:G", AccountType::Asset);
-        let id2 = create_test_account(&tx_service.db, "Assets:H", AccountType::Asset);
+        let id1 = create_test_account(&tx_service.db, "Assets:G");
+        let id2 = create_test_account(&tx_service.db, "Assets:H");
 
         let tx = Transaction {
             id: TransactionId(0),

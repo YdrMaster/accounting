@@ -8,6 +8,7 @@ use accounting_sql::transaction::Transaction;
 use rust_decimal::Decimal;
 use rust_i18n::t;
 use std::collections::HashMap;
+use std::str::FromStr;
 
 /// 私有类型别名：按 Income/Expense 分组后的 (商品, 金额) 列表
 /// 元组第一项为 Income，第二项为 Expense
@@ -132,7 +133,12 @@ impl<D: Database> ReportService<D> {
                 account: account.clone(),
                 balances,
             };
-            match account.account_type {
+            let root_name = self
+                .db
+                .account_repo()
+                .find_root_name(&conn, account.id)
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+            match AccountType::from_str(&root_name).map_err(AccountingError::DatabaseError)? {
                 AccountType::Asset => assets.push(item),
                 AccountType::Equity => equity.push(item),
                 _ => {}
@@ -167,7 +173,12 @@ impl<D: Database> ReportService<D> {
                 account: account.clone(),
                 balances,
             };
-            match account.account_type {
+            let root_name = self
+                .db
+                .account_repo()
+                .find_root_name(&conn, account.id)
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+            match AccountType::from_str(&root_name).map_err(AccountingError::DatabaseError)? {
                 AccountType::Income => income.push(item),
                 AccountType::Expense => expenses.push(item),
                 _ => {}
@@ -192,13 +203,13 @@ impl<D: Database> ReportService<D> {
             .sum_by_tag(&conn, &filter)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        // 按 TagId 分组，区分 Income(3) 和 Expense(4)
+        // 按 TagId 分组，区分 Income 和 Expense
         let mut groups: HashMap<TagId, IncomeExpensePairs> = HashMap::new();
-        for (tag_id, commodity_id, account_type, amount) in raw {
+        for (tag_id, commodity_id, root_name, amount) in raw {
             let entry = groups.entry(tag_id).or_default();
-            match account_type {
-                3 => entry.0.push((commodity_id, amount)), // Income
-                4 => entry.1.push((commodity_id, amount)), // Expense
+            match AccountType::from_str(&root_name).map_err(AccountingError::DatabaseError)? {
+                AccountType::Income => entry.0.push((commodity_id, amount)),
+                AccountType::Expense => entry.1.push((commodity_id, amount)),
                 _ => {}
             }
         }
@@ -242,13 +253,13 @@ impl<D: Database> ReportService<D> {
             .sum_by_member(&conn, &filter)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        // 按 MemberId 分组，区分 Income(3) 和 Expense(4)
+        // 按 MemberId 分组，区分 Income 和 Expense
         let mut groups: HashMap<MemberId, IncomeExpensePairs> = HashMap::new();
-        for (member_id, commodity_id, account_type, amount) in raw {
+        for (member_id, commodity_id, root_name, amount) in raw {
             let entry = groups.entry(member_id).or_default();
-            match account_type {
-                3 => entry.0.push((commodity_id, amount)), // Income
-                4 => entry.1.push((commodity_id, amount)), // Expense
+            match AccountType::from_str(&root_name).map_err(AccountingError::DatabaseError)? {
+                AccountType::Income => entry.0.push((commodity_id, amount)),
+                AccountType::Expense => entry.1.push((commodity_id, amount)),
                 _ => {}
             }
         }
@@ -290,13 +301,13 @@ impl<D: Database> ReportService<D> {
             .sum_by_channel(&conn, &filter)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        // 按 ChannelId 分组，区分 Income(3) 和 Expense(4)
+        // 按 ChannelId 分组，区分 Income 和 Expense
         let mut groups: HashMap<ChannelId, IncomeExpensePairs> = HashMap::new();
-        for (channel_id, commodity_id, account_type, amount) in raw {
+        for (channel_id, commodity_id, root_name, amount) in raw {
             let entry = groups.entry(channel_id).or_default();
-            match account_type {
-                3 => entry.0.push((commodity_id, amount)), // Income
-                4 => entry.1.push((commodity_id, amount)), // Expense
+            match AccountType::from_str(&root_name).map_err(AccountingError::DatabaseError)? {
+                AccountType::Income => entry.0.push((commodity_id, amount)),
+                AccountType::Expense => entry.1.push((commodity_id, amount)),
                 _ => {}
             }
         }
@@ -328,7 +339,6 @@ impl<D: Database> ReportService<D> {
 mod tests {
     use super::*;
     use accounting::account::Account;
-    use accounting::account_type::AccountType;
     use accounting::channel::Channel;
     use accounting::id::{AccountId, CommodityId, MemberId, PostingId, TagId, TransactionId};
     use accounting::member::Member;
@@ -341,12 +351,11 @@ mod tests {
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
-    fn sample_account(name: &str, account_type: AccountType) -> Account {
+    fn sample_account(name: &str, parent_id: Option<AccountId>) -> Account {
         Account {
             id: AccountId(0),
             name: name.to_string(),
-            account_type,
-            parent_id: None,
+            parent_id,
             closed_at: None,
             is_system: false,
             billing_day: None,
@@ -376,8 +385,8 @@ mod tests {
         db.initialize("en").unwrap();
         let report_service = ReportService::new(db);
 
-        let a1 = sample_account("I", AccountType::Asset);
-        let a2 = sample_account("J", AccountType::Asset);
+        let a1 = sample_account("I", None);
+        let a2 = sample_account("J", None);
         let id1 = report_service
             .db
             .account_repo()
@@ -436,24 +445,46 @@ mod tests {
         let _ = {
             let conn = report_service.db.connection();
 
-            let bank = sample_account("Bank", AccountType::Asset);
-            let salary = sample_account("Salary", AccountType::Income);
-            let food = sample_account("Food", AccountType::Expense);
+            let assets_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Assets")
+                .unwrap()
+                .expect("seeded Assets account should exist")
+                .id;
+            let income_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Income")
+                .unwrap()
+                .expect("seeded Income account should exist")
+                .id;
+            let expenses_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Expenses")
+                .unwrap()
+                .expect("seeded Expenses account should exist")
+                .id;
+
+            let bank = sample_account("Bank", Some(assets_id));
+            let salary = sample_account("Salary", Some(income_id));
+            let food = sample_account("Food", Some(expenses_id));
 
             let bank_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &bank)
+                .create_with_closure(&conn, &bank)
                 .unwrap();
             let salary_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &salary)
+                .create_with_closure(&conn, &salary)
                 .unwrap();
             let food_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &food)
+                .create_with_closure(&conn, &food)
                 .unwrap();
 
             // Equity:OpeningBalances is a seeded system account, reuse it instead of recreating
@@ -545,18 +576,33 @@ mod tests {
         let _ = {
             let conn = report_service.db.connection();
 
-            let salary = sample_account("Salary", AccountType::Income);
-            let food = sample_account("Food", AccountType::Expense);
+            let income_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Income")
+                .unwrap()
+                .expect("seeded Income account should exist")
+                .id;
+            let expenses_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Expenses")
+                .unwrap()
+                .expect("seeded Expenses account should exist")
+                .id;
+
+            let salary = sample_account("Salary", Some(income_id));
+            let food = sample_account("Food", Some(expenses_id));
 
             let salary_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &salary)
+                .create_with_closure(&conn, &salary)
                 .unwrap();
             let food_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &food)
+                .create_with_closure(&conn, &food)
                 .unwrap();
 
             let tx = Transaction {
@@ -617,18 +663,32 @@ mod tests {
         let _ = {
             let conn = report_service.db.connection();
 
-            // 创建 Income / Expense 账户
-            let income_acc = sample_account("Salary", AccountType::Income);
-            let expense_acc = sample_account("Food", AccountType::Expense);
+            // 创建 Income / Expense 子账户
+            let income_root_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Income")
+                .unwrap()
+                .expect("seeded Income account should exist")
+                .id;
+            let expenses_root_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Expenses")
+                .unwrap()
+                .expect("seeded Expenses account should exist")
+                .id;
+            let income_acc = sample_account("Salary", Some(income_root_id));
+            let expense_acc = sample_account("Food", Some(expenses_root_id));
             let income_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &income_acc)
+                .create_with_closure(&conn, &income_acc)
                 .unwrap();
             let expense_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &expense_acc)
+                .create_with_closure(&conn, &expense_acc)
                 .unwrap();
 
             // 创建标签
@@ -694,18 +754,32 @@ mod tests {
         let _ = {
             let conn = report_service.db.connection();
 
-            // 创建 Income / Expense 账户
-            let income_acc = sample_account("Salary", AccountType::Income);
-            let expense_acc = sample_account("Food", AccountType::Expense);
+            // 创建 Income / Expense 子账户
+            let income_root_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Income")
+                .unwrap()
+                .expect("seeded Income account should exist")
+                .id;
+            let expenses_root_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Expenses")
+                .unwrap()
+                .expect("seeded Expenses account should exist")
+                .id;
+            let income_acc = sample_account("Salary", Some(income_root_id));
+            let expense_acc = sample_account("Food", Some(expenses_root_id));
             let income_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &income_acc)
+                .create_with_closure(&conn, &income_acc)
                 .unwrap();
             let expense_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &expense_acc)
+                .create_with_closure(&conn, &expense_acc)
                 .unwrap();
 
             // 创建成员
@@ -773,18 +847,32 @@ mod tests {
         let _ = {
             let conn = report_service.db.connection();
 
-            // 创建 Income / Expense 账户
-            let income_acc = sample_account("Salary", AccountType::Income);
-            let expense_acc = sample_account("Food", AccountType::Expense);
+            // 创建 Income / Expense 子账户
+            let income_root_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Income")
+                .unwrap()
+                .expect("seeded Income account should exist")
+                .id;
+            let expenses_root_id = report_service
+                .db
+                .account_repo()
+                .get_by_name(&conn, "Expenses")
+                .unwrap()
+                .expect("seeded Expenses account should exist")
+                .id;
+            let income_acc = sample_account("Salary", Some(income_root_id));
+            let expense_acc = sample_account("Food", Some(expenses_root_id));
             let income_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &income_acc)
+                .create_with_closure(&conn, &income_acc)
                 .unwrap();
             let expense_id = report_service
                 .db
                 .account_repo()
-                .create(&conn, &expense_acc)
+                .create_with_closure(&conn, &expense_acc)
                 .unwrap();
 
             // 创建渠道

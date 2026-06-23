@@ -1,5 +1,4 @@
 use accounting::account::Account;
-use accounting::account_type::AccountType;
 use accounting::id::{AccountId, MemberId};
 use chrono::NaiveDate;
 use rusqlite::{Connection, params};
@@ -71,6 +70,18 @@ pub trait AccountRepo {
         account_id: AccountId,
         member_ids: &[MemberId],
     ) -> Result<(), crate::error::DbError>;
+    /// 查找账户根节点名称
+    fn find_root_name(
+        &self,
+        conn: &Connection,
+        account_id: AccountId,
+    ) -> Result<String, crate::error::DbError>;
+    /// 查找账户根节点 ID
+    fn find_root_id(
+        &self,
+        conn: &Connection,
+        account_id: AccountId,
+    ) -> Result<AccountId, crate::error::DbError>;
 }
 
 /// SQLite AccountRepo 实现
@@ -85,11 +96,10 @@ impl AccountRepo for SqliteAccountRepo {
     ) -> Result<AccountId, crate::error::DbError> {
         conn.execute(
             "INSERT INTO accounts
-             (name, account_type, parent_id, is_system, billing_day, repayment_day)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             (name, parent_id, is_system, billing_day, repayment_day)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 account.name,
-                account.account_type as i32,
                 account.parent_id.map(|id| id.0),
                 account.is_system as i32,
                 account.billing_day,
@@ -105,8 +115,8 @@ impl AccountRepo for SqliteAccountRepo {
         id: AccountId,
     ) -> Result<Option<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
-             FROM accounts WHERE id = ?1"
+            "SELECT id, name, parent_id, closed_at, is_system, billing_day, repayment_day
+             FROM accounts WHERE id = ?1",
         )?;
         let mut rows = stmt.query(params![id.0])?;
         if let Some(row) = rows.next()? {
@@ -144,8 +154,8 @@ impl AccountRepo for SqliteAccountRepo {
         name: &str,
     ) -> Result<Option<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
-             FROM accounts WHERE parent_id IS ?1 AND name = ?2"
+            "SELECT id, name, parent_id, closed_at, is_system, billing_day, repayment_day
+             FROM accounts WHERE parent_id IS ?1 AND name = ?2",
         )?;
         let mut rows = stmt.query(params![parent_id.map(|id| id.0), name])?;
         if let Some(row) = rows.next()? {
@@ -157,8 +167,8 @@ impl AccountRepo for SqliteAccountRepo {
 
     fn list(&self, conn: &Connection) -> Result<Vec<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
-             FROM accounts ORDER BY id"
+            "SELECT id, name, parent_id, closed_at, is_system, billing_day, repayment_day
+             FROM accounts ORDER BY id",
         )?;
         let rows = stmt.query_map([], map_account)?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
@@ -170,8 +180,8 @@ impl AccountRepo for SqliteAccountRepo {
         parent_id: AccountId,
     ) -> Result<Vec<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
-             FROM accounts WHERE parent_id = ?1 ORDER BY id"
+            "SELECT id, name, parent_id, closed_at, is_system, billing_day, repayment_day
+             FROM accounts WHERE parent_id = ?1 ORDER BY id",
         )?;
         let rows = stmt.query_map(params![parent_id.0], map_account)?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
@@ -290,22 +300,46 @@ impl AccountRepo for SqliteAccountRepo {
         }
         Ok(())
     }
+
+    fn find_root_name(
+        &self,
+        conn: &Connection,
+        account_id: AccountId,
+    ) -> Result<String, crate::error::DbError> {
+        let name: String = conn.query_row(
+            "SELECT a.name FROM account_ancestors aa
+             JOIN accounts a ON aa.ancestor_id = a.id
+             WHERE aa.account_id = ?1
+             ORDER BY aa.depth DESC
+             LIMIT 1",
+            params![account_id.0],
+            |row| row.get(0),
+        )?;
+        Ok(name)
+    }
+
+    fn find_root_id(
+        &self,
+        conn: &Connection,
+        account_id: AccountId,
+    ) -> Result<AccountId, crate::error::DbError> {
+        let id: i64 = conn.query_row(
+            "SELECT ancestor_id FROM account_ancestors
+             WHERE account_id = ?1
+             ORDER BY depth DESC
+             LIMIT 1",
+            params![account_id.0],
+            |row| row.get(0),
+        )?;
+        Ok(AccountId(id))
+    }
 }
 
 fn map_account(row: &rusqlite::Row) -> Result<Account, rusqlite::Error> {
-    let type_int: i32 = row.get(2)?;
-    let account_type = match type_int {
-        1 => AccountType::Asset,
-        2 => AccountType::Equity,
-        3 => AccountType::Income,
-        4 => AccountType::Expense,
-        _ => AccountType::Asset,
-    };
-
-    let closed_at: Option<String> = row.get(4)?;
+    let closed_at: Option<String> = row.get(3)?;
     let closed_at = match closed_at {
         Some(s) => Some(NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e))
+            rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
         })?),
         None => None,
     };
@@ -313,12 +347,11 @@ fn map_account(row: &rusqlite::Row) -> Result<Account, rusqlite::Error> {
     Ok(Account {
         id: AccountId(row.get(0)?),
         name: row.get(1)?,
-        account_type,
-        parent_id: row.get::<_, Option<i64>>(3)?.map(AccountId),
+        parent_id: row.get::<_, Option<i64>>(2)?.map(AccountId),
         closed_at,
-        is_system: row.get::<_, i32>(5)? != 0,
-        billing_day: row.get::<_, Option<i32>>(6)?.map(|v| v as u8),
-        repayment_day: row.get::<_, Option<i32>>(7)?.map(|v| v as u8),
+        is_system: row.get::<_, i32>(4)? != 0,
+        billing_day: row.get::<_, Option<i32>>(5)?.map(|v| v as u8),
+        repayment_day: row.get::<_, Option<i32>>(6)?.map(|v| v as u8),
     })
 }
 
@@ -326,7 +359,6 @@ fn map_account(row: &rusqlite::Row) -> Result<Account, rusqlite::Error> {
 mod tests {
     use super::*;
     use accounting::account::Account;
-    use accounting::account_type::AccountType;
     use accounting::id::AccountId;
     use rusqlite::Connection;
 
@@ -343,7 +375,6 @@ mod tests {
         let account = Account {
             id: AccountId(0),
             name: "Bank".to_string(),
-            account_type: AccountType::Asset,
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -353,7 +384,6 @@ mod tests {
         let id = repo.create(&conn, &account).unwrap();
         let fetched = repo.get(&conn, id).unwrap().unwrap();
         assert_eq!(fetched.name, "Bank");
-        assert_eq!(fetched.account_type, AccountType::Asset);
         assert!(!fetched.is_system);
     }
 
@@ -362,7 +392,7 @@ mod tests {
         let (conn, repo) = setup();
         let found = repo.get_by_name(&conn, "Equity:OpeningBalances").unwrap();
         assert!(found.is_some());
-        assert_eq!(found.unwrap().account_type, AccountType::Equity);
+        assert_eq!(found.unwrap().name, "OpeningBalances");
     }
 
     #[test]
@@ -378,7 +408,6 @@ mod tests {
         let parent = Account {
             id: AccountId(0),
             name: "TestParent".to_string(),
-            account_type: AccountType::Asset,
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -390,7 +419,6 @@ mod tests {
         let child = Account {
             id: AccountId(0),
             name: "Child".to_string(),
-            account_type: AccountType::Asset,
             parent_id: Some(parent_id),
             closed_at: None,
             is_system: false,
@@ -418,5 +446,90 @@ mod tests {
         repo.reopen(&conn, found.id).unwrap();
         let reopened = repo.get(&conn, found.id).unwrap().unwrap();
         assert!(reopened.closed_at.is_none());
+    }
+
+    #[test]
+    fn test_find_root_name_returns_root_for_child() {
+        let (conn, repo) = setup();
+        let assets = Account {
+            id: AccountId(0),
+            name: "Assets".to_string(),
+            parent_id: None,
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let assets_id = repo.create_with_closure(&conn, &assets).unwrap();
+        let bank = Account {
+            id: AccountId(0),
+            name: "Bank".to_string(),
+            parent_id: Some(assets_id),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let bank_id = repo.create_with_closure(&conn, &bank).unwrap();
+        let checking = Account {
+            id: AccountId(0),
+            name: "Checking".to_string(),
+            parent_id: Some(bank_id),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let checking_id = repo.create_with_closure(&conn, &checking).unwrap();
+
+        assert_eq!(repo.find_root_name(&conn, checking_id).unwrap(), "Assets");
+        assert_eq!(repo.find_root_id(&conn, bank_id).unwrap(), assets_id);
+    }
+
+    #[test]
+    fn test_find_root_returns_self_for_root() {
+        let (conn, repo) = setup();
+        let equity = Account {
+            id: AccountId(0),
+            name: "Equity".to_string(),
+            parent_id: None,
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let equity_id = repo.create_with_closure(&conn, &equity).unwrap();
+
+        assert_eq!(repo.find_root_name(&conn, equity_id).unwrap(), "Equity");
+        assert_eq!(repo.find_root_id(&conn, equity_id).unwrap(), equity_id);
+    }
+
+    #[test]
+    fn test_find_root_name_with_chinese_name() {
+        let (conn, repo) = setup();
+        let assets_cn = Account {
+            id: AccountId(0),
+            name: "资产".to_string(),
+            parent_id: None,
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let assets_id = repo.create_with_closure(&conn, &assets_cn).unwrap();
+        let bank_cn = Account {
+            id: AccountId(0),
+            name: "银行".to_string(),
+            parent_id: Some(assets_id),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let bank_id = repo.create_with_closure(&conn, &bank_cn).unwrap();
+
+        assert_eq!(repo.find_root_name(&conn, bank_id).unwrap(), "资产");
+        assert_eq!(repo.find_root_id(&conn, bank_id).unwrap(), assets_id);
+        assert_eq!(repo.find_root_name(&conn, assets_id).unwrap(), "资产");
     }
 }

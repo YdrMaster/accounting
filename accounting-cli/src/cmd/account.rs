@@ -1,9 +1,12 @@
-use crate::cmd::{AccountRow, AccountTypeArg, BalanceRow};
+use crate::cmd::{AccountRow, BalanceRow};
 use crate::output::{OutputFormat, print, print_line, print_vec};
+use accounting::account_type::AccountType;
 use accounting::id::AccountId;
+use accounting_sql::database::Database;
 use accounting_sql::impls::sqlite::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_i18n::t;
+use std::str::FromStr;
 
 #[derive(Subcommand)]
 pub enum AccountCmd {
@@ -23,8 +26,9 @@ pub enum AccountCmd {
 
 #[derive(Args)]
 pub struct AccountListArgs {
-    #[arg(long, value_enum)]
-    pub r#type: Option<AccountTypeArg>,
+    /// 根账户 ID，仅列出该根账户子树下的账户
+    #[arg(long)]
+    pub r#type: Option<i64>,
     #[arg(long)]
     pub limit: Option<i64>,
     #[arg(long)]
@@ -72,10 +76,23 @@ impl AccountCmd {
     ) -> Result<(), accounting::error::AccountingError> {
         match self {
             AccountCmd::List(args) => {
-                let service = accounting_service::account_service::AccountService::new(db);
-                let account_type = args.r#type.map(|t| t.into());
-                let accounts = service.list(account_type, args.limit, args.offset).await?;
-                let rows: Vec<AccountRow> = accounts.iter().map(|a| a.into()).collect();
+                let service = accounting_service::account_service::AccountService::new(db.clone());
+                let root_id = args.r#type.map(AccountId);
+                let accounts = service.list(root_id, args.limit, args.offset).await?;
+                let conn = db.connection();
+                let rows: Vec<AccountRow> = accounts
+                    .iter()
+                    .map(|a| {
+                        let account_type = db
+                            .account_repo()
+                            .find_root_name(&conn, a.id)
+                            .ok()
+                            .and_then(|root_name| AccountType::from_str(&root_name).ok())
+                            .map(|ty| ty.display_name())
+                            .unwrap_or_default();
+                        AccountRow::new(a, account_type)
+                    })
+                    .collect();
                 print_vec(&rows, format);
             }
             AccountCmd::Add(args) => {
@@ -83,7 +100,6 @@ impl AccountCmd {
                 let account = accounting::account::Account {
                     id: AccountId(0),
                     name: args.name,
-                    account_type: accounting::account_type::AccountType::Asset,
                     parent_id: args.parent_id.map(AccountId),
                     closed_at: None,
                     is_system: false,
@@ -94,11 +110,19 @@ impl AccountCmd {
                 print_line(&format!("{}", t!("account_created", id = id.0)), format);
             }
             AccountCmd::Show(args) => {
-                let service = accounting_service::account_service::AccountService::new(db);
+                let service = accounting_service::account_service::AccountService::new(db.clone());
                 let account = service.get(AccountId(args.id)).await?;
                 match account {
                     Some(a) => {
-                        let row: AccountRow = (&a).into();
+                        let conn = db.connection();
+                        let account_type = db
+                            .account_repo()
+                            .find_root_name(&conn, a.id)
+                            .ok()
+                            .and_then(|root_name| AccountType::from_str(&root_name).ok())
+                            .map(|ty| ty.display_name())
+                            .unwrap_or_default();
+                        let row = AccountRow::new(&a, account_type);
                         print(&row, format);
                     }
                     None => print_line(

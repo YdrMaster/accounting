@@ -49,26 +49,6 @@ pub enum Commands {
     Report(report::ReportCmd),
 }
 
-/// 账户类型参数（映射到 domain AccountType）
-#[derive(Clone, Copy, Debug, clap::ValueEnum)]
-pub enum AccountTypeArg {
-    Asset,
-    Equity,
-    Income,
-    Expense,
-}
-
-impl From<AccountTypeArg> for accounting::account_type::AccountType {
-    fn from(arg: AccountTypeArg) -> Self {
-        match arg {
-            AccountTypeArg::Asset => accounting::account_type::AccountType::Asset,
-            AccountTypeArg::Equity => accounting::account_type::AccountType::Equity,
-            AccountTypeArg::Income => accounting::account_type::AccountType::Income,
-            AccountTypeArg::Expense => accounting::account_type::AccountType::Expense,
-        }
-    }
-}
-
 // --- Tabled + Serialize wrapper types ---
 
 use serde::Serialize;
@@ -141,12 +121,12 @@ pub struct AccountRow {
     pub is_system: bool,
 }
 
-impl From<&accounting::account::Account> for AccountRow {
-    fn from(a: &accounting::account::Account) -> Self {
+impl AccountRow {
+    pub fn new(a: &accounting::account::Account, account_type: String) -> Self {
         Self {
             id: a.id.0,
             name: a.name.clone(),
-            account_type: a.account_type.display_name(),
+            account_type,
             parent_id: a.parent_id.map(|id| id.0.to_string()).unwrap_or_default(),
             closed_at: a.closed_at.map(|d| d.to_string()).unwrap_or_default(),
             is_system: a.is_system,

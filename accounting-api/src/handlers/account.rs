@@ -12,6 +12,7 @@ use axum::{
     routing::{delete, get, put},
 };
 use rust_i18n::t;
+use std::str::FromStr;
 use std::sync::Arc;
 
 /// 账户列表
@@ -33,20 +34,27 @@ async fn list_accounts(
         }
     }
 
-    let dtos: Vec<AccountDto> = accounts_raw
-        .iter()
-        .map(|a| AccountDto {
+    let mut dtos = Vec::new();
+    for a in &accounts_raw {
+        let root_name = db
+            .account_repo()
+            .find_root_name(&conn, a.id)
+            .map_err(|e| e.to_string())?;
+        let account_type = AccountType::from_str(&root_name)
+            .map(|ty| format!("{:?}", ty))
+            .map_err(|e| e.to_string())?;
+        dtos.push(AccountDto {
             id: a.id.0,
             name: a.name.clone(),
-            account_type: format!("{:?}", a.account_type),
+            account_type,
             parent_id: a.parent_id.map(|id| id.0),
             closed_at: a.closed_at.map(|d| d.to_string()),
             is_system: a.is_system,
             billing_day: a.billing_day,
             repayment_day: a.repayment_day,
             owner_ids: owners.get(&a.id.0).cloned().unwrap_or_default(),
-        })
-        .collect();
+        });
+    }
     Ok(Json(dtos))
 }
 
@@ -62,7 +70,6 @@ async fn create_account(
     let account = Account {
         id: AccountId(0),
         name: req.name,
-        account_type: AccountType::Asset,
         parent_id: req.parent_id.map(AccountId),
         closed_at: None,
         is_system: false,
@@ -145,8 +152,10 @@ async fn close_account(
     Path(id): Path<i64>,
 ) -> Result<String, String> {
     let db = state.db().map_err(|e| e.to_string())?;
-    db.account_repo()
-        .close(&db.connection(), AccountId(id))
+    let service = accounting_service::account_service::AccountService::new(db);
+    service
+        .close(AccountId(id))
+        .await
         .map_err(|e| e.to_string())?;
     Ok("closed".to_string())
 }
@@ -157,9 +166,10 @@ async fn reopen_account(
     Path(id): Path<i64>,
 ) -> Result<String, String> {
     let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
-    db.account_repo()
-        .reopen(&conn, AccountId(id))
+    let service = accounting_service::account_service::AccountService::new(db);
+    service
+        .reopen(AccountId(id))
+        .await
         .map_err(|e| e.to_string())?;
     Ok("reopened".to_string())
 }

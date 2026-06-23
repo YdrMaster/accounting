@@ -194,7 +194,6 @@ impl Drop for SqliteTransaction {
 mod tests {
     use super::*;
     use accounting::account::Account;
-    use accounting::account_type::AccountType;
     use accounting::id::AccountId;
 
     #[tokio::test]
@@ -214,7 +213,6 @@ mod tests {
         let account = Account {
             id: AccountId(0),
             name: "Cash".to_string(),
-            account_type: AccountType::Asset,
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -237,15 +235,13 @@ mod tests {
             let account = Account {
                 id: AccountId(0),
                 name: "Cash".to_string(),
-                account_type: AccountType::Asset,
                 parent_id: None,
                 closed_at: None,
                 is_system: false,
                 billing_day: None,
                 repayment_day: None,
             };
-            let id = tx.account_repo().create(&tx.conn(), &account).unwrap();
-            id // tx dropped here without commit
+            tx.account_repo().create(&tx.conn(), &account).unwrap() // tx dropped here without commit
         };
 
         let conn = db.pool.get();

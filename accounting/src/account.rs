@@ -1,4 +1,3 @@
-use crate::account_type::AccountType;
 use crate::id::AccountId;
 use chrono::NaiveDate;
 use std::collections::HashMap;
@@ -10,8 +9,6 @@ pub struct Account {
     pub id: AccountId,
     /// 账户名（本级名称），如 Cash
     pub name: String,
-    /// 账户类型
-    pub account_type: AccountType,
     /// 父账户 ID，根账户为 None
     pub parent_id: Option<AccountId>,
     /// 关户日期，未关闭为 None
@@ -45,14 +42,12 @@ impl Account {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::account_type::AccountType;
     use crate::id::AccountId;
     #[test]
     fn test_account_fields() {
         let a = Account {
             id: AccountId(1),
             name: "Cash".to_string(),
-            account_type: AccountType::Asset,
             parent_id: None,
             closed_at: None,
             is_system: false,

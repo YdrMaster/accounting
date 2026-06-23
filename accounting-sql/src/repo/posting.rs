@@ -58,25 +58,25 @@ pub trait PostingRepo {
     ) -> Result<Vec<(CommodityId, Decimal)>, crate::error::DbError>;
     /// 按标签汇总分录金额（支持 TransactionFilter 过滤）
     ///
-    /// 返回 `(TagId, CommodityId, account_type, Decimal)` 列表，
-    /// 其中 `account_type` 为 3(Income) 或 4(Expense)，用于区分收入/支出方向。
+    /// 返回 `(TagId, CommodityId, root_name, Decimal)` 列表，
+    /// 其中 `root_name` 为账户根节点名称，用于运行时推导账户类型。
     fn sum_by_tag(
         &self,
         conn: &Connection,
         filter: &accounting::transaction_filter::TransactionFilter,
-    ) -> Result<Vec<(TagId, CommodityId, i64, Decimal)>, crate::error::DbError>;
+    ) -> Result<Vec<(TagId, CommodityId, String, Decimal)>, crate::error::DbError>;
     /// 按成员汇总分录金额（支持 TransactionFilter 过滤）
     fn sum_by_member(
         &self,
         conn: &Connection,
         filter: &accounting::transaction_filter::TransactionFilter,
-    ) -> Result<Vec<(MemberId, CommodityId, i64, Decimal)>, crate::error::DbError>;
+    ) -> Result<Vec<(MemberId, CommodityId, String, Decimal)>, crate::error::DbError>;
     /// 按渠道汇总分录金额（支持 TransactionFilter 过滤）
     fn sum_by_channel(
         &self,
         conn: &Connection,
         filter: &accounting::transaction_filter::TransactionFilter,
-    ) -> Result<Vec<(ChannelId, CommodityId, i64, Decimal)>, crate::error::DbError>;
+    ) -> Result<Vec<(ChannelId, CommodityId, String, Decimal)>, crate::error::DbError>;
 }
 
 /// SQLite PostingRepo 实现
@@ -370,7 +370,7 @@ impl PostingRepo for SqlitePostingRepo {
         &self,
         conn: &Connection,
         filter: &TransactionFilter,
-    ) -> Result<Vec<(TagId, CommodityId, i64, Decimal)>, crate::error::DbError> {
+    ) -> Result<Vec<(TagId, CommodityId, String, Decimal)>, crate::error::DbError> {
         let mut conditions = vec!["1=1"];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
@@ -401,13 +401,15 @@ impl PostingRepo for SqlitePostingRepo {
 
         let where_clause = conditions.join(" AND ");
         let sql = format!(
-            "SELECT tt.tag_id, p.commodity_id, a.account_type, SUM(p.amount) as total
+            "SELECT tt.tag_id, p.commodity_id, ra.name, SUM(p.amount) as total
              FROM postings p
              JOIN accounts a ON p.account_id = a.id
+             JOIN account_ancestors aa ON a.id = aa.account_id AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
+             JOIN accounts ra ON aa.ancestor_id = ra.id
              JOIN transactions t ON p.transaction_id = t.id
              JOIN transaction_tags tt ON tt.transaction_id = t.id
              WHERE {}
-             GROUP BY tt.tag_id, p.commodity_id, a.account_type",
+             GROUP BY tt.tag_id, p.commodity_id, ra.name",
             where_clause
         );
 
@@ -418,19 +420,19 @@ impl PostingRepo for SqlitePostingRepo {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
                 ))
             })?
             .collect::<Result<_, _>>()?;
 
         let mut result = Vec::new();
-        for (tag_id, commodity_id, account_type, amount) in raw_rows {
+        for (tag_id, commodity_id, root_name, amount) in raw_rows {
             let precision = get_precision(conn, CommodityId(commodity_id))?;
             result.push((
                 TagId(tag_id),
                 CommodityId(commodity_id),
-                account_type,
+                root_name,
                 accounting::amount::from_db_amount(amount, precision),
             ));
         }
@@ -441,7 +443,7 @@ impl PostingRepo for SqlitePostingRepo {
         &self,
         conn: &Connection,
         filter: &TransactionFilter,
-    ) -> Result<Vec<(MemberId, CommodityId, i64, Decimal)>, crate::error::DbError> {
+    ) -> Result<Vec<(MemberId, CommodityId, String, Decimal)>, crate::error::DbError> {
         let mut conditions = vec!["1=1", "t.member_id IS NOT NULL"];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
@@ -474,12 +476,14 @@ impl PostingRepo for SqlitePostingRepo {
 
         let where_clause = conditions.join(" AND ");
         let sql = format!(
-            "SELECT t.member_id, p.commodity_id, a.account_type, SUM(p.amount) as total
+            "SELECT t.member_id, p.commodity_id, ra.name, SUM(p.amount) as total
              FROM postings p
              JOIN accounts a ON p.account_id = a.id
+             JOIN account_ancestors aa ON a.id = aa.account_id AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
+             JOIN accounts ra ON aa.ancestor_id = ra.id
              JOIN transactions t ON p.transaction_id = t.id
              WHERE {}
-             GROUP BY t.member_id, p.commodity_id, a.account_type",
+             GROUP BY t.member_id, p.commodity_id, ra.name",
             where_clause
         );
 
@@ -490,19 +494,19 @@ impl PostingRepo for SqlitePostingRepo {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
                 ))
             })?
             .collect::<Result<_, _>>()?;
 
         let mut result = Vec::new();
-        for (member_id, commodity_id, account_type, amount) in raw_rows {
+        for (member_id, commodity_id, root_name, amount) in raw_rows {
             let precision = get_precision(conn, CommodityId(commodity_id))?;
             result.push((
                 MemberId(member_id),
                 CommodityId(commodity_id),
-                account_type,
+                root_name,
                 accounting::amount::from_db_amount(amount, precision),
             ));
         }
@@ -513,7 +517,7 @@ impl PostingRepo for SqlitePostingRepo {
         &self,
         conn: &Connection,
         filter: &TransactionFilter,
-    ) -> Result<Vec<(ChannelId, CommodityId, i64, Decimal)>, crate::error::DbError> {
+    ) -> Result<Vec<(ChannelId, CommodityId, String, Decimal)>, crate::error::DbError> {
         let mut conditions = vec!["1=1", "t.channel_id IS NOT NULL"];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
@@ -546,12 +550,14 @@ impl PostingRepo for SqlitePostingRepo {
 
         let where_clause = conditions.join(" AND ");
         let sql = format!(
-            "SELECT t.channel_id, p.commodity_id, a.account_type, SUM(p.amount) as total
+            "SELECT t.channel_id, p.commodity_id, ra.name, SUM(p.amount) as total
              FROM postings p
              JOIN accounts a ON p.account_id = a.id
+             JOIN account_ancestors aa ON a.id = aa.account_id AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
+             JOIN accounts ra ON aa.ancestor_id = ra.id
              JOIN transactions t ON p.transaction_id = t.id
              WHERE {}
-             GROUP BY t.channel_id, p.commodity_id, a.account_type",
+             GROUP BY t.channel_id, p.commodity_id, ra.name",
             where_clause
         );
 
@@ -562,19 +568,19 @@ impl PostingRepo for SqlitePostingRepo {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
                 ))
             })?
             .collect::<Result<_, _>>()?;
 
         let mut result = Vec::new();
-        for (channel_id, commodity_id, account_type, amount) in raw_rows {
+        for (channel_id, commodity_id, root_name, amount) in raw_rows {
             let precision = get_precision(conn, CommodityId(commodity_id))?;
             result.push((
                 ChannelId(channel_id),
                 CommodityId(commodity_id),
-                account_type,
+                root_name,
                 accounting::amount::from_db_amount(amount, precision),
             ));
         }
@@ -598,6 +604,8 @@ fn get_precision(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::repo::account::{AccountRepo, SqliteAccountRepo};
+    use accounting::account::Account;
     use accounting::id::{AccountId, ChannelId, CommodityId, MemberId, TagId};
     use accounting::transaction_filter::TransactionFilter;
     use chrono::NaiveDate;
@@ -622,32 +630,50 @@ mod tests {
     }
 
     fn insert_account(conn: &Connection, name: &str) -> AccountId {
-        conn.execute(
-            "INSERT INTO accounts (name, account_type, is_system) VALUES (?1, 1, 0)",
-            [name],
-        )
-        .unwrap();
-        AccountId(conn.last_insert_rowid())
+        let repo = SqliteAccountRepo;
+        let root_id = repo.get_by_name(conn, "Assets").unwrap().unwrap().id;
+        let account = Account {
+            id: AccountId(0),
+            name: name.to_string(),
+            parent_id: Some(root_id),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        repo.create_with_closure(conn, &account).unwrap()
     }
 
-    /// 插入 Income 类型账户（account_type = 3）
+    /// 插入 Income 类型账户
     fn insert_income_account(conn: &Connection, name: &str) -> AccountId {
-        conn.execute(
-            "INSERT INTO accounts (name, account_type, is_system) VALUES (?1, 3, 0)",
-            [name],
-        )
-        .unwrap();
-        AccountId(conn.last_insert_rowid())
+        let repo = SqliteAccountRepo;
+        let root_id = repo.get_by_name(conn, "Income").unwrap().unwrap().id;
+        let account = Account {
+            id: AccountId(0),
+            name: name.to_string(),
+            parent_id: Some(root_id),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        repo.create_with_closure(conn, &account).unwrap()
     }
 
-    /// 插入 Expense 类型账户（account_type = 4）
+    /// 插入 Expense 类型账户
     fn insert_expense_account(conn: &Connection, name: &str) -> AccountId {
-        conn.execute(
-            "INSERT INTO accounts (name, account_type, is_system) VALUES (?1, 4, 0)",
-            [name],
-        )
-        .unwrap();
-        AccountId(conn.last_insert_rowid())
+        let repo = SqliteAccountRepo;
+        let root_id = repo.get_by_name(conn, "Expenses").unwrap().unwrap().id;
+        let account = Account {
+            id: AccountId(0),
+            name: name.to_string(),
+            parent_id: Some(root_id),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        repo.create_with_closure(conn, &account).unwrap()
     }
 
     fn sample_posting(tx_id: TransactionId, account_id: AccountId, amount: &str) -> Posting {
@@ -779,8 +805,8 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 2);
 
-        let income_row = results.iter().find(|r| r.2 == 3).unwrap();
-        let expense_row = results.iter().find(|r| r.2 == 4).unwrap();
+        let income_row = results.iter().find(|r| r.2 == "Income").unwrap();
+        let expense_row = results.iter().find(|r| r.2 == "Expenses").unwrap();
         assert_eq!(income_row.0, tag_id);
         assert_eq!(income_row.1, CommodityId(1));
         assert_eq!(income_row.3, Decimal::from_str("100.00").unwrap());
@@ -839,8 +865,8 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 2);
 
-        let income_row = results.iter().find(|r| r.2 == 3).unwrap();
-        let expense_row = results.iter().find(|r| r.2 == 4).unwrap();
+        let income_row = results.iter().find(|r| r.2 == "Income").unwrap();
+        let expense_row = results.iter().find(|r| r.2 == "Expenses").unwrap();
         assert_eq!(income_row.0, member_id);
         assert_eq!(income_row.1, CommodityId(1));
         assert_eq!(income_row.3, Decimal::from_str("200.00").unwrap());
@@ -901,8 +927,8 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 2);
 
-        let income_row = results.iter().find(|r| r.2 == 3).unwrap();
-        let expense_row = results.iter().find(|r| r.2 == 4).unwrap();
+        let income_row = results.iter().find(|r| r.2 == "Income").unwrap();
+        let expense_row = results.iter().find(|r| r.2 == "Expenses").unwrap();
         assert_eq!(income_row.0, channel_id);
         assert_eq!(income_row.1, CommodityId(1));
         assert_eq!(income_row.3, Decimal::from_str("300.00").unwrap());

@@ -37,9 +37,9 @@ mod tests {
     }
 
     #[test]
-    fn test_account_id_clone() {
+    fn test_account_id_copy() {
         let a = AccountId(42);
-        let b = a.clone();
+        let b = a;
         assert_eq!(a, b);
     }
 

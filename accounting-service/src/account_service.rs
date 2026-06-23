@@ -8,6 +8,7 @@ use accounting_sql::transaction::Transaction;
 use rust_decimal::Decimal;
 use rust_i18n::t;
 use std::collections::HashMap;
+use std::str::FromStr;
 
 /// 账户服务
 pub struct AccountService<D: Database> {
@@ -21,14 +22,14 @@ impl<D: Database> AccountService<D> {
     }
 
     /// 创建账户并维护闭包表（保留原始接口）
-    pub async fn create(&self, mut account: Account) -> Result<AccountId, AccountingError> {
+    pub async fn create(&self, account: Account) -> Result<AccountId, AccountingError> {
         let tx = self
             .db
             .transaction()
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        // 验证父账户存在并继承/校验账户类型
+        // 验证父账户存在；根账户则校验名称是否为有效根节点名
         if let Some(parent_id) = account.parent_id {
             let parent = tx
                 .account_repo()
@@ -40,9 +41,8 @@ impl<D: Database> AccountService<D> {
                     t!("parent_account_not_found", id = parent_id)
                 )));
             }
-            account.account_type = parent.unwrap().account_type;
         } else {
-            account.account_type = AccountType::from_prefix(&account.name).ok_or_else(|| {
+            AccountType::from_str(&account.name).map_err(|_| {
                 AccountingError::InvalidTransaction(
                     t!("unrecognized_account_prefix", prefix = account.name).to_string(),
                 )
@@ -72,7 +72,7 @@ impl<D: Database> AccountService<D> {
 
     /// 根据路径级联创建账户
     ///
-    /// 解析 `:` 分隔的层级结构，自动推导 account_type（第一段），
+    /// 解析 `:` 分隔的层级结构，校验第一段为有效根节点名，
     /// 逐级按 name + parent_id 查找/创建父账户，最后创建目标账户。
     /// 返回目标账户的 ID。
     pub async fn create_cascading(
@@ -89,8 +89,8 @@ impl<D: Database> AccountService<D> {
             ));
         }
 
-        // 从第一段推导 account_type
-        let account_type = AccountType::from_prefix(segments[0]).ok_or_else(|| {
+        // 校验第一段为有效根节点名
+        AccountType::from_str(segments[0]).map_err(|_| {
             AccountingError::InvalidTransaction(
                 t!("unrecognized_account_prefix", prefix = segments[0]).to_string(),
             )
@@ -112,19 +112,6 @@ impl<D: Database> AccountService<D> {
                 .get_by_parent_and_name(&tx.conn(), parent_id, segment)
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
             {
-                // 验证类型一致
-                if existing.account_type != account_type {
-                    let path = segments[..=i].join(":");
-                    return Err(AccountingError::InvalidTransaction(format!(
-                        "{}",
-                        t!(
-                            "account_exists_type_mismatch",
-                            id = path,
-                            expected = format!("{:?}", account_type),
-                            actual = format!("{:?}", existing.account_type)
-                        )
-                    )));
-                }
                 parent_id = Some(existing.id);
                 last_id = Some(existing.id);
                 continue;
@@ -134,7 +121,6 @@ impl<D: Database> AccountService<D> {
             let account = Account {
                 id: AccountId(0),
                 name: segment.to_string(),
-                account_type,
                 parent_id,
                 closed_at: None,
                 is_system: false,
@@ -189,7 +175,13 @@ impl<D: Database> AccountService<D> {
             .posting_repo()
             .sum_by_account(&tx.conn(), id)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        validate_account_close(account.account_type, &balances)?;
+        let root_name = tx
+            .account_repo()
+            .find_root_name(&tx.conn(), account.id)
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        let account_type =
+            AccountType::from_str(&root_name).map_err(AccountingError::DatabaseError)?;
+        validate_account_close(account_type, &balances)?;
 
         // 关闭目标账户
         tx.account_repo()
@@ -245,7 +237,7 @@ impl<D: Database> AccountService<D> {
     /// 列出账户
     pub async fn list(
         &self,
-        account_type: Option<AccountType>,
+        root_id: Option<AccountId>,
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<Account>, AccountingError> {
@@ -255,8 +247,17 @@ impl<D: Database> AccountService<D> {
             .account_repo()
             .list(&conn)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        if let Some(ty) = account_type {
-            accounts.retain(|a| a.account_type == ty);
+        if let Some(root_id) = root_id {
+            let root_ids: Result<Vec<_>, _> = accounts
+                .iter()
+                .map(|a| self.db.account_repo().find_root_id(&conn, a.id))
+                .collect();
+            let root_ids = root_ids.map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+            accounts = accounts
+                .into_iter()
+                .zip(root_ids)
+                .filter_map(|(a, rid)| if rid == root_id { Some(a) } else { None })
+                .collect();
         }
         let offset = offset.unwrap_or(0) as usize;
         let limit = limit.map(|l| l as usize).unwrap_or(accounts.len());
@@ -305,15 +306,13 @@ impl<D: Database> AccountService<D> {
 mod tests {
     use super::*;
     use accounting::account::Account;
-    use accounting::account_type::AccountType;
     use accounting::id::AccountId;
     use accounting_sql::impls::sqlite::SqliteDatabase;
 
-    fn sample_account(name: &str, account_type: AccountType) -> Account {
+    fn sample_account(name: &str) -> Account {
         Account {
             id: AccountId(0),
             name: name.to_string(),
-            account_type,
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -326,7 +325,7 @@ mod tests {
     async fn test_create_account() {
         let db = SqliteDatabase::open_in_memory().unwrap();
         let service = AccountService::new(db);
-        let account = sample_account("Assets", AccountType::Asset);
+        let account = sample_account("Assets");
         let id = service.create(account).await.unwrap();
         assert!(id.0 > 0);
     }
@@ -336,10 +335,10 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().unwrap();
         let service = AccountService::new(db);
 
-        let parent = sample_account("Assets", AccountType::Asset);
+        let parent = sample_account("Assets");
         let parent_id = service.create(parent).await.unwrap();
 
-        let mut child = sample_account("Cash", AccountType::Asset);
+        let mut child = sample_account("Cash");
         child.parent_id = Some(parent_id);
         let child_id = service.create(child).await.unwrap();
 
@@ -361,10 +360,10 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().unwrap();
         let service = AccountService::new(db);
 
-        let parent = sample_account("Assets", AccountType::Asset);
+        let parent = sample_account("Assets");
         let parent_id = service.create(parent).await.unwrap();
 
-        let mut child = sample_account("Cash", AccountType::Asset);
+        let mut child = sample_account("Cash");
         child.parent_id = Some(parent_id);
         service.create(child.clone()).await.unwrap();
         let result = service.create(child).await;
@@ -378,7 +377,7 @@ mod tests {
     async fn test_create_with_nonexistent_parent_fails() {
         let db = SqliteDatabase::open_in_memory().unwrap();
         let service = AccountService::new(db);
-        let mut account = sample_account("Cash", AccountType::Asset);
+        let mut account = sample_account("Cash");
         account.parent_id = Some(AccountId(99999));
         let result = service.create(account).await;
         assert!(matches!(result, Err(AccountingError::AccountNotFound(_))));
@@ -389,10 +388,10 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().unwrap();
         let service = AccountService::new(db);
 
-        let parent = sample_account("Assets", AccountType::Asset);
+        let parent = sample_account("Assets");
         let parent_id = service.create(parent).await.unwrap();
 
-        let mut child = sample_account("Cash", AccountType::Asset);
+        let mut child = sample_account("Cash");
         child.parent_id = Some(parent_id);
         let id = service.create(child).await.unwrap();
 
