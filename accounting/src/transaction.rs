@@ -39,6 +39,4 @@ pub struct Transaction {
     pub member_id: Option<MemberId>,
     /// 支付渠道 ID
     pub channel_id: Option<ChannelId>,
-    /// 是否为模板交易
-    pub is_template: bool,
 }

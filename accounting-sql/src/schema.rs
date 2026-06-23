@@ -101,7 +101,6 @@ CREATE TABLE IF NOT EXISTS transactions (
     description TEXT NOT NULL,
     member_id INTEGER REFERENCES members(id),
     channel_id INTEGER REFERENCES channels(id),
-    is_template INTEGER NOT NULL DEFAULT 0,
     kind INTEGER NOT NULL DEFAULT 1 CHECK(kind BETWEEN 1 AND 3),
     created_at TEXT NOT NULL DEFAULT (date('now')),
     updated_at TEXT NOT NULL DEFAULT (date('now'))
@@ -121,8 +120,6 @@ CREATE TABLE IF NOT EXISTS postings (
     cost INTEGER,
     cost_commodity_id INTEGER REFERENCES commodities(id),
     description TEXT,
-    member_id INTEGER REFERENCES members(id),
-    channel_id INTEGER REFERENCES channels(id),
     is_reimbursable INTEGER NOT NULL DEFAULT 0,
     linked_posting_id INTEGER REFERENCES postings(id),
     reversal_total INTEGER NOT NULL DEFAULT 0,

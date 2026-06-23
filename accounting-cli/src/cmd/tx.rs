@@ -60,9 +60,6 @@ pub struct TxListArgs {
     pub limit: Option<i64>,
     #[arg(long)]
     pub offset: Option<i64>,
-    /// 是否只显示模板交易
-    #[arg(long)]
-    pub template: bool,
     /// 是否只显示分期交易
     #[arg(long)]
     pub installment: bool,
@@ -170,7 +167,6 @@ async fn parse_tx_args(
         kind: accounting::transaction::TransactionKind::Normal,
         member_id: args.member.map(MemberId),
         channel_id: None,
-        is_template: false,
     };
     Ok((tx, postings, tag_ids))
 }
@@ -189,7 +185,6 @@ async fn parse_tx_args_for_update(
         kind: accounting::transaction::TransactionKind::Normal,
         member_id: args.member.map(MemberId),
         channel_id: None,
-        is_template: false,
     };
     Ok((tx, postings, tag_ids))
 }
@@ -317,8 +312,6 @@ async fn parse_postings(
             cost,
             cost_commodity_id,
             description: None,
-            member_id: None,
-            channel_id: None,
             is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,
@@ -383,7 +376,6 @@ fn build_filter(
     if let Some(ref keyword) = args.keyword {
         filter.keyword = Some(keyword.clone());
     }
-    filter.is_template = if args.template { Some(true) } else { None };
     filter.has_installment = if args.installment { Some(true) } else { None };
     Ok(filter)
 }

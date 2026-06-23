@@ -364,8 +364,6 @@ mod tests {
             cost: None,
             cost_commodity_id: None,
             description: None,
-            member_id: None,
-            channel_id: None,
             is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,
@@ -402,7 +400,6 @@ mod tests {
             kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
-            is_template: false,
         };
         let tx_id = report_service
             .db
@@ -479,7 +476,6 @@ mod tests {
                 kind: TransactionKind::Normal,
                 member_id: None,
                 channel_id: None,
-                is_template: false,
             };
             let tx1_id = report_service
                 .db
@@ -505,7 +501,6 @@ mod tests {
                 kind: TransactionKind::Normal,
                 member_id: None,
                 channel_id: None,
-                is_template: false,
             };
             let tx2_id = report_service
                 .db
@@ -574,7 +569,6 @@ mod tests {
                 kind: TransactionKind::Normal,
                 member_id: None,
                 channel_id: None,
-                is_template: false,
             };
             let tx_id = report_service
                 .db
@@ -657,7 +651,6 @@ mod tests {
                 kind: TransactionKind::Normal,
                 member_id: None,
                 channel_id: None,
-                is_template: false,
             };
             let tx_id = report_service
                 .db
@@ -737,7 +730,6 @@ mod tests {
                 kind: TransactionKind::Normal,
                 member_id: Some(member_id),
                 channel_id: None,
-                is_template: false,
             };
             let tx_id = report_service
                 .db
@@ -807,7 +799,7 @@ mod tests {
                 .create(&conn, &channel)
                 .unwrap();
 
-            // 创建交易
+            // 创建交易（带渠道）
             let tx = Transaction {
                 id: TransactionId(0),
                 date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
@@ -817,8 +809,7 @@ mod tests {
                 description: "Channel stat test".to_string(),
                 kind: TransactionKind::Normal,
                 member_id: None,
-                channel_id: None,
-                is_template: false,
+                channel_id: Some(channel_id),
             };
             let tx_id = report_service
                 .db
@@ -826,13 +817,11 @@ mod tests {
                 .insert(&conn, &tx, &[])
                 .unwrap();
 
-            // 插入分录并关联渠道
+            // 插入分录
             let mut p1 = sample_posting(income_id, "100");
             p1.transaction_id = tx_id;
-            p1.channel_id = Some(channel_id);
             let mut p2 = sample_posting(expense_id, "-100");
             p2.transaction_id = tx_id;
-            p2.channel_id = Some(channel_id);
             report_service.db.posting_repo().insert(&conn, &p1).unwrap();
             report_service.db.posting_repo().insert(&conn, &p2).unwrap();
 

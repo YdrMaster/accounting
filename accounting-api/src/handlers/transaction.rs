@@ -131,7 +131,6 @@ async fn list_transactions(
             },
             member_id: tx.member_id.map(|id| id.0),
             channel_id: tx.channel_id.map(|id| id.0),
-            is_template: tx.is_template,
             postings: postings
                 .into_iter()
                 .map(|p| PostingDto {
@@ -191,8 +190,6 @@ async fn create_transaction(
             cost: None,
             cost_commodity_id: None,
             description: None,
-            member_id,
-            channel_id: None,
             is_reimbursable: posting_req.is_reimbursable,
             linked_posting_id: posting_req.linked_posting_id.map(PostingId),
             reversal_total: Decimal::ZERO,
@@ -235,7 +232,6 @@ async fn create_transaction(
         kind: tx_kind,
         member_id,
         channel_id: req.channel_id.map(ChannelId),
-        is_template: false,
     };
 
     let service = TransactionService::new(db);
@@ -311,7 +307,6 @@ async fn get_transaction(
         },
         member_id: tx.member_id.map(|id| id.0),
         channel_id: tx.channel_id.map(|id| id.0),
-        is_template: tx.is_template,
         postings: posting_dtos,
     }))
 }
@@ -401,8 +396,6 @@ async fn update_transaction(
                 cost: None,
                 cost_commodity_id: None,
                 description: None,
-                member_id,
-                channel_id: None,
                 is_reimbursable: posting_req.is_reimbursable,
                 linked_posting_id: posting_req.linked_posting_id.map(PostingId),
                 reversal_total: Decimal::ZERO,
@@ -448,7 +441,6 @@ async fn update_transaction(
         kind: tx_kind,
         member_id,
         channel_id: req.channel_id.map(ChannelId),
-        is_template: false,
     };
 
     let service = TransactionService::new(db);

@@ -161,7 +161,6 @@ pub struct TransactionRow {
     pub date_time: String,
     pub description: String,
     pub member_id: String,
-    pub is_template: bool,
 }
 
 impl From<&accounting::transaction::Transaction> for TransactionRow {
@@ -171,7 +170,6 @@ impl From<&accounting::transaction::Transaction> for TransactionRow {
             date_time: t.date_time.to_string(),
             description: t.description.clone(),
             member_id: t.member_id.map(|id| id.0.to_string()).unwrap_or_default(),
-            is_template: t.is_template,
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::id::{AccountId, ChannelId, CommodityId, MemberId, PostingId, TransactionId};
+use crate::id::{AccountId, CommodityId, PostingId, TransactionId};
 use rust_decimal::Decimal;
 
 /// 分录（Posting / 端点）
@@ -20,10 +20,6 @@ pub struct Posting {
     pub cost_commodity_id: Option<CommodityId>,
     /// 分录描述
     pub description: Option<String>,
-    /// 关联成员 ID
-    pub member_id: Option<MemberId>,
-    /// 关联支付渠道 ID
-    pub channel_id: Option<ChannelId>,
     /// 可报销标记（仅 Expense 类账户可设置）
     pub is_reimbursable: bool,
     /// 关联原分录 ID（非空表示该分录是冲减分录）

@@ -76,8 +76,6 @@ pub struct TransactionDto {
     pub member_id: Option<i64>,
     /// 渠道 ID。
     pub channel_id: Option<i64>,
-    /// 是否为模板。
-    pub is_template: bool,
     /// 分录列表。
     pub postings: Vec<PostingDto>,
 }

@@ -302,8 +302,6 @@ mod tests {
             cost: None,
             cost_commodity_id: None,
             description: None,
-            member_id: None,
-            channel_id: None,
             is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,
@@ -336,7 +334,6 @@ mod tests {
             kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
-            is_template: false,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
 
@@ -363,7 +360,6 @@ mod tests {
             kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
-            is_template: false,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-50")];
 
@@ -393,7 +389,6 @@ mod tests {
             kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
-            is_template: false,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
 
@@ -410,7 +405,6 @@ mod tests {
             kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
-            is_template: false,
         };
         let new_postings = vec![sample_posting(id1, "200"), sample_posting(id2, "-200")];
 
@@ -448,7 +442,6 @@ mod tests {
             kind: TransactionKind::Normal,
             member_id: None,
             channel_id: None,
-            is_template: false,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
 

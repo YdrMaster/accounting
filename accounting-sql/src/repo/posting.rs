@@ -100,8 +100,8 @@ impl PostingRepo for SqlitePostingRepo {
             .map(|c| accounting::amount::to_db_amount(c, cost_precision));
         conn.execute(
             "INSERT INTO postings
-             (transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, is_reimbursable, linked_posting_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             (transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, is_reimbursable, linked_posting_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 posting.transaction_id.0,
                 posting.account_id.0,
@@ -110,8 +110,6 @@ impl PostingRepo for SqlitePostingRepo {
                 cost_i64,
                 posting.cost_commodity_id.map(|id| id.0),
                 posting.description,
-                posting.member_id.map(|id| id.0),
-                posting.channel_id.map(|id| id.0),
                 posting.is_reimbursable as i32,
                 posting.linked_posting_id.map(|id| id.0),
             ],
@@ -125,7 +123,7 @@ impl PostingRepo for SqlitePostingRepo {
         id: PostingId,
     ) -> Result<Option<Posting>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, is_reimbursable, linked_posting_id, reversal_total
+            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, is_reimbursable, linked_posting_id, reversal_total
              FROM postings WHERE id = ?1"
         )?;
         let mut rows = stmt.query(params![id.0])?;
@@ -147,11 +145,9 @@ impl PostingRepo for SqlitePostingRepo {
                     .map(|c| accounting::amount::from_db_amount(c, cost_precision)),
                 cost_commodity_id: cost_commodity_id.map(CommodityId),
                 description: row.get(7)?,
-                member_id: row.get::<_, Option<i64>>(8)?.map(accounting::id::MemberId),
-                channel_id: row.get::<_, Option<i64>>(9)?.map(accounting::id::ChannelId),
-                is_reimbursable: row.get::<_, i32>(10)? != 0,
-                linked_posting_id: row.get::<_, Option<i64>>(11)?.map(PostingId),
-                reversal_total: accounting::amount::from_db_amount(row.get(12)?, precision),
+                is_reimbursable: row.get::<_, i32>(8)? != 0,
+                linked_posting_id: row.get::<_, Option<i64>>(9)?.map(PostingId),
+                reversal_total: accounting::amount::from_db_amount(row.get(10)?, precision),
             }))
         } else {
             Ok(None)
@@ -165,7 +161,7 @@ impl PostingRepo for SqlitePostingRepo {
     ) -> Result<Vec<Posting>, crate::error::DbError> {
         // 准备查询语句，获取指定交易的所有原始分录数据
         let mut stmt = conn.prepare(
-            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, is_reimbursable, linked_posting_id, reversal_total
+            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, is_reimbursable, linked_posting_id, reversal_total
              FROM postings WHERE transaction_id = ?1"
         )?;
         // 先以原始 i64 形式读取所有行，避免在闭包中查询精度导致编译问题
@@ -180,11 +176,9 @@ impl PostingRepo for SqlitePostingRepo {
                     row.get::<_, Option<i64>>(5)?,
                     row.get::<_, Option<i64>>(6)?,
                     row.get::<_, Option<String>>(7)?,
-                    row.get::<_, Option<i64>>(8)?,
+                    row.get::<_, i32>(8)?,
                     row.get::<_, Option<i64>>(9)?,
-                    row.get::<_, i32>(10)?,
-                    row.get::<_, Option<i64>>(11)?,
-                    row.get::<_, i64>(12)?,
+                    row.get::<_, i64>(10)?,
                 ))
             })?
             .collect::<Result<_, _>>()?;
@@ -199,8 +193,6 @@ impl PostingRepo for SqlitePostingRepo {
             cost,
             cost_commodity_id,
             description,
-            member_id,
-            channel_id,
             is_reimbursable,
             linked_posting_id,
             reversal_total,
@@ -220,8 +212,6 @@ impl PostingRepo for SqlitePostingRepo {
                 cost: cost.map(|c| accounting::amount::from_db_amount(c, cost_precision)),
                 cost_commodity_id: cost_commodity_id.map(CommodityId),
                 description,
-                member_id: member_id.map(accounting::id::MemberId),
-                channel_id: channel_id.map(accounting::id::ChannelId),
                 is_reimbursable: is_reimbursable != 0,
                 linked_posting_id: linked_posting_id.map(PostingId),
                 reversal_total: accounting::amount::from_db_amount(reversal_total, precision),
@@ -237,7 +227,7 @@ impl PostingRepo for SqlitePostingRepo {
     ) -> Result<Vec<Posting>, crate::error::DbError> {
         // 准备查询语句，按交易 ID 排序获取该账户下所有原始分录
         let mut stmt = conn.prepare(
-            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, member_id, channel_id, is_reimbursable, linked_posting_id, reversal_total
+            "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, is_reimbursable, linked_posting_id, reversal_total
              FROM postings WHERE account_id = ?1 ORDER BY transaction_id"
         )?;
         // 先以原始 i64 读取所有行，避免闭包内查询精度
@@ -252,11 +242,9 @@ impl PostingRepo for SqlitePostingRepo {
                     row.get::<_, Option<i64>>(5)?,
                     row.get::<_, Option<i64>>(6)?,
                     row.get::<_, Option<String>>(7)?,
-                    row.get::<_, Option<i64>>(8)?,
+                    row.get::<_, i32>(8)?,
                     row.get::<_, Option<i64>>(9)?,
-                    row.get::<_, i32>(10)?,
-                    row.get::<_, Option<i64>>(11)?,
-                    row.get::<_, i64>(12)?,
+                    row.get::<_, i64>(10)?,
                 ))
             })?
             .collect::<Result<_, _>>()?;
@@ -271,8 +259,6 @@ impl PostingRepo for SqlitePostingRepo {
             cost,
             cost_commodity_id,
             description,
-            member_id,
-            channel_id,
             is_reimbursable,
             linked_posting_id,
             reversal_total,
@@ -292,8 +278,6 @@ impl PostingRepo for SqlitePostingRepo {
                 cost: cost.map(|c| accounting::amount::from_db_amount(c, cost_precision)),
                 cost_commodity_id: cost_commodity_id.map(CommodityId),
                 description,
-                member_id: member_id.map(accounting::id::MemberId),
-                channel_id: channel_id.map(accounting::id::ChannelId),
                 is_reimbursable: is_reimbursable != 0,
                 linked_posting_id: linked_posting_id.map(PostingId),
                 reversal_total: accounting::amount::from_db_amount(reversal_total, precision),
@@ -406,16 +390,12 @@ impl PostingRepo for SqlitePostingRepo {
             params_vec.push(Box::new(member.0));
         }
         if let Some(channel) = filter.channel_id {
-            conditions.push("p.channel_id = ?");
+            conditions.push("t.channel_id = ?");
             params_vec.push(Box::new(channel.0));
         }
         if let Some(ref keyword) = filter.keyword {
             conditions.push("t.description LIKE ?");
             params_vec.push(Box::new(format!("%{}%", keyword)));
-        }
-        if let Some(is_template) = filter.is_template {
-            conditions.push("t.is_template = ?");
-            params_vec.push(Box::new(is_template as i64));
         }
 
         let where_clause = conditions.join(" AND ");
@@ -477,7 +457,7 @@ impl PostingRepo for SqlitePostingRepo {
             params_vec.push(Box::new(account.0));
         }
         if let Some(channel) = filter.channel_id {
-            conditions.push("p.channel_id = ?");
+            conditions.push("t.channel_id = ?");
             params_vec.push(Box::new(channel.0));
         }
         if let Some(tag) = filter.tag_id {
@@ -489,10 +469,6 @@ impl PostingRepo for SqlitePostingRepo {
         if let Some(ref keyword) = filter.keyword {
             conditions.push("t.description LIKE ?");
             params_vec.push(Box::new(format!("%{}%", keyword)));
-        }
-        if let Some(is_template) = filter.is_template {
-            conditions.push("t.is_template = ?");
-            params_vec.push(Box::new(is_template as i64));
         }
 
         let where_clause = conditions.join(" AND ");
@@ -537,7 +513,7 @@ impl PostingRepo for SqlitePostingRepo {
         conn: &Connection,
         filter: &TransactionFilter,
     ) -> Result<Vec<(ChannelId, CommodityId, i64, Decimal)>, crate::error::DbError> {
-        let mut conditions = vec!["1=1", "p.channel_id IS NOT NULL"];
+        let mut conditions = vec!["1=1", "t.channel_id IS NOT NULL"];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
         if let Some(start) = filter.start_date {
@@ -566,19 +542,15 @@ impl PostingRepo for SqlitePostingRepo {
             conditions.push("t.description LIKE ?");
             params_vec.push(Box::new(format!("%{}%", keyword)));
         }
-        if let Some(is_template) = filter.is_template {
-            conditions.push("t.is_template = ?");
-            params_vec.push(Box::new(is_template as i64));
-        }
 
         let where_clause = conditions.join(" AND ");
         let sql = format!(
-            "SELECT p.channel_id, p.commodity_id, a.account_type, SUM(p.amount) as total
+            "SELECT t.channel_id, p.commodity_id, a.account_type, SUM(p.amount) as total
              FROM postings p
              JOIN accounts a ON p.account_id = a.id
              JOIN transactions t ON p.transaction_id = t.id
              WHERE {}
-             GROUP BY p.channel_id, p.commodity_id, a.account_type",
+             GROUP BY t.channel_id, p.commodity_id, a.account_type",
             where_clause
         );
 
@@ -641,7 +613,7 @@ mod tests {
 
     fn insert_transaction(conn: &Connection) -> TransactionId {
         conn.execute(
-            "INSERT INTO transactions (date_time, description, is_template) VALUES ('2024-01-01 00:00:00', 'test', 0)",
+            "INSERT INTO transactions (date_time, description) VALUES ('2024-01-01 00:00:00', 'test')",
             [],
         )
         .unwrap();
@@ -687,8 +659,6 @@ mod tests {
             cost: None,
             cost_commodity_id: None,
             description: None,
-            member_id: None,
-            channel_id: None,
             is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,
@@ -783,7 +753,7 @@ mod tests {
 
         // 插入交易
         conn.execute(
-            "INSERT INTO transactions (date_time, description, is_template) VALUES ('2024-01-15 00:00:00', 'lunch', 0)",
+            "INSERT INTO transactions (date_time, description) VALUES ('2024-01-15 00:00:00', 'lunch')",
             [],
         )
         .unwrap();
@@ -850,7 +820,7 @@ mod tests {
 
         // 插入交易（关联成员）
         conn.execute(
-            "INSERT INTO transactions (date_time, description, member_id, is_template) VALUES ('2024-03-10 00:00:00', 'commute', ?1, 0)",
+            "INSERT INTO transactions (date_time, description, member_id) VALUES ('2024-03-10 00:00:00', 'commute', ?1)",
             [member_id.0],
         )
         .unwrap();
@@ -910,19 +880,17 @@ mod tests {
         .unwrap();
         let channel_id = ChannelId(conn.last_insert_rowid());
 
-        // 插入交易
+        // 插入交易（带渠道）
         conn.execute(
-            "INSERT INTO transactions (date_time, description, is_template) VALUES ('2024-06-01 00:00:00', 'online shopping', 0)",
-            [],
+            "INSERT INTO transactions (date_time, description, channel_id) VALUES ('2024-06-01 00:00:00', 'online shopping', ?1)",
+            [channel_id.0],
         )
         .unwrap();
         let tx_id = TransactionId(conn.last_insert_rowid());
 
-        // 插入分录（带渠道）
-        let mut p1 = sample_posting(tx_id, income, "300.00");
-        p1.channel_id = Some(channel_id);
-        let mut p2 = sample_posting(tx_id, expense, "-300.00");
-        p2.channel_id = Some(channel_id);
+        // 插入分录
+        let p1 = sample_posting(tx_id, income, "300.00");
+        let p2 = sample_posting(tx_id, expense, "-300.00");
         repo.insert(&conn, &p1).unwrap();
         repo.insert(&conn, &p2).unwrap();
 

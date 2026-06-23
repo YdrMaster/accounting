@@ -20,7 +20,6 @@ export interface Transaction {
   kind: string
   member_id?: number
   channel_id?: number
-  is_template: boolean
   postings: Posting[]
   tags?: string[]
 }

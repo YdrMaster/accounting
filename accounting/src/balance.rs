@@ -40,8 +40,6 @@ mod tests {
             cost: None,
             cost_commodity_id: None,
             description: None,
-            member_id: None,
-            channel_id: None,
             is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,
