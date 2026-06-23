@@ -182,6 +182,20 @@ const accountStore = useAccountStore()
 const channelStore = useChannelStore()
 const commodityStore = useCommodityStore()
 
+function accountPathById(accountId?: number): string {
+  if (!accountId) return ''
+  const account = accountStore.accounts.find(a => a.id === accountId)
+  if (!account) return ''
+  const parts = [account.name]
+  let current = accountStore.accounts.find(a => a.id === account.parent_id)
+  while (current) {
+    parts.push(current.name)
+    current = accountStore.accounts.find(a => a.id === current!.parent_id)
+  }
+  parts.reverse()
+  return parts.join(':')
+}
+
 const isEdit = computed(() => !!route.query.id)
 const editId = computed(() => Number(route.query.id))
 
@@ -225,7 +239,7 @@ function formatReversalAmountAbs(group: PostingGroup): string {
 }
 
 function addAssetRow(gi: number) {
-  const assetsAccount = accountStore.accounts.find(a => a.full_name === 'Assets' || (a.account_type === 'Asset' && a.parent_id == null))
+  const assetsAccount = accountStore.accounts.find(a => a.name === 'Assets' || (a.account_type === 'Asset' && a.parent_id == null))
   groups.value[gi].assets.push({ accountId: assetsAccount?.id, amount: '' })
 }
 
@@ -278,7 +292,6 @@ async function handleSubmit() {
 }
 
 async function submitRefundReimbursement() {
-  const accountMap = new Map(accountStore.accounts.map((a) => [a.id, a.full_name]))
   const allPostings: any[] = []
 
   for (const group of groups.value) {
@@ -305,7 +318,7 @@ async function submitRefundReimbursement() {
     // 资产分录（用户输入正数）
     for (const a of validAssets) {
       allPostings.push({
-        account: accountMap.get(a.accountId!) || '',
+        account: accountPathById(a.accountId!),
         commodity: group.original.commodity,
         amount: a.amount,
         is_reimbursable: false,
@@ -335,8 +348,6 @@ async function submitNormal() {
     return
   }
 
-  const accountMap = new Map(accountStore.accounts.map((a) => [a.id, a.full_name]))
-
   const data: CreateTransactionData = {
     date_time: dateTime.value.format('YYYY-MM-DD HH:mm:ss'),
     description: description.value,
@@ -344,7 +355,7 @@ async function submitNormal() {
     channel_id: channelId.value,
     kind: formKind.value,
     postings: validPostings.map((p) => ({
-      account: accountMap.get(p.accountId!) || '',
+      account: accountPathById(p.accountId!),
       commodity: p.commodity,
       amount: p.amount.trim(),
       is_reimbursable: p.is_reimbursable,
@@ -385,9 +396,8 @@ async function loadTransaction(id: number) {
       // 不强制切换当前成员，仅填充表单
     }
 
-    const accountMap = new Map(accountStore.accounts.map((a) => [a.full_name, a.id]))
     postings.value = (tx.postings || []).map((p: any) => ({
-      accountId: accountMap.get(p.account),
+      accountId: accountStore.accounts.find(a => accountPathById(a.id) === p.account)?.id,
       commodity: p.commodity,
       amount: String(p.amount ?? ''),
       is_reimbursable: p.is_reimbursable || false,
@@ -449,7 +459,7 @@ async function loadOriginalPostings() {
         original: {
           id: p.id,
           account: p.account,
-          accountId: accountStore.accounts.find(a => a.full_name === p.account)?.id || 0,
+          accountId: accountStore.accounts.find(a => accountPathById(a.id) === p.account)?.id || 0,
           commodity: p.commodity,
           amount: p.amount,
           reversal_total: p.reversal_total || '0',

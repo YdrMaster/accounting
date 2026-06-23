@@ -21,6 +21,7 @@ pub trait CommodityRepo {
 }
 
 /// SQLite CommodityRepo 实现
+#[derive(Clone)]
 pub struct SqliteCommodityRepo;
 
 impl CommodityRepo for SqliteCommodityRepo {

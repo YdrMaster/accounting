@@ -1,14 +1,15 @@
 use crate::account_type::AccountType;
 use crate::id::AccountId;
 use chrono::NaiveDate;
+use std::collections::HashMap;
 
 /// 账户
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
     /// 账户唯一标识符
     pub id: AccountId,
-    /// 账户全名，如 Assets:Cash
-    pub full_name: String,
+    /// 账户名（本级名称），如 Cash
+    pub name: String,
     /// 账户类型
     pub account_type: AccountType,
     /// 父账户 ID，根账户为 None
@@ -23,6 +24,24 @@ pub struct Account {
     pub repayment_day: Option<u8>,
 }
 
+impl Account {
+    /// 根据全量账户映射拼装完整路径，如 Assets:Bank:Checking
+    pub fn display_path(&self, accounts_by_id: &HashMap<AccountId, Account>) -> String {
+        let mut parts = vec![self.name.clone()];
+        let mut current = self.parent_id;
+        while let Some(pid) = current {
+            if let Some(parent) = accounts_by_id.get(&pid) {
+                parts.push(parent.name.clone());
+                current = parent.parent_id;
+            } else {
+                break;
+            }
+        }
+        parts.reverse();
+        parts.join(":")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -32,7 +51,7 @@ mod tests {
     fn test_account_fields() {
         let a = Account {
             id: AccountId(1),
-            full_name: "Assets:Cash".to_string(),
+            name: "Cash".to_string(),
             account_type: AccountType::Asset,
             parent_id: None,
             closed_at: None,
@@ -40,7 +59,7 @@ mod tests {
             billing_day: None,
             repayment_day: None,
         };
-        assert_eq!(a.full_name, "Assets:Cash");
+        assert_eq!(a.name, "Cash");
         assert!(!a.is_system);
     }
 }

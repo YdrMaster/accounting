@@ -282,7 +282,7 @@ mod tests {
     fn sample_account(name: &str, account_type: AccountType) -> Account {
         Account {
             id: AccountId(0),
-            full_name: name.to_string(),
+            name: name.to_string(),
             account_type,
             parent_id: None,
             closed_at: None,

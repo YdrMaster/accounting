@@ -16,8 +16,8 @@
         @click="handleSelectCard(account)"
       >
         <div class="card-header">
-          <span class="card-name" :title="account.full_name">
-            {{ shortName(account.full_name) }}
+          <span class="card-name" :title="account.name">
+            {{ account.name }}
           </span>
           <span v-if="account.closed_at" class="closed-tag">
             <a-tag color="default" style="margin: 0; font-size: 11px">已关闭</a-tag>
@@ -172,14 +172,13 @@ async function confirmAdd(parent: Account) {
     return
   }
   const siblings = props.accounts.filter((a) => a.parent_id === parent.id)
-  const fullName = `${parent.full_name}:${name}`
-  if (siblings.some((a) => a.full_name === fullName)) {
+  if (siblings.some((a) => a.name === name)) {
     message.warning('同名账户已存在')
     return
   }
   addingChildOf.value = null
   newChildName.value = ''
-  await accountStore.createAccount(fullName)
+  await accountStore.createAccount(name, parent.id)
 }
 
 function handleStartAddRoot() {
@@ -195,12 +194,11 @@ async function confirmRootAdd() {
   if (props.parentId == null) return
   const parent = props.accounts.find(a => a.id === props.parentId)
   if (!parent) return
-  const fullName = `${parent.full_name}:${name}`
   const siblings = props.accounts.filter(a => a.parent_id === parent.id)
-  if (siblings.some(a => a.full_name === fullName)) { message.warning('同名账户已存在'); return }
+  if (siblings.some(a => a.name === name)) { message.warning('同名账户已存在'); return }
   addingAtRoot.value = false
   newChildName.value = ''
-  await accountStore.createAccount(fullName)
+  await accountStore.createAccount(name, parent.id)
 }
 
 function cancelAdd() {
@@ -209,10 +207,6 @@ function cancelAdd() {
   newChildName.value = ''
 }
 
-// --- Helpers ---
-function shortName(fullName: string): string {
-  return fullName.split(':').pop() || fullName
-}
 </script>
 
 <style scoped>

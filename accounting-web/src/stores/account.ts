@@ -4,7 +4,7 @@ import api from '@/api/client'
 
 export interface Account {
   id: number
-  full_name: string
+  name: string
   account_type: string
   parent_id?: number
   closed_at?: string
@@ -31,13 +31,15 @@ export const useAccountStore = defineStore('account', () => {
   }
 
   async function createAccount(
-    fullName: string,
+    name: string,
+    parentId?: number,
     ownerIds: number[] = [],
     billingDay?: number,
     repaymentDay?: number
   ) {
     await api.post('/accounts', {
-      full_name: fullName,
+      name,
+      parent_id: parentId,
       owner_ids: ownerIds,
       billing_day: billingDay,
       repayment_day: repaymentDay,
@@ -45,8 +47,8 @@ export const useAccountStore = defineStore('account', () => {
     await fetchAccounts()
   }
 
-  async function renameAccount(id: number, fullName: string) {
-    await api.put(`/accounts/${id}/rename`, { full_name: fullName })
+  async function renameAccount(id: number, name: string) {
+    await api.put(`/accounts/${id}/rename`, { name })
     await fetchAccounts()
   }
 

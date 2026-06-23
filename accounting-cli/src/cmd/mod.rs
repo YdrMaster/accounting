@@ -134,7 +134,7 @@ impl From<&accounting::tag::Tag> for TagRow {
 #[derive(Tabled, Serialize)]
 pub struct AccountRow {
     pub id: i64,
-    pub full_name: String,
+    pub name: String,
     pub account_type: String,
     pub parent_id: String,
     pub closed_at: String,
@@ -145,7 +145,7 @@ impl From<&accounting::account::Account> for AccountRow {
     fn from(a: &accounting::account::Account) -> Self {
         Self {
             id: a.id.0,
-            full_name: a.full_name.clone(),
+            name: a.name.clone(),
             account_type: a.account_type.display_name(),
             parent_id: a.parent_id.map(|id| id.0.to_string()).unwrap_or_default(),
             closed_at: a.closed_at.map(|d| d.to_string()).unwrap_or_default(),

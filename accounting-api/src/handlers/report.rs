@@ -1,8 +1,11 @@
 //! 报表 API handler
 
 use crate::handlers::member::AppState;
+use accounting::account::Account;
+use accounting::id::AccountId;
 use accounting::transaction_filter::TransactionFilter;
 use accounting_service::report_service::ReportService;
+use accounting_sql::database::Database;
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -11,6 +14,7 @@ use axum::{
 use chrono::NaiveDate;
 use rust_i18n::t;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// 资产负债表响应
@@ -62,12 +66,36 @@ async fn balance_sheet(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<BalanceSheetResponse>, String> {
     let db = state.db().map_err(|e| e.to_string())?;
+    let account_paths: HashMap<i64, String> = {
+        let db_for_conn = db.clone();
+        let conn = db_for_conn.connection();
+        let accounts: HashMap<AccountId, Account> = db
+            .account_repo()
+            .list(&conn)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|a| (a.id, a))
+            .collect();
+        accounts
+            .values()
+            .map(|a| (a.id.0, a.display_path(&accounts)))
+            .collect()
+    };
+
     let service = ReportService::new(db);
     let sheet = service.balance_sheet().await.map_err(|e| e.to_string())?;
 
     Ok(Json(BalanceSheetResponse {
-        assets: sheet.assets.into_iter().map(into_item).collect(),
-        equity: sheet.equity.into_iter().map(into_item).collect(),
+        assets: sheet
+            .assets
+            .into_iter()
+            .map(|ab| into_item(&account_paths, ab))
+            .collect(),
+        equity: sheet
+            .equity
+            .into_iter()
+            .map(|ab| into_item(&account_paths, ab))
+            .collect(),
     }))
 }
 
@@ -76,6 +104,22 @@ async fn income_statement(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<IncomeStatementResponse>, String> {
     let db = state.db().map_err(|e| e.to_string())?;
+    let account_paths: HashMap<i64, String> = {
+        let db_for_conn = db.clone();
+        let conn = db_for_conn.connection();
+        let accounts: HashMap<AccountId, Account> = db
+            .account_repo()
+            .list(&conn)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|a| (a.id, a))
+            .collect();
+        accounts
+            .values()
+            .map(|a| (a.id.0, a.display_path(&accounts)))
+            .collect()
+    };
+
     let service = ReportService::new(db);
     let stmt = service
         .income_statement()
@@ -83,8 +127,16 @@ async fn income_statement(
         .map_err(|e| e.to_string())?;
 
     Ok(Json(IncomeStatementResponse {
-        income: stmt.income.into_iter().map(into_item).collect(),
-        expenses: stmt.expenses.into_iter().map(into_item).collect(),
+        income: stmt
+            .income
+            .into_iter()
+            .map(|ab| into_item(&account_paths, ab))
+            .collect(),
+        expenses: stmt
+            .expenses
+            .into_iter()
+            .map(|ab| into_item(&account_paths, ab))
+            .collect(),
     }))
 }
 
@@ -149,9 +201,15 @@ async fn stats(
     Ok(Json(items))
 }
 
-fn into_item(ab: accounting_service::report_service::AccountBalance) -> AccountBalanceItem {
+fn into_item(
+    account_paths: &HashMap<i64, String>,
+    ab: accounting_service::report_service::AccountBalance,
+) -> AccountBalanceItem {
     AccountBalanceItem {
-        account: ab.account.full_name,
+        account: account_paths
+            .get(&ab.account.id.0)
+            .cloned()
+            .unwrap_or_else(|| ab.account.name.clone()),
         balances: ab.balances.into_iter().map(into_entry).collect(),
     }
 }

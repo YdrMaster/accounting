@@ -17,6 +17,7 @@ pub trait MemberRepo {
 }
 
 /// SQLite MemberRepo 实现
+#[derive(Clone)]
 pub struct SqliteMemberRepo;
 
 impl MemberRepo for SqliteMemberRepo {

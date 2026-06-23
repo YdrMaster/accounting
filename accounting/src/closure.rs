@@ -8,8 +8,8 @@ pub struct AccountNode {
     pub id: AccountId,
     /// 父账户 ID，根账户为 None
     pub parent_id: Option<AccountId>,
-    /// 账户全名
-    pub full_name: String,
+    /// 账户名（本级名称）
+    pub name: String,
 }
 
 /// 计算闭包表
@@ -56,7 +56,7 @@ mod tests {
         let accounts = vec![AccountNode {
             id: AccountId(1),
             parent_id: None,
-            full_name: "Assets".to_string(),
+            name: "Assets".to_string(),
         }];
         let closure = compute_closure(&accounts);
         assert_eq!(closure.get(&AccountId(1)).unwrap(), &vec![AccountId(1)]);
@@ -68,12 +68,12 @@ mod tests {
             AccountNode {
                 id: AccountId(1),
                 parent_id: None,
-                full_name: "Assets".to_string(),
+                name: "Assets".to_string(),
             },
             AccountNode {
                 id: AccountId(2),
                 parent_id: Some(AccountId(1)),
-                full_name: "Assets:Cash".to_string(),
+                name: "Cash".to_string(),
             },
         ];
         let closure = compute_closure(&accounts);
@@ -90,17 +90,17 @@ mod tests {
             AccountNode {
                 id: AccountId(1),
                 parent_id: None,
-                full_name: "Assets".to_string(),
+                name: "Assets".to_string(),
             },
             AccountNode {
                 id: AccountId(2),
                 parent_id: Some(AccountId(1)),
-                full_name: "Assets:Bank".to_string(),
+                name: "Bank".to_string(),
             },
             AccountNode {
                 id: AccountId(3),
                 parent_id: Some(AccountId(2)),
-                full_name: "Assets:Bank:Checking".to_string(),
+                name: "Checking".to_string(),
             },
         ];
         let closure = compute_closure(&accounts);

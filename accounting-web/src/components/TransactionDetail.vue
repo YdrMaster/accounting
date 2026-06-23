@@ -87,7 +87,7 @@ import { Modal } from 'ant-design-vue'
 import type { Transaction, Posting } from '@/stores/transaction'
 import { useMemberStore } from '@/stores/member'
 import { useTransactionStore } from '@/stores/transaction'
-import { useAccountStore } from '@/stores/account'
+import { useAccountStore, type Account } from '@/stores/account'
 import { useChannelStore } from '@/stores/channel'
 
 const props = defineProps<{
@@ -118,6 +118,17 @@ const formattedDate = computed(() => {
   })
 })
 
+function accountFullName(account: Account): string {
+  const parts = [account.name]
+  let current = accountStore.accounts.find(a => a.id === account.parent_id)
+  while (current) {
+    parts.push(current.name)
+    current = accountStore.accounts.find(a => a.id === current!.parent_id)
+  }
+  parts.reverse()
+  return parts.join(':')
+}
+
 const memberName = computed(() => {
   if (!props.tx.member_id) return ''
   const m = memberStore.members.find((m) => m.id === props.tx.member_id)
@@ -134,7 +145,7 @@ const totalAmount = computed(() => {
   let expenseSum = 0
   let incomeSum = 0
   for (const p of postings.value) {
-    const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+    const acc = accountStore.accounts.find((a) => accountFullName(a) === p.account)
     if (acc?.account_type === 'Expense') {
       expenseSum += parseFloat(p.amount) || 0
     } else if (acc?.account_type === 'Income') {
@@ -148,7 +159,7 @@ const netAmount = computed(() => {
   let expenseNet = 0
   let incomeSum = 0
   for (const p of postings.value) {
-    const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+    const acc = accountStore.accounts.find((a) => accountFullName(a) === p.account)
     if (acc?.account_type === 'Expense') {
       expenseNet += (parseFloat(p.amount) || 0) + (parseFloat(p.reversal_total || '0'))
     } else if (acc?.account_type === 'Income') {
@@ -168,17 +179,12 @@ const firstLinePreview = computed(() => {
   return firstLine
 })
 
-function lastSegment(fullName: string): string {
-  const segments = fullName.split(':')
-  return segments[segments.length - 1] || fullName
-}
-
 function accountsByType(type: string): string[] {
   const names = new Set<string>()
   for (const p of postings.value) {
-    const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+    const acc = accountStore.accounts.find((a) => accountFullName(a) === p.account)
     if (acc?.account_type === type) {
-      names.add(lastSegment(acc.full_name))
+      names.add(acc.name)
     }
   }
   return Array.from(names)
@@ -197,7 +203,7 @@ const amountColorClass = computed(() => {
 const isTransferType = computed(() => {
   if (postings.value.length === 0) return false
   for (const p of postings.value) {
-    const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+    const acc = accountStore.accounts.find((a) => accountFullName(a) === p.account)
     if (!acc) return false
     if (acc.account_type === 'Asset') continue
     if (acc.account_type === 'Expense' && acc.parent_id != null) continue

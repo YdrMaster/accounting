@@ -344,7 +344,7 @@ mod tests {
     fn sample_account(name: &str, account_type: AccountType) -> Account {
         Account {
             id: AccountId(0),
-            full_name: name.to_string(),
+            name: name.to_string(),
             account_type,
             parent_id: None,
             closed_at: None,
@@ -376,8 +376,8 @@ mod tests {
         db.initialize("en").unwrap();
         let report_service = ReportService::new(db);
 
-        let a1 = sample_account("Assets:I", AccountType::Asset);
-        let a2 = sample_account("Assets:J", AccountType::Asset);
+        let a1 = sample_account("I", AccountType::Asset);
+        let a2 = sample_account("J", AccountType::Asset);
         let id1 = report_service
             .db
             .account_repo()
@@ -436,9 +436,9 @@ mod tests {
         let _ = {
             let conn = report_service.db.connection();
 
-            let bank = sample_account("Assets:Bank", AccountType::Asset);
-            let salary = sample_account("Income:Salary", AccountType::Income);
-            let food = sample_account("Expenses:Food", AccountType::Expense);
+            let bank = sample_account("Bank", AccountType::Asset);
+            let salary = sample_account("Salary", AccountType::Income);
+            let food = sample_account("Food", AccountType::Expense);
 
             let bank_id = report_service
                 .db
@@ -524,13 +524,13 @@ mod tests {
         let BalanceSheet { assets, equity } = sheet;
 
         assert_eq!(assets.len(), 1);
-        assert_eq!(assets[0].account.full_name, "Assets:Bank");
+        assert_eq!(assets[0].account.name, "Bank");
         assert_eq!(assets[0].balances.len(), 1);
         assert_eq!(assets[0].balances[0].0, CommodityId(1));
         assert_eq!(assets[0].balances[0].1, Decimal::from_str("-100").unwrap());
 
         assert_eq!(equity.len(), 1);
-        assert_eq!(equity[0].account.full_name, "Equity:OpeningBalances");
+        assert_eq!(equity[0].account.name, "OpeningBalances");
         assert_eq!(equity[0].balances.len(), 1);
         assert_eq!(equity[0].balances[0].0, CommodityId(1));
         assert_eq!(equity[0].balances[0].1, Decimal::from_str("-100").unwrap());
@@ -545,8 +545,8 @@ mod tests {
         let _ = {
             let conn = report_service.db.connection();
 
-            let salary = sample_account("Income:Salary", AccountType::Income);
-            let food = sample_account("Expenses:Food", AccountType::Expense);
+            let salary = sample_account("Salary", AccountType::Income);
+            let food = sample_account("Food", AccountType::Expense);
 
             let salary_id = report_service
                 .db
@@ -589,7 +589,7 @@ mod tests {
         let statement = report_service.income_statement().await.unwrap();
 
         assert_eq!(statement.income.len(), 1);
-        assert_eq!(statement.income[0].account.full_name, "Income:Salary");
+        assert_eq!(statement.income[0].account.name, "Salary");
         assert_eq!(statement.income[0].balances.len(), 1);
         assert_eq!(statement.income[0].balances[0].0, CommodityId(1));
         assert_eq!(
@@ -598,7 +598,7 @@ mod tests {
         );
 
         assert_eq!(statement.expenses.len(), 1);
-        assert_eq!(statement.expenses[0].account.full_name, "Expenses:Food");
+        assert_eq!(statement.expenses[0].account.name, "Food");
         assert_eq!(statement.expenses[0].balances.len(), 1);
         assert_eq!(statement.expenses[0].balances[0].0, CommodityId(1));
         assert_eq!(
@@ -618,8 +618,8 @@ mod tests {
             let conn = report_service.db.connection();
 
             // 创建 Income / Expense 账户
-            let income_acc = sample_account("Income:Salary", AccountType::Income);
-            let expense_acc = sample_account("Expense:Food", AccountType::Expense);
+            let income_acc = sample_account("Salary", AccountType::Income);
+            let expense_acc = sample_account("Food", AccountType::Expense);
             let income_id = report_service
                 .db
                 .account_repo()
@@ -695,8 +695,8 @@ mod tests {
             let conn = report_service.db.connection();
 
             // 创建 Income / Expense 账户
-            let income_acc = sample_account("Income:Salary", AccountType::Income);
-            let expense_acc = sample_account("Expense:Food", AccountType::Expense);
+            let income_acc = sample_account("Salary", AccountType::Income);
+            let expense_acc = sample_account("Food", AccountType::Expense);
             let income_id = report_service
                 .db
                 .account_repo()
@@ -774,8 +774,8 @@ mod tests {
             let conn = report_service.db.connection();
 
             // 创建 Income / Expense 账户
-            let income_acc = sample_account("Income:Salary", AccountType::Income);
-            let expense_acc = sample_account("Expense:Food", AccountType::Expense);
+            let income_acc = sample_account("Salary", AccountType::Income);
+            let expense_acc = sample_account("Food", AccountType::Expense);
             let income_id = report_service
                 .db
                 .account_repo()

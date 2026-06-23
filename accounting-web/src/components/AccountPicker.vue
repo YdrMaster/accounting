@@ -1,7 +1,7 @@
 <template>
   <div class="account-picker">
     <button class="picker-trigger" :class="{ disabled: props.disabled }" @click="showPanel = true" :disabled="props.disabled">
-      <span v-if="selectedAccount" class="selected-name">{{ selectedAccount.full_name }}</span>
+      <span v-if="selectedAccount" class="selected-name">{{ selectedAccount.name }}</span>
       <span v-else class="placeholder">{{ placeholder }}</span>
     </button>
 
@@ -19,7 +19,7 @@
             class="breadcrumb-item"
             @click="goToLevel(idx)"
           >
-            {{ item.title }}
+            {{ item.name }}
             <span v-if="idx < breadcrumbItems.length - 1" class="separator">&gt;</span>
           </span>
         </div>
@@ -34,12 +34,12 @@
             }"
             @click="handleSelect(acc)"
           >
-            {{ getShortName(acc) }}
+            {{ acc.name }}
           </div>
         </div>
 
         <div v-if="selectedAccount" class="panel-footer">
-          已选：{{ selectedAccount.full_name }}
+          已选：{{ selectedAccount.name }}
         </div>
       </div>
     </div>
@@ -83,11 +83,11 @@ const currentLevel = computed<Account[]>(() => {
 })
 
 const breadcrumbItems = computed(() => {
-  const items: { id: number; title: string }[] = []
+  const items: { id: number; name: string }[] = []
   for (const id of currentPath.value) {
     const acc = accountStore.accounts.find(a => a.id === id)
     if (acc) {
-      items.push({ id, title: acc.full_name.split(':').pop() || acc.full_name })
+      items.push({ id, name: acc.name })
     }
   }
   return items
@@ -97,10 +97,6 @@ const selectedAccount = computed(() => {
   if (!props.modelValue) return null
   return accountStore.accounts.find(a => a.id === props.modelValue) || null
 })
-
-function getShortName(acc: Account): string {
-  return acc.full_name.split(':').pop() || acc.full_name
-}
 
 function isLeaf(acc: Account): boolean {
   return !accountStore.accounts.some(a => a.parent_id === acc.id)

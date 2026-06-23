@@ -80,6 +80,7 @@ pub trait PostingRepo {
 }
 
 /// SQLite PostingRepo 实现
+#[derive(Clone)]
 pub struct SqlitePostingRepo;
 
 impl PostingRepo for SqlitePostingRepo {
@@ -622,7 +623,7 @@ mod tests {
 
     fn insert_account(conn: &Connection, name: &str) -> AccountId {
         conn.execute(
-            "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 1, 0)",
+            "INSERT INTO accounts (name, account_type, is_system) VALUES (?1, 1, 0)",
             [name],
         )
         .unwrap();
@@ -632,7 +633,7 @@ mod tests {
     /// 插入 Income 类型账户（account_type = 3）
     fn insert_income_account(conn: &Connection, name: &str) -> AccountId {
         conn.execute(
-            "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 3, 0)",
+            "INSERT INTO accounts (name, account_type, is_system) VALUES (?1, 3, 0)",
             [name],
         )
         .unwrap();
@@ -642,7 +643,7 @@ mod tests {
     /// 插入 Expense 类型账户（account_type = 4）
     fn insert_expense_account(conn: &Connection, name: &str) -> AccountId {
         conn.execute(
-            "INSERT INTO accounts (full_name, account_type, is_system) VALUES (?1, 4, 0)",
+            "INSERT INTO accounts (name, account_type, is_system) VALUES (?1, 4, 0)",
             [name],
         )
         .unwrap();

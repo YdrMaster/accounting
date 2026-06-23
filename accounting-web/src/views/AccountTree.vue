@@ -25,7 +25,7 @@
       <div class="detail-row">
         <span class="detail-label">名称</span>
         <span v-if="renamingId !== selectedAccount.id" class="detail-value-wrap">
-          <span>{{ selectedAccount.full_name }}</span>
+          <span>{{ selectedAccount.name }}</span>
           <a-button
             v-if="!selectedAccount.is_system"
             type="link"
@@ -82,15 +82,15 @@
       v-model:open="deleteModalVisible"
       title="删除账户"
       @ok="confirmDelete"
-      :ok-button-props="{ danger: true, disabled: deleteConfirmValue !== selectedAccount?.full_name }"
+      :ok-button-props="{ danger: true, disabled: deleteConfirmValue !== selectedAccount?.name }"
       ok-text="确认删除"
       cancel-text="取消"
     >
-      <p>此操作将永久删除账户 <strong>{{ selectedAccount?.full_name }}</strong>，不可恢复。</p>
-      <p>请输入账户全名以确认：</p>
+      <p>此操作将永久删除账户 <strong>{{ selectedAccount?.name }}</strong>，不可恢复。</p>
+      <p>请输入账户名以确认：</p>
       <a-input
         v-model:value="deleteConfirmValue"
-        :placeholder="selectedAccount?.full_name"
+        :placeholder="selectedAccount?.name"
         @press-enter="confirmDelete"
       />
     </a-modal>
@@ -131,16 +131,17 @@ function navigateTo(id: number, pushOnly: boolean) {
   const target = accounts.value.find(a => a.id === id)
   if (!target) return
 
-  const segments = target.full_name.split(':')
-  const ancestorFullNames = new Set<string>()
-  for (let i = 1; i < segments.length; i++) {
-    ancestorFullNames.add(segments.slice(0, i).join(':'))
+  const ancestorIds = new Set<number>()
+  let current = target.parent_id
+  while (current) {
+    ancestorIds.add(current)
+    const parent = accounts.value.find(a => a.id === current)
+    current = parent?.parent_id
   }
 
   let deepestPos = -1
   for (let i = stack.length - 1; i >= 0; i--) {
-    const acc = accounts.value.find(a => a.id === stack[i])
-    if (acc && ancestorFullNames.has(acc.full_name)) {
+    if (ancestorIds.has(stack[i])) {
       deepestPos = i
       break
     }
@@ -177,7 +178,7 @@ const detailRenameInput = ref<HTMLInputElement | null>(null)
 function startRename() {
   if (!selectedAccount.value) return
   renamingId.value = selectedAccount.value.id
-  renameValue.value = selectedAccount.value.full_name.split(':').pop() || ''
+  renameValue.value = selectedAccount.value.name
   nextTick(() => {
     detailRenameInput.value?.focus()
     detailRenameInput.value?.select?.()
@@ -194,16 +195,13 @@ async function confirmRename() {
   const account = selectedAccount.value
   // Check sibling duplicate
   const siblings = accountStore.accounts.filter((a) => a.parent_id === account.parent_id)
-  const segments = account.full_name.split(':')
-  segments[segments.length - 1] = name
-  const newFullName = segments.join(':')
-  if (siblings.some((a) => a.id !== account.id && a.full_name === newFullName)) {
+  if (siblings.some((a) => a.id !== account.id && a.name === name)) {
     cancelRename()
     return
   }
   renamingId.value = null
   renameValue.value = ''
-  await accountStore.renameAccount(account.id, newFullName)
+  await accountStore.renameAccount(account.id, name)
   // Re-select after refresh (id stays same)
 }
 
@@ -234,7 +232,7 @@ function showDeleteModal() {
 
 async function confirmDelete() {
   if (!selectedAccount.value) return
-  if (deleteConfirmValue.value !== selectedAccount.value.full_name) return
+  if (deleteConfirmValue.value !== selectedAccount.value.name) return
   deleteModalVisible.value = false
   deleteConfirmValue.value = ''
   // Pop deleted account from stack

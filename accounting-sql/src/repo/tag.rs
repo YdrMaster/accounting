@@ -19,6 +19,7 @@ pub trait TagRepo {
 }
 
 /// SQLite TagRepo 实现
+#[derive(Clone)]
 pub struct SqliteTagRepo;
 
 impl TagRepo for SqliteTagRepo {

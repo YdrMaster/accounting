@@ -91,14 +91,21 @@ async fn list_transactions(
         filter.has_reimbursable = Some(reimbursable);
     }
 
-    let (accounts, commodities) = {
+    let (account_paths, commodities) = {
         let conn = db.connection();
-        let accounts: std::collections::HashMap<i64, String> = db
+        let accounts: std::collections::HashMap<
+            accounting::id::AccountId,
+            accounting::account::Account,
+        > = db
             .account_repo()
             .list(&conn)
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(|a| (a.id.0, a.full_name))
+            .map(|a| (a.id, a))
+            .collect();
+        let account_paths: std::collections::HashMap<i64, String> = accounts
+            .values()
+            .map(|a| (a.id.0, a.display_path(&accounts)))
             .collect();
         let commodities: std::collections::HashMap<i64, String> = db
             .commodity_repo()
@@ -107,7 +114,7 @@ async fn list_transactions(
             .into_iter()
             .map(|c| (c.id.0, c.symbol))
             .collect();
-        (accounts, commodities)
+        (account_paths, commodities)
     };
 
     let service = TransactionService::new(db);
@@ -136,7 +143,10 @@ async fn list_transactions(
                 .map(|p| PostingDto {
                     id: p.id.0,
                     transaction_id: p.transaction_id.0,
-                    account: accounts.get(&p.account_id.0).cloned().unwrap_or_default(),
+                    account: account_paths
+                        .get(&p.account_id.0)
+                        .cloned()
+                        .unwrap_or_default(),
                     commodity: commodities
                         .get(&p.commodity_id.0)
                         .cloned()
@@ -263,12 +273,19 @@ async fn get_transaction(
         .map_err(|e| e.to_string())?;
 
     // 批量查询账户和商品名称
-    let accounts: std::collections::HashMap<i64, String> = db
+    let accounts: std::collections::HashMap<
+        accounting::id::AccountId,
+        accounting::account::Account,
+    > = db
         .account_repo()
         .list(&conn)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|a| (a.id.0, a.full_name))
+        .map(|a| (a.id, a))
+        .collect();
+    let account_paths: std::collections::HashMap<i64, String> = accounts
+        .values()
+        .map(|a| (a.id.0, a.display_path(&accounts)))
         .collect();
 
     let commodities: std::collections::HashMap<i64, String> = db
@@ -284,7 +301,10 @@ async fn get_transaction(
         .map(|p| PostingDto {
             id: p.id.0,
             transaction_id: p.transaction_id.0,
-            account: accounts.get(&p.account_id.0).cloned().unwrap_or_default(),
+            account: account_paths
+                .get(&p.account_id.0)
+                .cloned()
+                .unwrap_or_default(),
             commodity: commodities
                 .get(&p.commodity_id.0)
                 .cloned()
@@ -324,12 +344,19 @@ async fn get_posting(
         .map_err(|e| e.to_string())?
         .ok_or("Posting not found")?;
 
-    let accounts: std::collections::HashMap<i64, String> = db
+    let accounts: std::collections::HashMap<
+        accounting::id::AccountId,
+        accounting::account::Account,
+    > = db
         .account_repo()
         .list(&conn)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|a| (a.id.0, a.full_name))
+        .map(|a| (a.id, a))
+        .collect();
+    let account_paths: std::collections::HashMap<i64, String> = accounts
+        .values()
+        .map(|a| (a.id.0, a.display_path(&accounts)))
         .collect();
     let commodities: std::collections::HashMap<i64, String> = db
         .commodity_repo()
@@ -342,7 +369,7 @@ async fn get_posting(
     Ok(Json(PostingDto {
         id: posting.id.0,
         transaction_id: posting.transaction_id.0,
-        account: accounts
+        account: account_paths
             .get(&posting.account_id.0)
             .cloned()
             .unwrap_or_default(),

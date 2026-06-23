@@ -46,6 +46,7 @@ pub trait TransactionRepo {
 }
 
 /// SQLite TransactionRepo 实现
+#[derive(Clone)]
 pub struct SqliteTransactionRepo;
 
 impl TransactionRepo for SqliteTransactionRepo {

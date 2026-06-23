@@ -18,10 +18,17 @@ pub trait AccountRepo {
         conn: &Connection,
         id: AccountId,
     ) -> Result<Option<Account>, crate::error::DbError>;
-    /// 根据 full_name 查询账户
+    /// 根据完整路径（如 Assets:Bank:Checking）逐级查询账户
     fn get_by_name(
         &self,
         conn: &Connection,
+        name: &str,
+    ) -> Result<Option<Account>, crate::error::DbError>;
+    /// 根据父账户 ID 和本级名称查询账户
+    fn get_by_parent_and_name(
+        &self,
+        conn: &Connection,
+        parent_id: Option<AccountId>,
         name: &str,
     ) -> Result<Option<Account>, crate::error::DbError>;
     /// 列出所有账户
@@ -67,6 +74,7 @@ pub trait AccountRepo {
 }
 
 /// SQLite AccountRepo 实现
+#[derive(Clone)]
 pub struct SqliteAccountRepo;
 
 impl AccountRepo for SqliteAccountRepo {
@@ -77,10 +85,10 @@ impl AccountRepo for SqliteAccountRepo {
     ) -> Result<AccountId, crate::error::DbError> {
         conn.execute(
             "INSERT INTO accounts
-             (full_name, account_type, parent_id, is_system, billing_day, repayment_day)
+             (name, account_type, parent_id, is_system, billing_day, repayment_day)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
-                account.full_name,
+                account.name,
                 account.account_type as i32,
                 account.parent_id.map(|id| id.0),
                 account.is_system as i32,
@@ -97,7 +105,7 @@ impl AccountRepo for SqliteAccountRepo {
         id: AccountId,
     ) -> Result<Option<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
+            "SELECT id, name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
              FROM accounts WHERE id = ?1"
         )?;
         let mut rows = stmt.query(params![id.0])?;
@@ -113,11 +121,33 @@ impl AccountRepo for SqliteAccountRepo {
         conn: &Connection,
         name: &str,
     ) -> Result<Option<Account>, crate::error::DbError> {
+        let segments: Vec<&str> = name.split(':').collect();
+        if segments.is_empty() {
+            return Ok(None);
+        }
+
+        let mut parent_id: Option<AccountId> = None;
+        for segment in segments {
+            match self.get_by_parent_and_name(conn, parent_id, segment)? {
+                Some(account) => parent_id = Some(account.id),
+                None => return Ok(None),
+            }
+        }
+
+        self.get(conn, parent_id.unwrap())
+    }
+
+    fn get_by_parent_and_name(
+        &self,
+        conn: &Connection,
+        parent_id: Option<AccountId>,
+        name: &str,
+    ) -> Result<Option<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
-             FROM accounts WHERE full_name = ?1"
+            "SELECT id, name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
+             FROM accounts WHERE parent_id IS ?1 AND name = ?2"
         )?;
-        let mut rows = stmt.query(params![name])?;
+        let mut rows = stmt.query(params![parent_id.map(|id| id.0), name])?;
         if let Some(row) = rows.next()? {
             Ok(Some(map_account(row)?))
         } else {
@@ -127,7 +157,7 @@ impl AccountRepo for SqliteAccountRepo {
 
     fn list(&self, conn: &Connection) -> Result<Vec<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
+            "SELECT id, name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
              FROM accounts ORDER BY id"
         )?;
         let rows = stmt.query_map([], map_account)?;
@@ -140,7 +170,7 @@ impl AccountRepo for SqliteAccountRepo {
         parent_id: AccountId,
     ) -> Result<Vec<Account>, crate::error::DbError> {
         let mut stmt = conn.prepare(
-            "SELECT id, full_name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
+            "SELECT id, name, account_type, parent_id, closed_at, is_system, billing_day, repayment_day
              FROM accounts WHERE parent_id = ?1 ORDER BY id"
         )?;
         let rows = stmt.query_map(params![parent_id.0], map_account)?;
@@ -154,7 +184,7 @@ impl AccountRepo for SqliteAccountRepo {
         new_name: &str,
     ) -> Result<(), crate::error::DbError> {
         conn.execute(
-            "UPDATE accounts SET full_name = ?1 WHERE id = ?2",
+            "UPDATE accounts SET name = ?1 WHERE id = ?2",
             params![new_name, id.0],
         )?;
         Ok(())
@@ -282,7 +312,7 @@ fn map_account(row: &rusqlite::Row) -> Result<Account, rusqlite::Error> {
 
     Ok(Account {
         id: AccountId(row.get(0)?),
-        full_name: row.get(1)?,
+        name: row.get(1)?,
         account_type,
         parent_id: row.get::<_, Option<i64>>(3)?.map(AccountId),
         closed_at,
@@ -312,7 +342,7 @@ mod tests {
         let (conn, repo) = setup();
         let account = Account {
             id: AccountId(0),
-            full_name: "Assets:Bank".to_string(),
+            name: "Bank".to_string(),
             account_type: AccountType::Asset,
             parent_id: None,
             closed_at: None,
@@ -322,7 +352,7 @@ mod tests {
         };
         let id = repo.create(&conn, &account).unwrap();
         let fetched = repo.get(&conn, id).unwrap().unwrap();
-        assert_eq!(fetched.full_name, "Assets:Bank");
+        assert_eq!(fetched.name, "Bank");
         assert_eq!(fetched.account_type, AccountType::Asset);
         assert!(!fetched.is_system);
     }
@@ -347,7 +377,7 @@ mod tests {
         let (conn, repo) = setup();
         let parent = Account {
             id: AccountId(0),
-            full_name: "TestParent".to_string(),
+            name: "TestParent".to_string(),
             account_type: AccountType::Asset,
             parent_id: None,
             closed_at: None,
@@ -359,7 +389,7 @@ mod tests {
 
         let child = Account {
             id: AccountId(0),
-            full_name: "TestParent:Child".to_string(),
+            name: "Child".to_string(),
             account_type: AccountType::Asset,
             parent_id: Some(parent_id),
             closed_at: None,
@@ -371,7 +401,7 @@ mod tests {
 
         let children = repo.list_children(&conn, parent_id).unwrap();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].full_name, "TestParent:Child");
+        assert_eq!(children[0].name, "Child");
     }
 
     #[test]

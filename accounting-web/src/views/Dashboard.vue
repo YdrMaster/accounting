@@ -163,6 +163,20 @@ const memberStore = useMemberStore()
 const channelStore = useChannelStore()
 const { accountTreeData } = useAccountTree()
 
+function accountPathById(accountId?: number): string {
+  if (!accountId) return ''
+  const account = accountStore.accounts.find(a => a.id === accountId)
+  if (!account) return ''
+  const parts = [account.name]
+  let current = accountStore.accounts.find(a => a.id === account.parent_id)
+  while (current) {
+    parts.push(current.name)
+    current = accountStore.accounts.find(a => a.id === current!.parent_id)
+  }
+  parts.reverse()
+  return parts.join(':')
+}
+
 type DashboardMode = 'normal' | 'range' | 'refund' | 'reimbursement'
 const mode = ref<DashboardMode>('normal')
 const selectedPostingIds = ref<Set<number>>(new Set())
@@ -201,7 +215,7 @@ const filteredTransactions = computed(() => {
   if (mode.value === 'refund') {
     return txs.filter(tx =>
       (tx.postings || []).some(p => {
-        const acc = accountStore.accounts.find(a => a.full_name === p.account)
+        const acc = accountStore.accounts.find(a => accountPathById(a.id) === p.account)
         return acc?.account_type === 'Expense'
       })
     )
@@ -249,7 +263,7 @@ function calcIncome(transactions: Transaction[]) {
   let sum = 0
   for (const tx of transactions) {
     for (const p of tx.postings || []) {
-      const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+      const acc = accountStore.accounts.find((a) => accountPathById(a.id) === p.account)
       if (acc?.account_type === 'Income') {
         sum -= parseFloat(p.amount) || 0
       }
@@ -263,7 +277,7 @@ function calcExpense(transactions: Transaction[]) {
   for (const tx of transactions) {
     if (tx.kind === 'refund' || tx.kind === 'reimbursement') continue
     for (const p of tx.postings || []) {
-      const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+      const acc = accountStore.accounts.find((a) => accountPathById(a.id) === p.account)
       if (acc?.account_type === 'Expense') {
         sum += (parseFloat(p.amount) || 0) + (parseFloat(p.reversal_total || '0'))
       }
@@ -284,7 +298,7 @@ const calendarData = computed(() => {
       data[date] = { income: 0, expense: 0 }
     }
     for (const p of tx.postings || []) {
-      const acc = accountStore.accounts.find((a) => a.full_name === p.account)
+      const acc = accountStore.accounts.find((a) => accountPathById(a.id) === p.account)
       if (acc?.account_type === 'Income') {
         data[date].income -= parseFloat(p.amount) || 0
       } else if (acc?.account_type === 'Expense') {
@@ -416,11 +430,11 @@ function togglePostingSelection(id: number) {
 
 const reimbursableFilter = (p: Posting) => {
   if (!p.is_reimbursable) return false
-  const acc = accountStore.accounts.find(a => a.full_name === p.account)
+  const acc = accountStore.accounts.find(a => accountPathById(a.id) === p.account)
   return acc?.account_type === 'Expense'
 }
 const expenseFilter = (p: Posting) => {
-  const acc = accountStore.accounts.find(a => a.full_name === p.account)
+  const acc = accountStore.accounts.find(a => accountPathById(a.id) === p.account)
   return acc?.account_type === 'Expense'
 }
 

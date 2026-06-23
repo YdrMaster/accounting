@@ -2,6 +2,8 @@
 
 use crate::dto::{AccountDto, CreateAccountRequest, RenameAccountRequest, SetAccountOwnersRequest};
 use crate::handlers::member::AppState;
+use accounting::account::Account;
+use accounting::account_type::AccountType;
 use accounting::id::{AccountId, MemberId};
 use accounting_sql::database::Database;
 use axum::{
@@ -35,7 +37,7 @@ async fn list_accounts(
         .iter()
         .map(|a| AccountDto {
             id: a.id.0,
-            full_name: a.full_name.clone(),
+            name: a.name.clone(),
             account_type: format!("{:?}", a.account_type),
             parent_id: a.parent_id.map(|id| id.0),
             closed_at: a.closed_at.map(|d| d.to_string()),
@@ -48,23 +50,35 @@ async fn list_accounts(
     Ok(Json(dtos))
 }
 
-/// 创建账户（级联创建）
+/// 创建账户
 async fn create_account(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateAccountRequest>,
 ) -> Result<Json<i64>, String> {
     let db = state.db().map_err(|e| e.to_string())?;
-    let service = accounting_service::account_service::AccountService::new(db);
+    let service = accounting_service::account_service::AccountService::new(db.clone());
     let owner_ids: Vec<MemberId> = req.owner_ids.into_iter().map(MemberId).collect();
-    let id = service
-        .create_cascading(
-            &req.full_name,
-            req.billing_day,
-            req.repayment_day,
-            &owner_ids,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+
+    let account = Account {
+        id: AccountId(0),
+        name: req.name,
+        account_type: AccountType::Asset,
+        parent_id: req.parent_id.map(AccountId),
+        closed_at: None,
+        is_system: false,
+        billing_day: req.billing_day,
+        repayment_day: req.repayment_day,
+    };
+
+    let id = service.create(account).await.map_err(|e| e.to_string())?;
+
+    if !owner_ids.is_empty() {
+        let conn = db.connection();
+        db.account_repo()
+            .set_owners(&conn, id, &owner_ids)
+            .map_err(|e| e.to_string())?;
+    }
+
     Ok(Json(id.0))
 }
 
@@ -116,11 +130,11 @@ async fn rename_account(
         .ok_or(t!("account_not_found").to_string())?;
     // 同层级检查同名
     let mut siblings = accounts.iter().filter(|a| a.parent_id == target.parent_id);
-    if siblings.any(|a| a.id.0 != id && a.full_name == req.full_name) {
+    if siblings.any(|a| a.id.0 != id && a.name == req.name) {
         return Err(t!("account_name_exists").to_string());
     }
     db.account_repo()
-        .rename(&conn, AccountId(id), &req.full_name)
+        .rename(&conn, AccountId(id), &req.name)
         .map_err(|e| e.to_string())?;
     Ok("renamed".to_string())
 }

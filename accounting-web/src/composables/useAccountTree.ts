@@ -10,9 +10,8 @@ export function useAccountTree() {
     const roots: any[] = []
 
     accounts.forEach((acc) => {
-      const segments = acc.full_name.split(':')
       map.set(acc.id, {
-        title: segments[segments.length - 1],
+        title: acc.name,
         key: acc.id,
         children: [],
       })

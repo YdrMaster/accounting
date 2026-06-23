@@ -21,6 +21,7 @@ pub trait AttachmentRepo {
 }
 
 /// SQLite AttachmentRepo 实现
+#[derive(Clone)]
 pub struct SqliteAttachmentRepo;
 
 impl AttachmentRepo for SqliteAttachmentRepo {

@@ -92,7 +92,7 @@ impl ReportCmd {
                     for (cid, amount) in &item.balances {
                         rows.push(ReportBalanceRow {
                             account_id: item.account.id.0,
-                            account_name: format!("[资产] {}", item.account.full_name),
+                            account_name: format!("[资产] {}", item.account.name),
                             commodity_id: cid.0,
                             amount: amount.to_string(),
                         });
@@ -102,7 +102,7 @@ impl ReportCmd {
                     for (cid, amount) in &item.balances {
                         rows.push(ReportBalanceRow {
                             account_id: item.account.id.0,
-                            account_name: format!("[权益] {}", item.account.full_name),
+                            account_name: format!("[权益] {}", item.account.name),
                             commodity_id: cid.0,
                             amount: amount.to_string(),
                         });
@@ -123,7 +123,7 @@ impl ReportCmd {
                     for (cid, amount) in &item.balances {
                         rows.push(ReportBalanceRow {
                             account_id: item.account.id.0,
-                            account_name: format!("[收入] {}", item.account.full_name),
+                            account_name: format!("[收入] {}", item.account.name),
                             commodity_id: cid.0,
                             amount: amount.to_string(),
                         });
@@ -133,7 +133,7 @@ impl ReportCmd {
                     for (cid, amount) in &item.balances {
                         rows.push(ReportBalanceRow {
                             account_id: item.account.id.0,
-                            account_name: format!("[费用] {}", item.account.full_name),
+                            account_name: format!("[费用] {}", item.account.name),
                             commodity_id: cid.0,
                             amount: amount.to_string(),
                         });

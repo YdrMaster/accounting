@@ -12,6 +12,7 @@ use crate::repo::transaction::{SqliteTransactionRepo, TransactionRepo};
 use crate::transaction::Transaction;
 
 /// SQLite 数据库实现
+#[derive(Clone)]
 pub struct SqliteDatabase {
     pool: ConnectionHandle,
     account_repo: SqliteAccountRepo,
@@ -212,7 +213,7 @@ mod tests {
         let tx = db.transaction().await.unwrap();
         let account = Account {
             id: AccountId(0),
-            full_name: "Assets:Cash".to_string(),
+            name: "Cash".to_string(),
             account_type: AccountType::Asset,
             parent_id: None,
             closed_at: None,
@@ -235,7 +236,7 @@ mod tests {
             let tx = db.transaction().await.unwrap();
             let account = Account {
                 id: AccountId(0),
-                full_name: "Assets:Cash".to_string(),
+                name: "Cash".to_string(),
                 account_type: AccountType::Asset,
                 parent_id: None,
                 closed_at: None,

@@ -21,6 +21,7 @@ pub trait ChannelRepo {
 }
 
 /// SQLite ChannelRepo 实现
+#[derive(Clone)]
 pub struct SqliteChannelRepo;
 
 impl ChannelRepo for SqliteChannelRepo {
