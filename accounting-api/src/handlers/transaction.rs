@@ -2,6 +2,7 @@
 
 use crate::dto::{CreateTransactionRequest, PostingDto, TransactionDto};
 use crate::handlers::member::AppState;
+use accounting::datetime_utils;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, ChannelId, MemberId, PostingId, TagId, TransactionId};
 use accounting::posting::Posting;
@@ -41,7 +42,7 @@ fn parse_date_time(s: &str) -> Result<chrono::NaiveDateTime, AccountingError> {
         return Ok(dt);
     }
     chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
-        .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+        .map(datetime_utils::start_of_day)
         .map_err(|_| AccountingError::InvalidDate(t!("invalid_date_format", value = s).to_string()))
 }
 

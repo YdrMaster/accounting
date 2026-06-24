@@ -1,3 +1,4 @@
+use accounting::datetime_utils;
 use accounting::id::{TagId, TransactionId};
 use accounting::transaction::Transaction;
 use accounting::transaction::TransactionKind;
@@ -108,11 +109,11 @@ impl TransactionRepo for SqliteTransactionRepo {
         // 按过滤条件追加 WHERE 子句与参数
         if let Some(start) = filter.start_date {
             conditions.push("transactions.date_time >= ?");
-            params_vec.push(Box::new(start.and_hms_opt(0, 0, 0).unwrap().to_string()));
+            params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
         }
         if let Some(end) = filter.end_date {
             conditions.push("transactions.date_time <= ?");
-            params_vec.push(Box::new(end.and_hms_opt(23, 59, 59).unwrap().to_string()));
+            params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
         }
         if let Some(member) = filter.member_id {
             conditions.push("transactions.member_id = ?");
@@ -181,11 +182,11 @@ impl TransactionRepo for SqliteTransactionRepo {
 
         if let Some(start) = filter.start_date {
             conditions.push("transactions.date_time >= ?");
-            params_vec.push(Box::new(start.and_hms_opt(0, 0, 0).unwrap().to_string()));
+            params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
         }
         if let Some(end) = filter.end_date {
             conditions.push("transactions.date_time <= ?");
-            params_vec.push(Box::new(end.and_hms_opt(23, 59, 59).unwrap().to_string()));
+            params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
         }
         if let Some(member) = filter.member_id {
             conditions.push("transactions.member_id = ?");

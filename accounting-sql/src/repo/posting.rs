@@ -1,3 +1,4 @@
+use accounting::datetime_utils;
 use accounting::id::{
     AccountId, ChannelId, CommodityId, MemberId, PostingId, TagId, TransactionId,
 };
@@ -376,11 +377,11 @@ impl PostingRepo for SqlitePostingRepo {
 
         if let Some(start) = filter.start_date {
             conditions.push("t.date_time >= ?");
-            params_vec.push(Box::new(start.and_hms_opt(0, 0, 0).unwrap().to_string()));
+            params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
         }
         if let Some(end) = filter.end_date {
             conditions.push("t.date_time <= ?");
-            params_vec.push(Box::new(end.and_hms_opt(23, 59, 59).unwrap().to_string()));
+            params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
         }
         if let Some(account) = filter.account_id {
             conditions.push("p.account_id = ?");
@@ -449,11 +450,11 @@ impl PostingRepo for SqlitePostingRepo {
 
         if let Some(start) = filter.start_date {
             conditions.push("t.date_time >= ?");
-            params_vec.push(Box::new(start.and_hms_opt(0, 0, 0).unwrap().to_string()));
+            params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
         }
         if let Some(end) = filter.end_date {
             conditions.push("t.date_time <= ?");
-            params_vec.push(Box::new(end.and_hms_opt(23, 59, 59).unwrap().to_string()));
+            params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
         }
         if let Some(account) = filter.account_id {
             conditions.push("p.account_id = ?");
@@ -523,11 +524,11 @@ impl PostingRepo for SqlitePostingRepo {
 
         if let Some(start) = filter.start_date {
             conditions.push("t.date_time >= ?");
-            params_vec.push(Box::new(start.and_hms_opt(0, 0, 0).unwrap().to_string()));
+            params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
         }
         if let Some(end) = filter.end_date {
             conditions.push("t.date_time <= ?");
-            params_vec.push(Box::new(end.and_hms_opt(23, 59, 59).unwrap().to_string()));
+            params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
         }
         if let Some(account) = filter.account_id {
             conditions.push("p.account_id = ?");
