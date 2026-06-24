@@ -49,20 +49,17 @@ pub struct TxListArgs {
     #[arg(long)]
     pub to: Option<String>,
     #[arg(long)]
-    pub account: Option<i64>,
+    pub account: Vec<i64>,
     #[arg(long)]
-    pub member: Option<i64>,
+    pub member: Vec<i64>,
     #[arg(long)]
-    pub tag: Option<String>,
+    pub tag: Vec<String>,
     #[arg(long)]
     pub keyword: Option<String>,
     #[arg(long)]
     pub limit: Option<i64>,
     #[arg(long)]
     pub offset: Option<i64>,
-    /// 是否只显示分期交易
-    #[arg(long)]
-    pub installment: bool,
 }
 
 #[derive(Args)]
@@ -352,30 +349,21 @@ fn build_filter(
     if let Some(ref to) = args.to {
         filter.end_date = Some(parse_date_time(to)?.date());
     }
-    if let Some(account) = args.account {
-        filter.account_id = Some(AccountId(account));
-    }
-    if let Some(member) = args.member {
-        filter.member_id = Some(MemberId(member));
-    }
-    if let Some(ref tag_name) = args.tag {
+    filter.account_ids = args.account.iter().map(|&id| AccountId(id)).collect();
+    filter.member_ids = args.member.iter().map(|&id| MemberId(id)).collect();
+    for tag_name in &args.tag {
         let conn = db.connection();
         let tag = db
             .tag_repo()
             .get_by_name(&conn, tag_name)
-            .map_err(|e| AccountingError::Unknown(e.to_string()))?;
-        if let Some(tag) = tag {
-            filter.tag_id = Some(tag.id);
-        } else {
-            return Err(AccountingError::Unknown(format!(
-                "{}",
-                t!("tag_name_not_found", name = tag_name)
-            )));
-        }
+            .map_err(|e| AccountingError::Unknown(e.to_string()))?
+            .ok_or_else(|| {
+                AccountingError::Unknown(format!("{}", t!("tag_name_not_found", name = tag_name)))
+            })?;
+        filter.tag_ids.push(tag.id);
     }
     if let Some(ref keyword) = args.keyword {
         filter.keyword = Some(keyword.clone());
     }
-    filter.has_installment = if args.installment { Some(true) } else { None };
     Ok(filter)
 }

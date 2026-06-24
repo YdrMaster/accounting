@@ -8,18 +8,16 @@ pub struct TransactionFilter {
     pub start_date: Option<NaiveDate>,
     /// 结束日期
     pub end_date: Option<NaiveDate>,
-    /// 指定账户 ID
-    pub account_id: Option<AccountId>,
-    /// 指定成员 ID
-    pub member_id: Option<MemberId>,
-    /// 指定支付渠道 ID
-    pub channel_id: Option<ChannelId>,
-    /// 指定标签 ID
-    pub tag_id: Option<TagId>,
+    /// 指定账户 ID（多选，空 = 不筛选）
+    pub account_ids: Vec<AccountId>,
+    /// 指定成员 ID（多选，空 = 不筛选）
+    pub member_ids: Vec<MemberId>,
+    /// 指定支付渠道 ID（多选，空 = 不筛选）
+    pub channel_ids: Vec<ChannelId>,
+    /// 指定标签 ID（多选，空 = 不筛选）
+    pub tag_ids: Vec<TagId>,
     /// 关键词模糊匹配
     pub keyword: Option<String>,
-    /// 是否包含分期
-    pub has_installment: Option<bool>,
     /// 只包含可报销分录的交易
     pub has_reimbursable: Option<bool>,
 }

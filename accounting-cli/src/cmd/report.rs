@@ -42,18 +42,18 @@ pub struct ReportStatArgs {
     /// 结束日期
     #[arg(long)]
     pub to: Option<String>,
-    /// 指定账户
+    /// 指定账户（可多次指定）
     #[arg(long)]
-    pub account: Option<i64>,
-    /// 指定成员
+    pub account: Vec<i64>,
+    /// 指定成员（可多次指定）
     #[arg(long)]
-    pub member: Option<i64>,
-    /// 指定标签（名称）
+    pub member: Vec<i64>,
+    /// 指定标签名称（可多次指定）
     #[arg(long)]
-    pub tag: Option<String>,
-    /// 指定渠道
+    pub tag: Vec<String>,
+    /// 指定渠道（可多次指定）
     #[arg(long)]
-    pub channel: Option<i64>,
+    pub channel: Vec<i64>,
     /// 关键词
     #[arg(long)]
     pub keyword: Option<String>,
@@ -159,13 +159,9 @@ impl ReportCmd {
                 if let Some(ref to) = args.to {
                     filter.end_date = Some(parse_date(to)?);
                 }
-                if let Some(account) = args.account {
-                    filter.account_id = Some(AccountId(account));
-                }
-                if let Some(member) = args.member {
-                    filter.member_id = Some(MemberId(member));
-                }
-                if let Some(ref tag_name) = args.tag {
+                filter.account_ids = args.account.iter().map(|&id| AccountId(id)).collect();
+                filter.member_ids = args.member.iter().map(|&id| MemberId(id)).collect();
+                for tag_name in &args.tag {
                     let conn = db.connection();
                     let tag = db
                         .tag_repo()
@@ -177,11 +173,9 @@ impl ReportCmd {
                                 t!("tag_name_not_found", name = tag_name)
                             ))
                         })?;
-                    filter.tag_id = Some(tag.id);
+                    filter.tag_ids.push(tag.id);
                 }
-                if let Some(channel) = args.channel {
-                    filter.channel_id = Some(ChannelId(channel));
-                }
+                filter.channel_ids = args.channel.iter().map(|&id| ChannelId(id)).collect();
                 if let Some(ref keyword) = args.keyword {
                     filter.keyword = Some(keyword.clone());
                 }

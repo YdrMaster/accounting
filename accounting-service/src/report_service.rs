@@ -194,7 +194,7 @@ impl<D: Database> ReportService<D> {
         filter: &TransactionFilter,
     ) -> Result<Vec<TagStat>, AccountingError> {
         let mut filter = filter.clone();
-        filter.tag_id = None; // 忽略维度自身过滤
+        filter.tag_ids.clear(); // 忽略维度自身过滤
 
         let conn = self.db.connection();
         let raw = self
@@ -244,7 +244,7 @@ impl<D: Database> ReportService<D> {
         filter: &TransactionFilter,
     ) -> Result<Vec<MemberStat>, AccountingError> {
         let mut filter = filter.clone();
-        filter.member_id = None; // 忽略维度自身过滤
+        filter.member_ids.clear(); // 忽略维度自身过滤
 
         let conn = self.db.connection();
         let raw = self
@@ -292,7 +292,7 @@ impl<D: Database> ReportService<D> {
         filter: &TransactionFilter,
     ) -> Result<Vec<ChannelStat>, AccountingError> {
         let mut filter = filter.clone();
-        filter.channel_id = None; // 忽略维度自身过滤
+        filter.channel_ids.clear(); // 忽略维度自身过滤
 
         let conn = self.db.connection();
         let raw = self

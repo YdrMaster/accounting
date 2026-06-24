@@ -27,13 +27,34 @@ use std::sync::Arc;
 pub struct TxQuery {
     pub from: Option<String>,
     pub to: Option<String>,
-    pub account: Option<i64>,
-    pub member: Option<i64>,
-    pub tag: Option<String>,
+    #[serde(deserialize_with = "deserialize_vec_from_single_or_list")]
+    pub account: Vec<i64>,
+    #[serde(deserialize_with = "deserialize_vec_from_single_or_list")]
+    pub member: Vec<i64>,
+    #[serde(default)]
+    pub tag: Vec<String>,
     pub keyword: Option<String>,
     pub reimbursable: Option<bool>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+/// 支持单值或多值反序列化（`?account=1&account=2` 或 `?account=1`）
+fn deserialize_vec_from_single_or_list<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum SingleOrList<T> {
+        List(Vec<T>),
+        Single(T),
+    }
+    match <SingleOrList<T> as serde::Deserialize>::deserialize(deserializer)? {
+        SingleOrList::List(v) => Ok(v),
+        SingleOrList::Single(v) => Ok(vec![v]),
+    }
 }
 
 /// 解析日期时间字符串
@@ -66,21 +87,19 @@ async fn list_transactions(
         filter.end_date = Some(date);
     }
 
-    if let Some(account) = query.account {
-        filter.account_id = Some(AccountId(account));
-    }
+    filter.account_ids = query.account.into_iter().map(AccountId).collect();
 
-    if let Some(member) = query.member {
-        filter.member_id = Some(MemberId(member));
-    }
+    filter.member_ids = query.member.into_iter().map(MemberId).collect();
 
-    if let Some(tag_name) = query.tag {
+    for tag_name in &query.tag {
         let tag = db
             .tag_repo()
-            .get_by_name(&db.connection(), &tag_name)
+            .get_by_name(&db.connection(), tag_name)
             .map_err(|e| e.to_string())?;
         if let Some(tag) = tag {
-            filter.tag_id = Some(tag.id);
+            filter.tag_ids.push(tag.id);
+        } else {
+            return Err(format!("Tag not found: {}", tag_name));
         }
     }
 

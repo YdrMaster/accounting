@@ -102,50 +102,70 @@ impl TransactionRepo for SqliteTransactionRepo {
         offset: usize,
     ) -> Result<Vec<Transaction>, crate::error::DbError> {
         // 动态构建 JOIN 与 WHERE 条件
-        let mut joins = Vec::new();
-        let mut conditions = vec!["1=1"];
+        let mut joins: Vec<&str> = Vec::new();
+        let mut conditions: Vec<String> = vec!["1=1".to_string()];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
         // 按过滤条件追加 WHERE 子句与参数
         if let Some(start) = filter.start_date {
-            conditions.push("transactions.date_time >= ?");
+            conditions.push("transactions.date_time >= ?".to_string());
             params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
         }
         if let Some(end) = filter.end_date {
-            conditions.push("transactions.date_time <= ?");
+            conditions.push("transactions.date_time <= ?".to_string());
             params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
         }
-        if let Some(member) = filter.member_id {
-            conditions.push("transactions.member_id = ?");
-            params_vec.push(Box::new(member.0));
+        if !filter.member_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.member_ids.iter().map(|_| "?").collect();
+            conditions.push(format!(
+                "transactions.member_id IN ({})",
+                placeholders.join(", ")
+            ));
+            for member in &filter.member_ids {
+                params_vec.push(Box::new(member.0));
+            }
         }
         if let Some(ref keyword) = filter.keyword {
-            conditions.push("transactions.description LIKE ?");
+            conditions.push("transactions.description LIKE ?".to_string());
             params_vec.push(Box::new(format!("%{}%", keyword)));
         }
-        // 账户过滤需要 JOIN postings 表
-        if let Some(account) = filter.account_id {
-            joins.push("JOIN postings p ON p.transaction_id = transactions.id");
-            conditions.push("p.account_id = ?");
-            params_vec.push(Box::new(account.0));
+        // 账户过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
+        if !filter.account_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.account_ids.iter().map(|_| "?").collect();
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM postings p WHERE p.transaction_id = transactions.id AND p.account_id IN ({}))",
+                placeholders.join(", ")
+            ));
+            for account in &filter.account_ids {
+                params_vec.push(Box::new(account.0));
+            }
         }
-        // 标签过滤需要 JOIN transaction_tags 表
-        if let Some(tag) = filter.tag_id {
-            joins.push("JOIN transaction_tags tt ON tt.transaction_id = transactions.id");
-            conditions.push("tt.tag_id = ?");
-            params_vec.push(Box::new(tag.0));
+        // 标签过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
+        if !filter.tag_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.tag_ids.iter().map(|_| "?").collect();
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = transactions.id AND tt.tag_id IN ({}))",
+                placeholders.join(", ")
+            ));
+            for tag in &filter.tag_ids {
+                params_vec.push(Box::new(tag.0));
+            }
         }
         // 渠道过滤直接查 transactions 表
-        if let Some(channel) = filter.channel_id {
-            conditions.push("transactions.channel_id = ?");
-            params_vec.push(Box::new(channel.0));
+        if !filter.channel_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.channel_ids.iter().map(|_| "?").collect();
+            conditions.push(format!(
+                "transactions.channel_id IN ({})",
+                placeholders.join(", ")
+            ));
+            for channel in &filter.channel_ids {
+                params_vec.push(Box::new(channel.0));
+            }
         }
         // 可报销过滤需要 JOIN postings 表
         if let Some(true) = filter.has_reimbursable {
-            if !joins.iter().any(|j| j.contains("postings")) {
-                joins.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id");
-            }
-            conditions.push("p_reimb.is_reimbursable = 1");
+            joins.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id");
+            conditions.push("p_reimb.is_reimbursable = 1".to_string());
         }
 
         // 组装最终 SQL
@@ -176,45 +196,67 @@ impl TransactionRepo for SqliteTransactionRepo {
         filter: &TransactionFilter,
     ) -> Result<usize, crate::error::DbError> {
         // 动态构建 JOIN 与 WHERE 条件（逻辑与 list 保持一致）
-        let mut joins = Vec::new();
-        let mut conditions = vec!["1=1"];
+        let mut joins: Vec<&str> = Vec::new();
+        let mut conditions: Vec<String> = vec!["1=1".to_string()];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
         if let Some(start) = filter.start_date {
-            conditions.push("transactions.date_time >= ?");
+            conditions.push("transactions.date_time >= ?".to_string());
             params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
         }
         if let Some(end) = filter.end_date {
-            conditions.push("transactions.date_time <= ?");
+            conditions.push("transactions.date_time <= ?".to_string());
             params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
         }
-        if let Some(member) = filter.member_id {
-            conditions.push("transactions.member_id = ?");
-            params_vec.push(Box::new(member.0));
+        if !filter.member_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.member_ids.iter().map(|_| "?").collect();
+            conditions.push(format!(
+                "transactions.member_id IN ({})",
+                placeholders.join(", ")
+            ));
+            for member in &filter.member_ids {
+                params_vec.push(Box::new(member.0));
+            }
         }
         if let Some(ref keyword) = filter.keyword {
-            conditions.push("transactions.description LIKE ?");
+            conditions.push("transactions.description LIKE ?".to_string());
             params_vec.push(Box::new(format!("%{}%", keyword)));
         }
-        if let Some(account) = filter.account_id {
-            joins.push("JOIN postings p ON p.transaction_id = transactions.id");
-            conditions.push("p.account_id = ?");
-            params_vec.push(Box::new(account.0));
+        // 账户过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
+        if !filter.account_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.account_ids.iter().map(|_| "?").collect();
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM postings p WHERE p.transaction_id = transactions.id AND p.account_id IN ({}))",
+                placeholders.join(", ")
+            ));
+            for account in &filter.account_ids {
+                params_vec.push(Box::new(account.0));
+            }
         }
-        if let Some(tag) = filter.tag_id {
-            joins.push("JOIN transaction_tags tt ON tt.transaction_id = transactions.id");
-            conditions.push("tt.tag_id = ?");
-            params_vec.push(Box::new(tag.0));
+        // 标签过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
+        if !filter.tag_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.tag_ids.iter().map(|_| "?").collect();
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = transactions.id AND tt.tag_id IN ({}))",
+                placeholders.join(", ")
+            ));
+            for tag in &filter.tag_ids {
+                params_vec.push(Box::new(tag.0));
+            }
         }
-        if let Some(channel) = filter.channel_id {
-            conditions.push("transactions.channel_id = ?");
-            params_vec.push(Box::new(channel.0));
+        if !filter.channel_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.channel_ids.iter().map(|_| "?").collect();
+            conditions.push(format!(
+                "transactions.channel_id IN ({})",
+                placeholders.join(", ")
+            ));
+            for channel in &filter.channel_ids {
+                params_vec.push(Box::new(channel.0));
+            }
         }
         if let Some(true) = filter.has_reimbursable {
-            if !joins.iter().any(|j| j.contains("postings")) {
-                joins.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id");
-            }
-            conditions.push("p_reimb.is_reimbursable = 1");
+            joins.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id");
+            conditions.push("p_reimb.is_reimbursable = 1".to_string());
         }
 
         // 组装 COUNT SQL 并执行
@@ -429,7 +471,7 @@ mod tests {
         repo.insert(&conn, &tx, &[]).unwrap();
 
         let filter = TransactionFilter {
-            member_id: Some(member_id),
+            member_ids: vec![member_id],
             ..Default::default()
         };
         let list = repo.list(&conn, &filter, 10, 0).unwrap();

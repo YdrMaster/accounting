@@ -372,31 +372,40 @@ impl PostingRepo for SqlitePostingRepo {
         conn: &Connection,
         filter: &TransactionFilter,
     ) -> Result<Vec<(TagId, CommodityId, String, Decimal)>, crate::error::DbError> {
-        let mut conditions = vec!["1=1"];
+        let mut conditions: Vec<String> = vec!["1=1".to_string()];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
         if let Some(start) = filter.start_date {
-            conditions.push("t.date_time >= ?");
+            conditions.push("t.date_time >= ?".to_string());
             params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
         }
         if let Some(end) = filter.end_date {
-            conditions.push("t.date_time <= ?");
+            conditions.push("t.date_time <= ?".to_string());
             params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
         }
-        if let Some(account) = filter.account_id {
-            conditions.push("p.account_id = ?");
-            params_vec.push(Box::new(account.0));
+        if !filter.account_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.account_ids.iter().map(|_| "?").collect();
+            conditions.push(format!("p.account_id IN ({})", placeholders.join(", ")));
+            for account in &filter.account_ids {
+                params_vec.push(Box::new(account.0));
+            }
         }
-        if let Some(member) = filter.member_id {
-            conditions.push("t.member_id = ?");
-            params_vec.push(Box::new(member.0));
+        if !filter.member_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.member_ids.iter().map(|_| "?").collect();
+            conditions.push(format!("t.member_id IN ({})", placeholders.join(", ")));
+            for member in &filter.member_ids {
+                params_vec.push(Box::new(member.0));
+            }
         }
-        if let Some(channel) = filter.channel_id {
-            conditions.push("t.channel_id = ?");
-            params_vec.push(Box::new(channel.0));
+        if !filter.channel_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.channel_ids.iter().map(|_| "?").collect();
+            conditions.push(format!("t.channel_id IN ({})", placeholders.join(", ")));
+            for channel in &filter.channel_ids {
+                params_vec.push(Box::new(channel.0));
+            }
         }
         if let Some(ref keyword) = filter.keyword {
-            conditions.push("t.description LIKE ?");
+            conditions.push("t.description LIKE ?".to_string());
             params_vec.push(Box::new(format!("%{}%", keyword)));
         }
 
@@ -445,33 +454,44 @@ impl PostingRepo for SqlitePostingRepo {
         conn: &Connection,
         filter: &TransactionFilter,
     ) -> Result<Vec<(MemberId, CommodityId, String, Decimal)>, crate::error::DbError> {
-        let mut conditions = vec!["1=1", "t.member_id IS NOT NULL"];
+        let mut conditions: Vec<String> =
+            vec!["1=1".to_string(), "t.member_id IS NOT NULL".to_string()];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
         if let Some(start) = filter.start_date {
-            conditions.push("t.date_time >= ?");
+            conditions.push("t.date_time >= ?".to_string());
             params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
         }
         if let Some(end) = filter.end_date {
-            conditions.push("t.date_time <= ?");
+            conditions.push("t.date_time <= ?".to_string());
             params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
         }
-        if let Some(account) = filter.account_id {
-            conditions.push("p.account_id = ?");
-            params_vec.push(Box::new(account.0));
+        if !filter.account_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.account_ids.iter().map(|_| "?").collect();
+            conditions.push(format!("p.account_id IN ({})", placeholders.join(", ")));
+            for account in &filter.account_ids {
+                params_vec.push(Box::new(account.0));
+            }
         }
-        if let Some(channel) = filter.channel_id {
-            conditions.push("t.channel_id = ?");
-            params_vec.push(Box::new(channel.0));
+        if !filter.channel_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.channel_ids.iter().map(|_| "?").collect();
+            conditions.push(format!("t.channel_id IN ({})", placeholders.join(", ")));
+            for channel in &filter.channel_ids {
+                params_vec.push(Box::new(channel.0));
+            }
         }
-        if let Some(tag) = filter.tag_id {
-            conditions.push(
-                "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = ?)"
-            );
-            params_vec.push(Box::new(tag.0));
+        if !filter.tag_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.tag_ids.iter().map(|_| "?").collect();
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id IN ({}))",
+                placeholders.join(", ")
+            ));
+            for tag in &filter.tag_ids {
+                params_vec.push(Box::new(tag.0));
+            }
         }
         if let Some(ref keyword) = filter.keyword {
-            conditions.push("t.description LIKE ?");
+            conditions.push("t.description LIKE ?".to_string());
             params_vec.push(Box::new(format!("%{}%", keyword)));
         }
 
@@ -519,33 +539,44 @@ impl PostingRepo for SqlitePostingRepo {
         conn: &Connection,
         filter: &TransactionFilter,
     ) -> Result<Vec<(ChannelId, CommodityId, String, Decimal)>, crate::error::DbError> {
-        let mut conditions = vec!["1=1", "t.channel_id IS NOT NULL"];
+        let mut conditions: Vec<String> =
+            vec!["1=1".to_string(), "t.channel_id IS NOT NULL".to_string()];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
         if let Some(start) = filter.start_date {
-            conditions.push("t.date_time >= ?");
+            conditions.push("t.date_time >= ?".to_string());
             params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
         }
         if let Some(end) = filter.end_date {
-            conditions.push("t.date_time <= ?");
+            conditions.push("t.date_time <= ?".to_string());
             params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
         }
-        if let Some(account) = filter.account_id {
-            conditions.push("p.account_id = ?");
-            params_vec.push(Box::new(account.0));
+        if !filter.account_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.account_ids.iter().map(|_| "?").collect();
+            conditions.push(format!("p.account_id IN ({})", placeholders.join(", ")));
+            for account in &filter.account_ids {
+                params_vec.push(Box::new(account.0));
+            }
         }
-        if let Some(member) = filter.member_id {
-            conditions.push("t.member_id = ?");
-            params_vec.push(Box::new(member.0));
+        if !filter.member_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.member_ids.iter().map(|_| "?").collect();
+            conditions.push(format!("t.member_id IN ({})", placeholders.join(", ")));
+            for member in &filter.member_ids {
+                params_vec.push(Box::new(member.0));
+            }
         }
-        if let Some(tag) = filter.tag_id {
-            conditions.push(
-                "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = ?)"
-            );
-            params_vec.push(Box::new(tag.0));
+        if !filter.tag_ids.is_empty() {
+            let placeholders: Vec<&str> = filter.tag_ids.iter().map(|_| "?").collect();
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id IN ({}))",
+                placeholders.join(", ")
+            ));
+            for tag in &filter.tag_ids {
+                params_vec.push(Box::new(tag.0));
+            }
         }
         if let Some(ref keyword) = filter.keyword {
-            conditions.push("t.description LIKE ?");
+            conditions.push("t.description LIKE ?".to_string());
             params_vec.push(Box::new(format!("%{}%", keyword)));
         }
 
@@ -875,9 +906,9 @@ mod tests {
         assert_eq!(expense_row.1, CommodityId(1));
         assert_eq!(expense_row.3, Decimal::from_str("-200.00").unwrap());
 
-        // member_id 过滤条件应被忽略（维度自身不过滤自身）
+        // member_ids 过滤条件应被忽略（维度自身不过滤自身）
         let filter_member = TransactionFilter {
-            member_id: Some(member_id),
+            member_ids: vec![member_id],
             ..Default::default()
         };
         let results = repo.sum_by_member(&conn, &filter_member).unwrap();
@@ -937,9 +968,9 @@ mod tests {
         assert_eq!(expense_row.1, CommodityId(1));
         assert_eq!(expense_row.3, Decimal::from_str("-300.00").unwrap());
 
-        // channel_id 过滤条件应被忽略（维度自身不过滤自身）
+        // channel_ids 过滤条件应被忽略（维度自身不过滤自身）
         let filter_channel = TransactionFilter {
-            channel_id: Some(channel_id),
+            channel_ids: vec![channel_id],
             ..Default::default()
         };
         let results = repo.sum_by_channel(&conn, &filter_channel).unwrap();
