@@ -8,7 +8,7 @@ thiserror.workspace = true
 accounting.workspace = true
 rust_decimal.workspace = true
 chrono.workspace = true
-rusqlite.workspace = true
+sqlx.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

@@ -1,108 +1,148 @@
-use accounting::channel::Channel;
-use accounting::id::ChannelId;
-use rusqlite::{Connection, params};
+use sqlx::{FromRow, SqliteConnection};
 
-/// Channel 仓库 trait
-pub trait ChannelRepo {
-    /// 创建渠道，返回新渠道 ID
-    fn create(
-        &self,
-        conn: &Connection,
-        channel: &Channel,
-    ) -> Result<ChannelId, crate::error::DbError>;
-    /// 根据 ID 查询渠道
-    fn get(
-        &self,
-        conn: &Connection,
-        id: ChannelId,
-    ) -> Result<Option<Channel>, crate::error::DbError>;
-    /// 列出所有渠道
-    fn list(&self, conn: &Connection) -> Result<Vec<Channel>, crate::error::DbError>;
+use crate::error::DbError;
+use accounting::channel::Channel;
+use accounting::id::{ChannelId, TransactionId};
+
+#[derive(FromRow)]
+struct ChannelRow {
+    id: i64,
+    name: String,
+    description: Option<String>,
 }
 
-/// SQLite ChannelRepo 实现
-#[derive(Clone)]
-pub struct SqliteChannelRepo;
-
-impl ChannelRepo for SqliteChannelRepo {
-    fn create(
-        &self,
-        conn: &Connection,
-        channel: &Channel,
-    ) -> Result<ChannelId, crate::error::DbError> {
-        conn.execute(
-            "INSERT INTO channels (name, description) VALUES (?1, ?2)",
-            params![channel.name, channel.description],
-        )?;
-        Ok(ChannelId(conn.last_insert_rowid()))
-    }
-
-    fn get(
-        &self,
-        conn: &Connection,
-        id: ChannelId,
-    ) -> Result<Option<Channel>, crate::error::DbError> {
-        let mut stmt = conn.prepare("SELECT id, name, description FROM channels WHERE id = ?1")?;
-        let mut rows = stmt.query(params![id.0])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(Channel {
-                id: ChannelId(row.get(0)?),
-                name: row.get(1)?,
-                description: row.get(2)?,
-            }))
-        } else {
-            Ok(None)
+impl ChannelRow {
+    fn into_channel(self) -> Channel {
+        Channel {
+            id: ChannelId(self.id),
+            name: self.name,
+            description: self.description,
         }
     }
+}
 
-    fn list(&self, conn: &Connection) -> Result<Vec<Channel>, crate::error::DbError> {
-        let mut stmt = conn.prepare("SELECT id, name, description FROM channels ORDER BY id")?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Channel {
-                id: ChannelId(row.get(0)?),
-                name: row.get(1)?,
-                description: row.get(2)?,
-            })
-        })?;
-        rows.collect::<Result<_, _>>().map_err(Into::into)
-    }
+pub async fn channel_create(
+    conn: &mut SqliteConnection,
+    channel: &Channel,
+) -> Result<ChannelId, DbError> {
+    let id: i64 =
+        sqlx::query_scalar("INSERT INTO channels (name, description) VALUES (?1, ?2) RETURNING id")
+            .bind(&channel.name)
+            .bind(&channel.description)
+            .fetch_one(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(ChannelId(id))
+}
+
+pub async fn channel_get(
+    conn: &mut SqliteConnection,
+    id: ChannelId,
+) -> Result<Option<Channel>, DbError> {
+    let row: Option<ChannelRow> =
+        sqlx::query_as("SELECT id, name, description FROM channels WHERE id = ?1")
+            .bind(id.0)
+            .fetch_optional(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(row.map(|r| r.into_channel()))
+}
+
+pub async fn channel_list(conn: &mut SqliteConnection) -> Result<Vec<Channel>, DbError> {
+    let rows: Vec<ChannelRow> =
+        sqlx::query_as("SELECT id, name, description FROM channels ORDER BY id")
+            .fetch_all(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(rows.into_iter().map(|r| r.into_channel()).collect())
+}
+
+pub async fn channel_count_transactions_by_id(
+    conn: &mut SqliteConnection,
+    channel_id: ChannelId,
+) -> Result<i64, DbError> {
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM transactions WHERE channel_id = ?1")
+        .bind(channel_id.0)
+        .fetch_one(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(count)
+}
+
+pub async fn channel_force_delete_by_id(
+    conn: &mut SqliteConnection,
+    channel_id: ChannelId,
+) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM channels WHERE id = ?1")
+        .bind(channel_id.0)
+        .execute(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(())
+}
+
+// Keep unused import used in tests
+#[allow(dead_code)]
+fn _transaction_id_placeholder() -> TransactionId {
+    TransactionId(0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
+    use sqlx::{Connection, SqliteConnection};
 
-    fn setup() -> (Connection, SqliteChannelRepo) {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::schema::initialize_schema(&conn).unwrap();
-        crate::schema::insert_seed_data(&conn, "en").unwrap();
-        (conn, SqliteChannelRepo)
+    async fn setup() -> SqliteConnection {
+        let mut conn = sqlx::SqliteConnection::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::schema::initialize_schema(&mut conn).await.unwrap();
+        crate::schema::insert_seed_data(&mut conn, "en")
+            .await
+            .unwrap();
+        conn
     }
 
-    #[test]
-    fn test_create_and_get() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_create_and_get() {
+        let mut conn = setup().await;
         let channel = Channel {
             id: ChannelId(0),
             name: "Alipay".to_string(),
             description: Some("支付宝".to_string()),
         };
-        let id = repo.create(&conn, &channel).unwrap();
-        let fetched = repo.get(&conn, id).unwrap().unwrap();
+        let id = channel_create(&mut conn, &channel).await.unwrap();
+        let fetched = channel_get(&mut conn, id).await.unwrap().unwrap();
         assert_eq!(fetched.name, "Alipay");
     }
 
-    #[test]
-    fn test_list() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_list() {
+        let mut conn = setup().await;
         let channel = Channel {
             id: ChannelId(0),
             name: "WeChat".to_string(),
             description: None,
         };
-        repo.create(&conn, &channel).unwrap();
-        let list = repo.list(&conn).unwrap();
+        channel_create(&mut conn, &channel).await.unwrap();
+        let list = channel_list(&mut conn).await.unwrap();
         assert!(list.iter().any(|c| c.name == "WeChat"));
+    }
+
+    #[tokio::test]
+    async fn test_count_and_force_delete() {
+        let mut conn = setup().await;
+        let channel = Channel {
+            id: ChannelId(0),
+            name: "PayPal".to_string(),
+            description: None,
+        };
+        let id = channel_create(&mut conn, &channel).await.unwrap();
+        let count = channel_count_transactions_by_id(&mut conn, id)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        channel_force_delete_by_id(&mut conn, id).await.unwrap();
+        assert!(channel_get(&mut conn, id).await.unwrap().is_none());
     }
 }

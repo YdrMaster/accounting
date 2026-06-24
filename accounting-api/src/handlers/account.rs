@@ -5,7 +5,6 @@ use crate::handlers::member::AppState;
 use accounting::account::Account;
 use accounting::account_type::AccountType;
 use accounting::id::{AccountId, MemberId};
-use accounting_sql::database::Database;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -19,14 +18,13 @@ use std::sync::Arc;
 async fn list_accounts(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<AccountDto>>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
+    let db = state.db();
 
     // 先查询所有者
     let mut owners: std::collections::HashMap<i64, Vec<i64>> = std::collections::HashMap::new();
-    let accounts_raw = db.account_repo().list(&conn).map_err(|e| e.to_string())?;
+    let accounts_raw = db.account_list().await.map_err(|e| e.to_string())?;
     for account in &accounts_raw {
-        if let Ok(list) = db.account_repo().get_owners(&conn, account.id) {
+        if let Ok(list) = db.account_get_owners(account.id).await {
             let ids: Vec<i64> = list.into_iter().map(|m| m.0).collect();
             if !ids.is_empty() {
                 owners.insert(account.id.0, ids);
@@ -37,8 +35,8 @@ async fn list_accounts(
     let mut dtos = Vec::new();
     for a in &accounts_raw {
         let root_name = db
-            .account_repo()
-            .find_root_name(&conn, a.id)
+            .account_find_root_name(a.id)
+            .await
             .map_err(|e| e.to_string())?;
         let account_type = AccountType::from_str(&root_name)
             .map(|ty| format!("{:?}", ty))
@@ -63,7 +61,7 @@ async fn create_account(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateAccountRequest>,
 ) -> Result<Json<i64>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
+    let db = state.db();
     let service = accounting_service::account_service::AccountService::new(db.clone());
     let owner_ids: Vec<MemberId> = req.owner_ids.into_iter().map(MemberId).collect();
 
@@ -80,9 +78,8 @@ async fn create_account(
     let id = service.create(account).await.map_err(|e| e.to_string())?;
 
     if !owner_ids.is_empty() {
-        let conn = db.connection();
-        db.account_repo()
-            .set_owners(&conn, id, &owner_ids)
+        db.account_set_owners(id, &owner_ids)
+            .await
             .map_err(|e| e.to_string())?;
     }
 
@@ -94,8 +91,8 @@ async fn get_balance(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<Vec<(i64, String)>>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let service = accounting_service::account_service::AccountService::new(db);
+    let db = state.db();
+    let service = accounting_service::account_service::AccountService::new(db.clone());
     let balances = service
         .balance(AccountId(id))
         .await
@@ -113,11 +110,10 @@ async fn set_owner(
     Path(id): Path<i64>,
     Json(req): Json<SetAccountOwnersRequest>,
 ) -> Result<String, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
+    let db = state.db();
     let member_ids: Vec<MemberId> = req.owner_ids.into_iter().map(MemberId).collect();
-    db.account_repo()
-        .set_owners(&conn, AccountId(id), &member_ids)
+    db.account_set_owners(AccountId(id), &member_ids)
+        .await
         .map_err(|e| e.to_string())?;
     Ok("ok".to_string())
 }
@@ -128,9 +124,8 @@ async fn rename_account(
     Path(id): Path<i64>,
     Json(req): Json<RenameAccountRequest>,
 ) -> Result<String, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
-    let accounts = db.account_repo().list(&conn).map_err(|e| e.to_string())?;
+    let db = state.db();
+    let accounts = db.account_list().await.map_err(|e| e.to_string())?;
     let target = accounts
         .iter()
         .find(|a| a.id.0 == id)
@@ -140,8 +135,8 @@ async fn rename_account(
     if siblings.any(|a| a.id.0 != id && a.name == req.name) {
         return Err(t!("account_name_exists").to_string());
     }
-    db.account_repo()
-        .rename(&conn, AccountId(id), &req.name)
+    db.account_rename(AccountId(id), &req.name)
+        .await
         .map_err(|e| e.to_string())?;
     Ok("renamed".to_string())
 }
@@ -151,8 +146,8 @@ async fn close_account(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<String, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let service = accounting_service::account_service::AccountService::new(db);
+    let db = state.db();
+    let service = accounting_service::account_service::AccountService::new(db.clone());
     service
         .close(AccountId(id))
         .await
@@ -165,8 +160,8 @@ async fn reopen_account(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<String, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let service = accounting_service::account_service::AccountService::new(db);
+    let db = state.db();
+    let service = accounting_service::account_service::AccountService::new(db.clone());
     service
         .reopen(AccountId(id))
         .await
@@ -179,9 +174,8 @@ async fn delete_account(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<String, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
-    let accounts = db.account_repo().list(&conn).map_err(|e| e.to_string())?;
+    let db = state.db();
+    let accounts = db.account_list().await.map_err(|e| e.to_string())?;
     let target = accounts
         .iter()
         .find(|a| a.id.0 == id)
@@ -192,23 +186,23 @@ async fn delete_account(
     }
 
     let children = db
-        .account_repo()
-        .list_children(&conn, AccountId(id))
+        .account_list_children(AccountId(id))
+        .await
         .map_err(|e| e.to_string())?;
     if !children.is_empty() {
         return Err(t!("delete_children_first").to_string());
     }
 
     let has_postings = db
-        .posting_repo()
-        .has_postings(&conn, AccountId(id))
+        .posting_has_postings(AccountId(id))
+        .await
         .map_err(|e| e.to_string())?;
     if has_postings {
         return Err(t!("account_has_postings").to_string());
     }
 
-    db.account_repo()
-        .delete(&conn, AccountId(id))
+    db.account_delete(AccountId(id))
+        .await
         .map_err(|e| e.to_string())?;
     Ok("deleted".to_string())
 }

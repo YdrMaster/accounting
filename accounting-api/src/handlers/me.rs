@@ -2,23 +2,19 @@
 
 use crate::dto::{MeDto, SetMeRequest};
 use crate::handlers::member::AppState;
-use accounting_sql::database::Database;
+use accounting::id::MemberId;
 use axum::{Json, Router, extract::State, routing::get};
 use std::sync::Arc;
 
 /// 从 settings 表读取 current_member_id
 async fn get_me(State(state): State<Arc<AppState>>) -> Result<Json<MeDto>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
+    let db = state.db();
 
     // 尝试读取已保存的 current_member_id
-    let saved_id_str: Option<String> = conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = 'current_member_id'",
-            [],
-            |row| row.get(0),
-        )
-        .ok();
+    let saved_id_str: Option<String> = db
+        .get_setting("current_member_id")
+        .await
+        .map_err(|e| e.to_string())?;
 
     let member_id = if let Some(s) = saved_id_str {
         match s.parse::<i64>() {
@@ -28,7 +24,7 @@ async fn get_me(State(state): State<Arc<AppState>>) -> Result<Json<MeDto>, Strin
                     "{}",
                     rust_i18n::t!("parse_member_id_failed", id = s, error = e)
                 );
-                let members = db.member_repo().list(&conn).map_err(|e| e.to_string())?;
+                let members = db.member_list().await.map_err(|e| e.to_string())?;
                 let first = members
                     .into_iter()
                     .next()
@@ -38,7 +34,7 @@ async fn get_me(State(state): State<Arc<AppState>>) -> Result<Json<MeDto>, Strin
         }
     } else {
         // 未设置时返回第一个成员
-        let members = db.member_repo().list(&conn).map_err(|e| e.to_string())?;
+        let members = db.member_list().await.map_err(|e| e.to_string())?;
         let first = members
             .into_iter()
             .next()
@@ -47,8 +43,8 @@ async fn get_me(State(state): State<Arc<AppState>>) -> Result<Json<MeDto>, Strin
     };
 
     let member = db
-        .member_repo()
-        .get(&conn, accounting::id::MemberId(member_id))
+        .member_get(MemberId(member_id))
+        .await
         .map_err(|e| e.to_string())?
         .ok_or(rust_i18n::t!("member_not_found").to_string())?;
 
@@ -63,13 +59,11 @@ async fn set_me(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SetMeRequest>,
 ) -> Result<String, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
-    conn.execute(
-        "INSERT INTO settings (key, value) VALUES ('current_member_id', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        [req.member_id.to_string()],
-    )
-    .map_err(|e| e.to_string())?;
+    let db = state.db();
+    let id = req.member_id.to_string();
+    db.set_setting("current_member_id", &id)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok("ok".to_string())
 }
 

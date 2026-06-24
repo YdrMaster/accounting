@@ -3,8 +3,7 @@ use crate::output::{OutputFormat, print_line, print_vec};
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, ChannelId, MemberId};
 use accounting::transaction_filter::TransactionFilter;
-use accounting_sql::database::Database;
-use accounting_sql::impls::sqlite::SqliteDatabase;
+use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_i18n::t;
 
@@ -162,10 +161,9 @@ impl ReportCmd {
                 filter.account_ids = args.account.iter().map(|&id| AccountId(id)).collect();
                 filter.member_ids = args.member.iter().map(|&id| MemberId(id)).collect();
                 for tag_name in &args.tag {
-                    let conn = db.connection();
                     let tag = db
-                        .tag_repo()
-                        .get_by_name(&conn, tag_name)
+                        .tag_get_by_name(tag_name)
+                        .await
                         .map_err(|e| AccountingError::Unknown(e.to_string()))?
                         .ok_or_else(|| {
                             AccountingError::Unknown(format!(

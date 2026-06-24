@@ -1,117 +1,114 @@
+use sqlx::{FromRow, SqliteConnection};
+
+use crate::error::DbError;
 use accounting::id::MemberId;
 use accounting::member::Member;
-use rusqlite::{Connection, params};
 
-/// Member 仓库 trait
-pub trait MemberRepo {
-    /// 创建成员，返回新成员 ID
-    fn create(&self, conn: &Connection, member: &Member)
-    -> Result<MemberId, crate::error::DbError>;
-    /// 根据 ID 查询成员
-    fn get(&self, conn: &Connection, id: MemberId)
-    -> Result<Option<Member>, crate::error::DbError>;
-    /// 列出所有成员
-    fn list(&self, conn: &Connection) -> Result<Vec<Member>, crate::error::DbError>;
-    /// 删除成员
-    fn delete(&self, conn: &Connection, id: MemberId) -> Result<(), crate::error::DbError>;
+#[derive(FromRow)]
+struct MemberRow {
+    id: i64,
+    name: String,
 }
 
-/// SQLite MemberRepo 实现
-#[derive(Clone)]
-pub struct SqliteMemberRepo;
-
-impl MemberRepo for SqliteMemberRepo {
-    fn create(
-        &self,
-        conn: &Connection,
-        member: &Member,
-    ) -> Result<MemberId, crate::error::DbError> {
-        conn.execute(
-            "INSERT INTO members (name) VALUES (?1)",
-            params![member.name],
-        )?;
-        Ok(MemberId(conn.last_insert_rowid()))
-    }
-
-    fn get(
-        &self,
-        conn: &Connection,
-        id: MemberId,
-    ) -> Result<Option<Member>, crate::error::DbError> {
-        let mut stmt = conn.prepare("SELECT id, name FROM members WHERE id = ?1")?;
-        let mut rows = stmt.query(params![id.0])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(Member {
-                id: MemberId(row.get(0)?),
-                name: row.get(1)?,
-            }))
-        } else {
-            Ok(None)
+impl MemberRow {
+    fn into_member(self) -> Member {
+        Member {
+            id: MemberId(self.id),
+            name: self.name,
         }
     }
+}
 
-    fn list(&self, conn: &Connection) -> Result<Vec<Member>, crate::error::DbError> {
-        let mut stmt = conn.prepare("SELECT id, name FROM members ORDER BY id")?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Member {
-                id: MemberId(row.get(0)?),
-                name: row.get(1)?,
-            })
-        })?;
-        rows.collect::<Result<_, _>>().map_err(Into::into)
-    }
+pub async fn member_create(
+    conn: &mut SqliteConnection,
+    member: &Member,
+) -> Result<MemberId, DbError> {
+    let id: i64 = sqlx::query_scalar("INSERT INTO members (name) VALUES (?1) RETURNING id")
+        .bind(&member.name)
+        .fetch_one(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(MemberId(id))
+}
 
-    fn delete(&self, conn: &Connection, id: MemberId) -> Result<(), crate::error::DbError> {
-        conn.execute("DELETE FROM members WHERE id = ?1", params![id.0])?;
-        Ok(())
-    }
+pub async fn member_get(
+    conn: &mut SqliteConnection,
+    id: MemberId,
+) -> Result<Option<Member>, DbError> {
+    let row: Option<MemberRow> = sqlx::query_as("SELECT id, name FROM members WHERE id = ?1")
+        .bind(id.0)
+        .fetch_optional(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(row.map(|r| r.into_member()))
+}
+
+pub async fn member_list(conn: &mut SqliteConnection) -> Result<Vec<Member>, DbError> {
+    let rows: Vec<MemberRow> = sqlx::query_as("SELECT id, name FROM members ORDER BY id")
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(rows.into_iter().map(|r| r.into_member()).collect())
+}
+
+pub async fn member_delete(conn: &mut SqliteConnection, id: MemberId) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM members WHERE id = ?1")
+        .bind(id.0)
+        .execute(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
+    use sqlx::{Connection, SqliteConnection};
 
-    fn setup() -> (Connection, SqliteMemberRepo) {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::schema::initialize_schema(&conn).unwrap();
-        crate::schema::insert_seed_data(&conn, "en").unwrap();
-        (conn, SqliteMemberRepo)
+    async fn setup() -> SqliteConnection {
+        let mut conn = sqlx::SqliteConnection::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::schema::initialize_schema(&mut conn).await.unwrap();
+        crate::schema::insert_seed_data(&mut conn, "en")
+            .await
+            .unwrap();
+        conn
     }
 
-    #[test]
-    fn test_create_and_get() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_create_and_get() {
+        let mut conn = setup().await;
         let member = Member {
             id: MemberId(0),
             name: "Alice".to_string(),
         };
-        let id = repo.create(&conn, &member).unwrap();
-        let fetched = repo.get(&conn, id).unwrap().unwrap();
+        let id = member_create(&mut conn, &member).await.unwrap();
+        let fetched = member_get(&mut conn, id).await.unwrap().unwrap();
         assert_eq!(fetched.name, "Alice");
     }
 
-    #[test]
-    fn test_list() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_list() {
+        let mut conn = setup().await;
         let member = Member {
             id: MemberId(0),
             name: "Bob".to_string(),
         };
-        repo.create(&conn, &member).unwrap();
-        let list = repo.list(&conn).unwrap();
+        member_create(&mut conn, &member).await.unwrap();
+        let list = member_list(&mut conn).await.unwrap();
         assert!(list.iter().any(|m| m.name == "Bob"));
     }
 
-    #[test]
-    fn test_delete() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_delete() {
+        let mut conn = setup().await;
         let member = Member {
             id: MemberId(0),
             name: "Charlie".to_string(),
         };
-        let id = repo.create(&conn, &member).unwrap();
-        repo.delete(&conn, id).unwrap();
-        assert!(repo.get(&conn, id).unwrap().is_none());
+        let id = member_create(&mut conn, &member).await.unwrap();
+        member_delete(&mut conn, id).await.unwrap();
+        assert!(member_get(&mut conn, id).await.unwrap().is_none());
     }
 }

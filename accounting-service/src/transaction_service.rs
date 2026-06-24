@@ -7,19 +7,18 @@ use accounting::validation::validate_kind_consistency;
 use accounting::validation::validate_reversal_cap;
 use accounting::validation::validate_reversal_direction;
 use accounting::validation::validate_transaction;
-use accounting_sql::database::Database;
-use accounting_sql::transaction::Transaction as DbTransaction;
+use accounting_sql::SqliteDatabase;
 use rust_decimal::Decimal;
 use rust_i18n::t;
 
 /// 交易服务
-pub struct TransactionService<D: Database> {
-    db: D,
+pub struct TransactionService {
+    db: SqliteDatabase,
 }
 
-impl<D: Database> TransactionService<D> {
+impl TransactionService {
     /// 创建服务实例
-    pub fn new(db: D) -> Self {
+    pub fn new(db: SqliteDatabase) -> Self {
         Self { db }
     }
 
@@ -34,15 +33,15 @@ impl<D: Database> TransactionService<D> {
         validate_reversal_direction(&postings)?;
         validate_kind_consistency(transaction.kind, &postings)?;
 
-        let tx = self
+        let mut tx = self
             .db
             .transaction()
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         let tx_id = tx
-            .transaction_repo()
-            .insert(&tx.conn(), &transaction, &tag_ids)
+            .transaction_insert(&transaction, &tag_ids)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 验证退款/报销分录的关联合法性
@@ -56,8 +55,8 @@ impl<D: Database> TransactionService<D> {
             })?;
 
             let linked_posting = tx
-                .posting_repo()
-                .get(&tx.conn(), linked_id)
+                .posting_get(linked_id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
                 .ok_or_else(|| {
                     AccountingError::InvalidTransaction(format!(
@@ -95,8 +94,8 @@ impl<D: Database> TransactionService<D> {
 
         for posting in &mut postings {
             posting.transaction_id = tx_id;
-            tx.posting_repo()
-                .insert(&tx.conn(), posting)
+            tx.posting_insert(posting)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
@@ -117,20 +116,20 @@ impl<D: Database> TransactionService<D> {
         validate_reversal_direction(&postings)?;
         validate_kind_consistency(transaction.kind, &postings)?;
 
-        let tx = self
+        let mut tx = self
             .db
             .transaction()
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 删除旧分录
-        tx.posting_repo()
-            .delete_by_transaction(&tx.conn(), transaction.id)
+        tx.posting_delete_by_transaction(transaction.id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 更新交易
-        tx.transaction_repo()
-            .update(&tx.conn(), &transaction, &tag_ids)
+        tx.transaction_update(&transaction, &tag_ids)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 验证退款/报销分录的关联合法性
@@ -144,8 +143,8 @@ impl<D: Database> TransactionService<D> {
             })?;
 
             let linked_posting = tx
-                .posting_repo()
-                .get(&tx.conn(), linked_id)
+                .posting_get(linked_id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
                 .ok_or_else(|| {
                     AccountingError::InvalidTransaction(format!(
@@ -184,8 +183,8 @@ impl<D: Database> TransactionService<D> {
         // 插入新分录
         for posting in &mut postings {
             posting.transaction_id = transaction.id;
-            tx.posting_repo()
-                .insert(&tx.conn(), posting)
+            tx.posting_insert(posting)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
@@ -197,14 +196,14 @@ impl<D: Database> TransactionService<D> {
 
     /// 删除交易（级联删除分录、附件、标签关联由外键约束处理）
     pub async fn delete(&self, id: TransactionId) -> Result<(), AccountingError> {
-        let tx = self
+        let mut tx = self
             .db
             .transaction()
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        tx.transaction_repo()
-            .delete(&tx.conn(), id)
+        tx.transaction_delete(id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.commit()
@@ -220,20 +219,19 @@ impl<D: Database> TransactionService<D> {
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<(Transaction, Vec<Posting>)>, AccountingError> {
-        let conn = self.db.connection();
         let limit = limit.map(|l| l as usize).unwrap_or(100);
         let offset = offset.map(|o| o as usize).unwrap_or(0);
         let transactions = self
             .db
-            .transaction_repo()
-            .list(&conn, &filter, limit, offset)
+            .transaction_list(&filter, limit, offset)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         let mut result = Vec::new();
         for tx in transactions {
             let postings = self
                 .db
-                .posting_repo()
-                .list_by_transaction(&conn, tx.id)
+                .posting_list_by_transaction(tx.id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             result.push((tx, postings));
         }
@@ -245,18 +243,17 @@ impl<D: Database> TransactionService<D> {
         &self,
         id: TransactionId,
     ) -> Result<Option<(Transaction, Vec<Posting>)>, AccountingError> {
-        let conn = self.db.connection();
         let transaction = self
             .db
-            .transaction_repo()
-            .get(&conn, id)
+            .transaction_get(id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         match transaction {
             Some(tx) => {
                 let postings = self
                     .db
-                    .posting_repo()
-                    .list_by_transaction(&conn, tx.id)
+                    .posting_list_by_transaction(tx.id)
+                    .await
                     .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
                 Ok(Some((tx, postings)))
             }
@@ -273,7 +270,7 @@ mod tests {
     use accounting::posting::Posting;
     use accounting::transaction::Transaction;
     use accounting::transaction::TransactionKind;
-    use accounting_sql::impls::sqlite::SqliteDatabase;
+    use accounting_sql::SqliteDatabase;
     use chrono::NaiveDate;
     use rust_decimal::Decimal;
     use std::str::FromStr;
@@ -306,21 +303,19 @@ mod tests {
         }
     }
 
-    fn create_test_account(db: &SqliteDatabase, name: &str) -> AccountId {
+    async fn create_test_account(db: &SqliteDatabase, name: &str) -> AccountId {
         let account = sample_account(name);
-        db.account_repo()
-            .create(&db.connection(), &account)
-            .unwrap()
+        db.account_create(&account).await.unwrap()
     }
 
     #[tokio::test]
     async fn test_submit_transaction() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
-        db.initialize("en").unwrap();
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize("en").await.unwrap();
         let tx_service = TransactionService::new(db);
 
-        let id1 = create_test_account(&tx_service.db, "Assets:A");
-        let id2 = create_test_account(&tx_service.db, "Assets:B");
+        let id1 = create_test_account(&tx_service.db, "Assets:A").await;
+        let id2 = create_test_account(&tx_service.db, "Assets:B").await;
 
         let tx = Transaction {
             id: TransactionId(0),
@@ -341,12 +336,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_submit_unbalanced_fails() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
-        db.initialize("en").unwrap();
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize("en").await.unwrap();
         let tx_service = TransactionService::new(db);
 
-        let id1 = create_test_account(&tx_service.db, "Assets:C");
-        let id2 = create_test_account(&tx_service.db, "Assets:D");
+        let id1 = create_test_account(&tx_service.db, "Assets:C").await;
+        let id2 = create_test_account(&tx_service.db, "Assets:D").await;
 
         let tx = Transaction {
             id: TransactionId(0),
@@ -370,12 +365,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_transaction() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
-        db.initialize("en").unwrap();
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize("en").await.unwrap();
         let tx_service = TransactionService::new(db);
 
-        let id1 = create_test_account(&tx_service.db, "Assets:E");
-        let id2 = create_test_account(&tx_service.db, "Assets:F");
+        let id1 = create_test_account(&tx_service.db, "Assets:E").await;
+        let id2 = create_test_account(&tx_service.db, "Assets:F").await;
 
         let tx = Transaction {
             id: TransactionId(0),
@@ -414,8 +409,8 @@ mod tests {
         // 验证更新后的分录
         let list = tx_service
             .db
-            .posting_repo()
-            .list_by_transaction(&tx_service.db.connection(), tx_id)
+            .posting_list_by_transaction(tx_id)
+            .await
             .unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].amount, Decimal::from_str("200").unwrap());
@@ -423,12 +418,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_transaction() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
-        db.initialize("en").unwrap();
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize("en").await.unwrap();
         let tx_service = TransactionService::new(db);
 
-        let id1 = create_test_account(&tx_service.db, "Assets:G");
-        let id2 = create_test_account(&tx_service.db, "Assets:H");
+        let id1 = create_test_account(&tx_service.db, "Assets:G").await;
+        let id2 = create_test_account(&tx_service.db, "Assets:H").await;
 
         let tx = Transaction {
             id: TransactionId(0),
@@ -449,8 +444,8 @@ mod tests {
         assert!(
             tx_service
                 .db
-                .transaction_repo()
-                .get(&tx_service.db.connection(), tx_id)
+                .transaction_get(tx_id)
+                .await
                 .unwrap()
                 .is_none()
         );

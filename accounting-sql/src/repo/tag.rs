@@ -1,131 +1,131 @@
+use sqlx::{FromRow, SqliteConnection};
+
+use crate::error::DbError;
 use accounting::id::TagId;
 use accounting::tag::Tag;
-use rusqlite::{Connection, params};
 
-/// Tag 仓库 trait
-pub trait TagRepo {
-    /// 根据名称查询标签
-    fn get_by_name(
-        &self,
-        conn: &Connection,
-        name: &str,
-    ) -> Result<Option<Tag>, crate::error::DbError>;
-    /// 列出所有标签
-    fn list(&self, conn: &Connection) -> Result<Vec<Tag>, crate::error::DbError>;
-    /// 创建标签
-    fn create(&self, conn: &Connection, tag: &Tag) -> Result<TagId, crate::error::DbError>;
-    /// 删除标签
-    fn delete(&self, conn: &Connection, name: &str) -> Result<(), crate::error::DbError>;
+#[derive(FromRow)]
+struct TagRow {
+    id: i64,
+    name: String,
+    description: Option<String>,
+    is_system: i32,
 }
 
-/// SQLite TagRepo 实现
-#[derive(Clone)]
-pub struct SqliteTagRepo;
-
-impl TagRepo for SqliteTagRepo {
-    fn get_by_name(
-        &self,
-        conn: &Connection,
-        name: &str,
-    ) -> Result<Option<Tag>, crate::error::DbError> {
-        let mut stmt =
-            conn.prepare("SELECT id, name, description, is_system FROM tags WHERE name = ?1")?;
-        let mut rows = stmt.query(params![name])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(Tag {
-                id: TagId(row.get(0)?),
-                name: row.get(1)?,
-                description: row.get(2)?,
-                is_system: row.get::<_, i32>(3)? != 0,
-            }))
-        } else {
-            Ok(None)
+impl TagRow {
+    fn into_tag(self) -> Tag {
+        Tag {
+            id: TagId(self.id),
+            name: self.name,
+            description: self.description,
+            is_system: self.is_system != 0,
         }
     }
+}
 
-    fn list(&self, conn: &Connection) -> Result<Vec<Tag>, crate::error::DbError> {
-        let mut stmt =
-            conn.prepare("SELECT id, name, description, is_system FROM tags ORDER BY id")?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Tag {
-                id: TagId(row.get(0)?),
-                name: row.get(1)?,
-                description: row.get(2)?,
-                is_system: row.get::<_, i32>(3)? != 0,
-            })
-        })?;
-        rows.collect::<Result<_, _>>().map_err(Into::into)
-    }
+pub async fn tag_get_by_name(
+    conn: &mut SqliteConnection,
+    name: &str,
+) -> Result<Option<Tag>, DbError> {
+    let row: Option<TagRow> =
+        sqlx::query_as("SELECT id, name, description, is_system FROM tags WHERE name = ?1")
+            .bind(name)
+            .fetch_optional(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(row.map(|r| r.into_tag()))
+}
 
-    fn create(&self, conn: &Connection, tag: &Tag) -> Result<TagId, crate::error::DbError> {
-        conn.execute(
-            "INSERT INTO tags (name, description, is_system) VALUES (?1, ?2, ?3)",
-            params![tag.name, tag.description, tag.is_system as i32],
-        )?;
-        Ok(TagId(conn.last_insert_rowid()))
-    }
+pub async fn tag_list(conn: &mut SqliteConnection) -> Result<Vec<Tag>, DbError> {
+    let rows: Vec<TagRow> =
+        sqlx::query_as("SELECT id, name, description, is_system FROM tags ORDER BY id")
+            .fetch_all(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(rows.into_iter().map(|r| r.into_tag()).collect())
+}
 
-    fn delete(&self, conn: &Connection, name: &str) -> Result<(), crate::error::DbError> {
-        conn.execute("DELETE FROM tags WHERE name = ?1", params![name])?;
-        Ok(())
-    }
+pub async fn tag_create(conn: &mut SqliteConnection, tag: &Tag) -> Result<TagId, DbError> {
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO tags (name, description, is_system) VALUES (?1, ?2, ?3) RETURNING id",
+    )
+    .bind(&tag.name)
+    .bind(&tag.description)
+    .bind(tag.is_system as i32)
+    .fetch_one(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(TagId(id))
+}
+
+pub async fn tag_delete(conn: &mut SqliteConnection, name: &str) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM tags WHERE name = ?1")
+        .bind(name)
+        .execute(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
+    use sqlx::{Connection, SqliteConnection};
 
-    fn setup() -> (Connection, SqliteTagRepo) {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::schema::initialize_schema(&conn).unwrap();
-        crate::schema::insert_seed_data(&conn, "en").unwrap();
-        (conn, SqliteTagRepo)
+    async fn setup() -> SqliteConnection {
+        let mut conn = sqlx::SqliteConnection::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::schema::initialize_schema(&mut conn).await.unwrap();
+        crate::schema::insert_seed_data(&mut conn, "en")
+            .await
+            .unwrap();
+        conn
     }
 
-    #[test]
-    fn test_get_by_name() {
-        let (conn, repo) = setup();
-        let found = repo.get_by_name(&conn, "repayment").unwrap();
+    #[tokio::test]
+    async fn test_get_by_name() {
+        let mut conn = setup().await;
+        let found = tag_get_by_name(&mut conn, "repayment").await.unwrap();
         assert!(found.is_some());
         let tag = found.unwrap();
         assert!(tag.is_system);
     }
 
-    #[test]
-    fn test_list() {
-        let (conn, repo) = setup();
-        let list = repo.list(&conn).unwrap();
+    #[tokio::test]
+    async fn test_list() {
+        let mut conn = setup().await;
+        let list = tag_list(&mut conn).await.unwrap();
         assert!(!list.is_empty());
         assert!(list.iter().any(|t| t.name == "repayment"));
     }
 
-    #[test]
-    fn test_create() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_create() {
+        let mut conn = setup().await;
         let tag = Tag {
             id: TagId(0),
             name: "travel".to_string(),
             description: Some("旅行".to_string()),
             is_system: false,
         };
-        let id = repo.create(&conn, &tag).unwrap();
-        let fetched = repo.get_by_name(&conn, "travel").unwrap().unwrap();
+        let id = tag_create(&mut conn, &tag).await.unwrap();
+        let fetched = tag_get_by_name(&mut conn, "travel").await.unwrap().unwrap();
         assert_eq!(fetched.id, id);
         assert_eq!(fetched.description, Some("旅行".to_string()));
     }
 
-    #[test]
-    fn test_delete() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_delete() {
+        let mut conn = setup().await;
         let tag = Tag {
             id: TagId(0),
             name: "temp".to_string(),
             description: None,
             is_system: false,
         };
-        repo.create(&conn, &tag).unwrap();
-        repo.delete(&conn, "temp").unwrap();
-        assert!(repo.get_by_name(&conn, "temp").unwrap().is_none());
+        tag_create(&mut conn, &tag).await.unwrap();
+        tag_delete(&mut conn, "temp").await.unwrap();
+        assert!(tag_get_by_name(&mut conn, "temp").await.unwrap().is_none());
     }
 }

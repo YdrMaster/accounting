@@ -10,7 +10,6 @@ use accounting::tag::Tag;
 use accounting::transaction::Transaction;
 use accounting::transaction_filter::TransactionFilter;
 use accounting_service::transaction_service::TransactionService;
-use accounting_sql::database::Database;
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
@@ -72,7 +71,7 @@ async fn list_transactions(
     State(state): State<Arc<AppState>>,
     Query(query): Query<TxQuery>,
 ) -> Result<Json<Vec<TransactionDto>>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
+    let db = state.db();
     let mut filter = TransactionFilter::default();
 
     if let Some(from) = query.from {
@@ -93,8 +92,8 @@ async fn list_transactions(
 
     for tag_name in &query.tag {
         let tag = db
-            .tag_repo()
-            .get_by_name(&db.connection(), tag_name)
+            .tag_get_by_name(tag_name)
+            .await
             .map_err(|e| e.to_string())?;
         if let Some(tag) = tag {
             filter.tag_ids.push(tag.id);
@@ -112,13 +111,12 @@ async fn list_transactions(
     }
 
     let (account_paths, commodities) = {
-        let conn = db.connection();
         let accounts: std::collections::HashMap<
             accounting::id::AccountId,
             accounting::account::Account,
         > = db
-            .account_repo()
-            .list(&conn)
+            .account_list()
+            .await
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|a| (a.id, a))
@@ -128,8 +126,8 @@ async fn list_transactions(
             .map(|a| (a.id.0, a.display_path(&accounts)))
             .collect();
         let commodities: std::collections::HashMap<i64, String> = db
-            .commodity_repo()
-            .list(&conn)
+            .commodity_list()
+            .await
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|c| (c.id.0, c.symbol))
@@ -137,7 +135,7 @@ async fn list_transactions(
         (account_paths, commodities)
     };
 
-    let service = TransactionService::new(db);
+    let service = TransactionService::new(db.clone());
     let transactions = service
         .list(filter, query.limit, query.offset)
         .await
@@ -188,7 +186,7 @@ async fn create_transaction(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateTransactionRequest>,
 ) -> Result<Json<i64>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
+    let db = state.db();
 
     let date_time = parse_date_time(&req.date_time).map_err(|e| e.to_string())?;
     let member_id = req.member_id.map(MemberId);
@@ -197,14 +195,14 @@ async fn create_transaction(
     let mut postings = Vec::new();
     for posting_req in req.postings {
         let account = db
-            .account_repo()
-            .get_by_name(&db.connection(), &posting_req.account)
+            .account_get_by_name(&posting_req.account)
+            .await
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Account not found: {}", posting_req.account))?;
 
         let commodity = db
-            .commodity_repo()
-            .get_by_symbol(&db.connection(), &posting_req.commodity)
+            .commodity_get_by_symbol(&posting_req.commodity)
+            .await
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Commodity not found: {}", posting_req.commodity))?;
 
@@ -229,8 +227,8 @@ async fn create_transaction(
     let mut tag_ids = Vec::new();
     for tag_name in req.tags {
         let tag = db
-            .tag_repo()
-            .get_by_name(&db.connection(), &tag_name)
+            .tag_get_by_name(&tag_name)
+            .await
             .map_err(|e| e.to_string())?;
         let tag_id = match tag {
             Some(t) => t.id,
@@ -241,9 +239,7 @@ async fn create_transaction(
                     description: None,
                     is_system: false,
                 };
-                db.tag_repo()
-                    .create(&db.connection(), &new_tag)
-                    .map_err(|e| e.to_string())?
+                db.tag_create(&new_tag).await.map_err(|e| e.to_string())?
             }
         };
         tag_ids.push(tag_id);
@@ -264,7 +260,7 @@ async fn create_transaction(
         channel_id: req.channel_id.map(ChannelId),
     };
 
-    let service = TransactionService::new(db);
+    let service = TransactionService::new(db.clone());
     let id = service
         .submit(transaction, postings, tag_ids)
         .await
@@ -278,18 +274,17 @@ async fn get_transaction(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<TransactionDto>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
+    let db = state.db();
 
     let tx = db
-        .transaction_repo()
-        .get(&conn, TransactionId(id))
+        .transaction_get(TransactionId(id))
+        .await
         .map_err(|e| e.to_string())?
         .ok_or("Transaction not found")?;
 
     let postings = db
-        .posting_repo()
-        .list_by_transaction(&conn, TransactionId(id))
+        .posting_list_by_transaction(TransactionId(id))
+        .await
         .map_err(|e| e.to_string())?;
 
     // 批量查询账户和商品名称
@@ -297,8 +292,8 @@ async fn get_transaction(
         accounting::id::AccountId,
         accounting::account::Account,
     > = db
-        .account_repo()
-        .list(&conn)
+        .account_list()
+        .await
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|a| (a.id, a))
@@ -309,8 +304,8 @@ async fn get_transaction(
         .collect();
 
     let commodities: std::collections::HashMap<i64, String> = db
-        .commodity_repo()
-        .list(&conn)
+        .commodity_list()
+        .await
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|c| (c.id.0, c.symbol))
@@ -356,11 +351,10 @@ async fn get_posting(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<PostingDto>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
+    let db = state.db();
     let posting = db
-        .posting_repo()
-        .get(&conn, PostingId(id))
+        .posting_get(PostingId(id))
+        .await
         .map_err(|e| e.to_string())?
         .ok_or("Posting not found")?;
 
@@ -368,8 +362,8 @@ async fn get_posting(
         accounting::id::AccountId,
         accounting::account::Account,
     > = db
-        .account_repo()
-        .list(&conn)
+        .account_list()
+        .await
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|a| (a.id, a))
@@ -379,8 +373,8 @@ async fn get_posting(
         .map(|a| (a.id.0, a.display_path(&accounts)))
         .collect();
     let commodities: std::collections::HashMap<i64, String> = db
-        .commodity_repo()
-        .list(&conn)
+        .commodity_list()
+        .await
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|c| (c.id.0, c.symbol))
@@ -410,24 +404,22 @@ async fn update_transaction(
     Path(id): Path<i64>,
     Json(req): Json<CreateTransactionRequest>,
 ) -> Result<String, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
+    let db = state.db();
     let date_time = parse_date_time(&req.date_time).map_err(|e| e.to_string())?;
     let member_id = req.member_id.map(MemberId);
 
     let (postings, tag_ids) = {
-        let conn = db.connection();
-
         let mut postings = Vec::new();
         for posting_req in req.postings {
             let account = db
-                .account_repo()
-                .get_by_name(&conn, &posting_req.account)
+                .account_get_by_name(&posting_req.account)
+                .await
                 .map_err(|e| e.to_string())?
                 .ok_or_else(|| format!("Account not found: {}", posting_req.account))?;
 
             let commodity = db
-                .commodity_repo()
-                .get_by_symbol(&conn, &posting_req.commodity)
+                .commodity_get_by_symbol(&posting_req.commodity)
+                .await
                 .map_err(|e| e.to_string())?
                 .ok_or_else(|| format!("Commodity not found: {}", posting_req.commodity))?;
 
@@ -452,8 +444,8 @@ async fn update_transaction(
         let mut tag_ids = Vec::new();
         for tag_name in req.tags {
             let tag = db
-                .tag_repo()
-                .get_by_name(&conn, &tag_name)
+                .tag_get_by_name(&tag_name)
+                .await
                 .map_err(|e| e.to_string())?;
             let tag_id = match tag {
                 Some(t) => t.id,
@@ -464,9 +456,7 @@ async fn update_transaction(
                         description: None,
                         is_system: false,
                     };
-                    db.tag_repo()
-                        .create(&conn, &new_tag)
-                        .map_err(|e| e.to_string())?
+                    db.tag_create(&new_tag).await.map_err(|e| e.to_string())?
                 }
             };
             tag_ids.push(tag_id);
@@ -490,7 +480,7 @@ async fn update_transaction(
         channel_id: req.channel_id.map(ChannelId),
     };
 
-    let service = TransactionService::new(db);
+    let service = TransactionService::new(db.clone());
     service
         .update(transaction, postings, tag_ids)
         .await
@@ -503,8 +493,8 @@ async fn delete_transaction(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<String, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let service = TransactionService::new(db);
+    let db = state.db();
+    let service = TransactionService::new(db.clone());
     service
         .delete(TransactionId(id))
         .await

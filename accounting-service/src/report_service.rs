@@ -3,8 +3,7 @@ use accounting::account_type::AccountType;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, ChannelId, CommodityId, MemberId, TagId};
 use accounting::transaction_filter::TransactionFilter;
-use accounting_sql::database::Database;
-use accounting_sql::transaction::Transaction;
+use accounting_sql::SqliteDatabase;
 use rust_decimal::Decimal;
 use rust_i18n::t;
 use std::collections::HashMap;
@@ -75,13 +74,13 @@ pub struct ChannelStat {
 }
 
 /// 报告服务
-pub struct ReportService<D: Database> {
-    db: D,
+pub struct ReportService {
+    db: SqliteDatabase,
 }
 
-impl<D: Database> ReportService<D> {
+impl ReportService {
     /// 创建服务实例
-    pub fn new(db: D) -> Self {
+    pub fn new(db: SqliteDatabase) -> Self {
         Self { db }
     }
 
@@ -90,7 +89,7 @@ impl<D: Database> ReportService<D> {
         &self,
         account_id: AccountId,
     ) -> Result<HashMap<CommodityId, Decimal>, AccountingError> {
-        let tx = self
+        let mut tx = self
             .db
             .transaction()
             .await
@@ -98,8 +97,8 @@ impl<D: Database> ReportService<D> {
 
         // 通过闭包表聚合查询余额
         let totals = tx
-            .posting_repo()
-            .sum_with_ancestors(&tx.conn(), account_id)
+            .posting_sum_with_ancestors(account_id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.commit()
@@ -110,11 +109,10 @@ impl<D: Database> ReportService<D> {
 
     /// 资产负债表
     pub async fn balance_sheet(&self) -> Result<BalanceSheet, AccountingError> {
-        let conn = self.db.connection();
         let accounts = self
             .db
-            .account_repo()
-            .list(&conn)
+            .account_list()
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         let mut assets = Vec::new();
@@ -123,8 +121,8 @@ impl<D: Database> ReportService<D> {
         for account in accounts {
             let balances = self
                 .db
-                .posting_repo()
-                .sum_by_account(&conn, account.id)
+                .posting_sum_by_account(account.id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             if balances.iter().all(|(_, b)| b.is_zero()) {
                 continue;
@@ -135,8 +133,8 @@ impl<D: Database> ReportService<D> {
             };
             let root_name = self
                 .db
-                .account_repo()
-                .find_root_name(&conn, account.id)
+                .account_find_root_name(account.id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             match AccountType::from_str(&root_name).map_err(AccountingError::DatabaseError)? {
                 AccountType::Asset => assets.push(item),
@@ -150,11 +148,10 @@ impl<D: Database> ReportService<D> {
 
     /// 损益表
     pub async fn income_statement(&self) -> Result<IncomeStatement, AccountingError> {
-        let conn = self.db.connection();
         let accounts = self
             .db
-            .account_repo()
-            .list(&conn)
+            .account_list()
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         let mut income = Vec::new();
@@ -163,8 +160,8 @@ impl<D: Database> ReportService<D> {
         for account in accounts {
             let balances = self
                 .db
-                .posting_repo()
-                .sum_by_account(&conn, account.id)
+                .posting_sum_by_account(account.id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             if balances.iter().all(|(_, b)| b.is_zero()) {
                 continue;
@@ -175,8 +172,8 @@ impl<D: Database> ReportService<D> {
             };
             let root_name = self
                 .db
-                .account_repo()
-                .find_root_name(&conn, account.id)
+                .account_find_root_name(account.id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             match AccountType::from_str(&root_name).map_err(AccountingError::DatabaseError)? {
                 AccountType::Income => income.push(item),
@@ -196,11 +193,10 @@ impl<D: Database> ReportService<D> {
         let mut filter = filter.clone();
         filter.tag_ids.clear(); // 忽略维度自身过滤
 
-        let conn = self.db.connection();
         let raw = self
             .db
-            .posting_repo()
-            .sum_by_tag(&conn, &filter)
+            .posting_sum_by_tag(&filter)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 按 TagId 分组，区分 Income 和 Expense
@@ -216,8 +212,8 @@ impl<D: Database> ReportService<D> {
 
         let tags: HashMap<TagId, accounting::tag::Tag> = self
             .db
-            .tag_repo()
-            .list(&conn)
+            .tag_list()
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
             .into_iter()
             .map(|t| (t.id, t))
@@ -246,11 +242,10 @@ impl<D: Database> ReportService<D> {
         let mut filter = filter.clone();
         filter.member_ids.clear(); // 忽略维度自身过滤
 
-        let conn = self.db.connection();
         let raw = self
             .db
-            .posting_repo()
-            .sum_by_member(&conn, &filter)
+            .posting_sum_by_member(&filter)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 按 MemberId 分组，区分 Income 和 Expense
@@ -268,8 +263,8 @@ impl<D: Database> ReportService<D> {
         for (member_id, (income, expense)) in groups {
             let member = self
                 .db
-                .member_repo()
-                .get(&conn, member_id)
+                .member_get(member_id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
                 .ok_or_else(|| {
                     AccountingError::DatabaseError(
@@ -294,11 +289,10 @@ impl<D: Database> ReportService<D> {
         let mut filter = filter.clone();
         filter.channel_ids.clear(); // 忽略维度自身过滤
 
-        let conn = self.db.connection();
         let raw = self
             .db
-            .posting_repo()
-            .sum_by_channel(&conn, &filter)
+            .posting_sum_by_channel(&filter)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 按 ChannelId 分组，区分 Income 和 Expense
@@ -316,8 +310,8 @@ impl<D: Database> ReportService<D> {
         for (channel_id, (income, expense)) in groups {
             let channel = self
                 .db
-                .channel_repo()
-                .get(&conn, channel_id)
+                .channel_get(channel_id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
                 .ok_or_else(|| {
                     AccountingError::DatabaseError(
@@ -346,7 +340,7 @@ mod tests {
     use accounting::tag::Tag;
     use accounting::transaction::Transaction;
     use accounting::transaction::TransactionKind;
-    use accounting_sql::impls::sqlite::SqliteDatabase;
+    use accounting_sql::SqliteDatabase;
     use chrono::NaiveDate;
     use rust_decimal::Decimal;
     use std::str::FromStr;
@@ -379,24 +373,21 @@ mod tests {
         }
     }
 
+    async fn setup_db() -> SqliteDatabase {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize("en").await.unwrap();
+        db
+    }
+
     #[tokio::test]
     async fn test_get_balance() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
-        db.initialize("en").unwrap();
+        let db = setup_db().await;
         let report_service = ReportService::new(db);
 
         let a1 = sample_account("I", None);
         let a2 = sample_account("J", None);
-        let id1 = report_service
-            .db
-            .account_repo()
-            .create(&report_service.db.connection(), &a1)
-            .unwrap();
-        let id2 = report_service
-            .db
-            .account_repo()
-            .create(&report_service.db.connection(), &a2)
-            .unwrap();
+        let id1 = report_service.db.account_create(&a1).await.unwrap();
+        let id2 = report_service.db.account_create(&a2).await.unwrap();
 
         // 直接通过 repo 插入交易和分录
         let tx = Transaction {
@@ -412,8 +403,8 @@ mod tests {
         };
         let tx_id = report_service
             .db
-            .transaction_repo()
-            .insert(&report_service.db.connection(), &tx, &[])
+            .transaction_insert(&tx, &[])
+            .await
             .unwrap();
 
         let mut p1 = sample_posting(id1, "100");
@@ -421,16 +412,8 @@ mod tests {
         let mut p2 = sample_posting(id2, "-100");
         p2.transaction_id = tx_id;
 
-        report_service
-            .db
-            .posting_repo()
-            .insert(&report_service.db.connection(), &p1)
-            .unwrap();
-        report_service
-            .db
-            .posting_repo()
-            .insert(&report_service.db.connection(), &p2)
-            .unwrap();
+        report_service.db.posting_insert(&p1).await.unwrap();
+        report_service.db.posting_insert(&p2).await.unwrap();
 
         let balance = report_service.get_balance(id1).await.unwrap();
         assert_eq!(balance[&CommodityId(1)], Decimal::from_str("100").unwrap());
@@ -438,116 +421,109 @@ mod tests {
 
     #[tokio::test]
     async fn test_balance_sheet_excludes_zero_balance_and_income_expense() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
-        db.initialize("en").unwrap();
+        let db = setup_db().await;
         let report_service = ReportService::new(db);
 
-        let _ = {
-            let conn = report_service.db.connection();
+        let assets_id = report_service
+            .db
+            .account_get_by_name("Assets")
+            .await
+            .unwrap()
+            .expect("seeded Assets account should exist")
+            .id;
+        let income_id = report_service
+            .db
+            .account_get_by_name("Income")
+            .await
+            .unwrap()
+            .expect("seeded Income account should exist")
+            .id;
+        let expenses_id = report_service
+            .db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .expect("seeded Expenses account should exist")
+            .id;
 
-            let assets_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Assets")
+        let bank = sample_account("Bank", Some(assets_id));
+        let salary = sample_account("Salary", Some(income_id));
+        let food = sample_account("Food", Some(expenses_id));
+
+        let bank_id = report_service
+            .db
+            .account_create_with_closure(&bank)
+            .await
+            .unwrap();
+        let salary_id = report_service
+            .db
+            .account_create_with_closure(&salary)
+            .await
+            .unwrap();
+        let _food_id = report_service
+            .db
+            .account_create_with_closure(&food)
+            .await
+            .unwrap();
+
+        // Equity:OpeningBalances is a seeded system account, reuse it instead of recreating
+        let opening = report_service
+            .db
+            .account_get_by_name("Equity:OpeningBalances")
+            .await
+            .unwrap()
+            .expect("seeded Equity:OpeningBalances account should exist");
+        let opening_id = opening.id;
+
+        // Tx1: Bank +100, OpeningBalances -100
+        let tx1 = Transaction {
+            id: TransactionId(0),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
                 .unwrap()
-                .expect("seeded Assets account should exist")
-                .id;
-            let income_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Income")
-                .unwrap()
-                .expect("seeded Income account should exist")
-                .id;
-            let expenses_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Expenses")
-                .unwrap()
-                .expect("seeded Expenses account should exist")
-                .id;
-
-            let bank = sample_account("Bank", Some(assets_id));
-            let salary = sample_account("Salary", Some(income_id));
-            let food = sample_account("Food", Some(expenses_id));
-
-            let bank_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &bank)
-                .unwrap();
-            let salary_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &salary)
-                .unwrap();
-            let food_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &food)
-                .unwrap();
-
-            // Equity:OpeningBalances is a seeded system account, reuse it instead of recreating
-            let opening = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Equity:OpeningBalances")
-                .unwrap()
-                .expect("seeded Equity:OpeningBalances account should exist");
-            let opening_id = opening.id;
-
-            // Tx1: Bank +100, OpeningBalances -100
-            let tx1 = Transaction {
-                id: TransactionId(0),
-                date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
-                description: "Initial balance".to_string(),
-                kind: TransactionKind::Normal,
-                member_id: None,
-                channel_id: None,
-            };
-            let tx1_id = report_service
-                .db
-                .transaction_repo()
-                .insert(&conn, &tx1, &[])
-                .unwrap();
-
-            let mut p1 = sample_posting(bank_id, "100");
-            p1.transaction_id = tx1_id;
-            let mut p2 = sample_posting(opening_id, "-100");
-            p2.transaction_id = tx1_id;
-            report_service.db.posting_repo().insert(&conn, &p1).unwrap();
-            report_service.db.posting_repo().insert(&conn, &p2).unwrap();
-
-            // Tx2: Salary +200, Bank -200
-            let tx2 = Transaction {
-                id: TransactionId(0),
-                date_time: NaiveDate::from_ymd_opt(2024, 6, 2)
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
-                description: "Salary".to_string(),
-                kind: TransactionKind::Normal,
-                member_id: None,
-                channel_id: None,
-            };
-            let tx2_id = report_service
-                .db
-                .transaction_repo()
-                .insert(&conn, &tx2, &[])
-                .unwrap();
-
-            let mut p3 = sample_posting(salary_id, "200");
-            p3.transaction_id = tx2_id;
-            let mut p4 = sample_posting(bank_id, "-200");
-            p4.transaction_id = tx2_id;
-            report_service.db.posting_repo().insert(&conn, &p3).unwrap();
-            report_service.db.posting_repo().insert(&conn, &p4).unwrap();
-
-            (bank_id, opening_id, salary_id, food_id)
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
+            description: "Initial balance".to_string(),
+            kind: TransactionKind::Normal,
+            member_id: None,
+            channel_id: None,
         };
+        let tx1_id = report_service
+            .db
+            .transaction_insert(&tx1, &[])
+            .await
+            .unwrap();
+
+        let mut p1 = sample_posting(bank_id, "100");
+        p1.transaction_id = tx1_id;
+        let mut p2 = sample_posting(opening_id, "-100");
+        p2.transaction_id = tx1_id;
+        report_service.db.posting_insert(&p1).await.unwrap();
+        report_service.db.posting_insert(&p2).await.unwrap();
+
+        // Tx2: Salary +200, Bank -200
+        let tx2 = Transaction {
+            id: TransactionId(0),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 2)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
+            description: "Salary".to_string(),
+            kind: TransactionKind::Normal,
+            member_id: None,
+            channel_id: None,
+        };
+        let tx2_id = report_service
+            .db
+            .transaction_insert(&tx2, &[])
+            .await
+            .unwrap();
+
+        let mut p3 = sample_posting(salary_id, "200");
+        p3.transaction_id = tx2_id;
+        let mut p4 = sample_posting(bank_id, "-200");
+        p4.transaction_id = tx2_id;
+        report_service.db.posting_insert(&p3).await.unwrap();
+        report_service.db.posting_insert(&p4).await.unwrap();
 
         let sheet = report_service.balance_sheet().await.unwrap();
 
@@ -569,68 +545,61 @@ mod tests {
 
     #[tokio::test]
     async fn test_income_statement_includes_income_and_expense() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
-        db.initialize("en").unwrap();
+        let db = setup_db().await;
         let report_service = ReportService::new(db);
 
-        let _ = {
-            let conn = report_service.db.connection();
+        let income_id = report_service
+            .db
+            .account_get_by_name("Income")
+            .await
+            .unwrap()
+            .expect("seeded Income account should exist")
+            .id;
+        let expenses_id = report_service
+            .db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .expect("seeded Expenses account should exist")
+            .id;
 
-            let income_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Income")
+        let salary = sample_account("Salary", Some(income_id));
+        let food = sample_account("Food", Some(expenses_id));
+
+        let salary_id = report_service
+            .db
+            .account_create_with_closure(&salary)
+            .await
+            .unwrap();
+        let food_id = report_service
+            .db
+            .account_create_with_closure(&food)
+            .await
+            .unwrap();
+
+        let tx = Transaction {
+            id: TransactionId(0),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
                 .unwrap()
-                .expect("seeded Income account should exist")
-                .id;
-            let expenses_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Expenses")
-                .unwrap()
-                .expect("seeded Expenses account should exist")
-                .id;
-
-            let salary = sample_account("Salary", Some(income_id));
-            let food = sample_account("Food", Some(expenses_id));
-
-            let salary_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &salary)
-                .unwrap();
-            let food_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &food)
-                .unwrap();
-
-            let tx = Transaction {
-                id: TransactionId(0),
-                date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
-                description: "Income statement test".to_string(),
-                kind: TransactionKind::Normal,
-                member_id: None,
-                channel_id: None,
-            };
-            let tx_id = report_service
-                .db
-                .transaction_repo()
-                .insert(&conn, &tx, &[])
-                .unwrap();
-
-            let mut p1 = sample_posting(salary_id, "500");
-            p1.transaction_id = tx_id;
-            let mut p2 = sample_posting(food_id, "-500");
-            p2.transaction_id = tx_id;
-            report_service.db.posting_repo().insert(&conn, &p1).unwrap();
-            report_service.db.posting_repo().insert(&conn, &p2).unwrap();
-
-            (salary_id, food_id)
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
+            description: "Income statement test".to_string(),
+            kind: TransactionKind::Normal,
+            member_id: None,
+            channel_id: None,
         };
+        let tx_id = report_service
+            .db
+            .transaction_insert(&tx, &[])
+            .await
+            .unwrap();
+
+        let mut p1 = sample_posting(salary_id, "500");
+        p1.transaction_id = tx_id;
+        let mut p2 = sample_posting(food_id, "-500");
+        p2.transaction_id = tx_id;
+        report_service.db.posting_insert(&p1).await.unwrap();
+        report_service.db.posting_insert(&p2).await.unwrap();
 
         let statement = report_service.income_statement().await.unwrap();
 
@@ -655,79 +624,71 @@ mod tests {
 
     #[tokio::test]
     async fn test_stats_by_tag() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
-        db.initialize("en").unwrap();
+        let db = setup_db().await;
         let report_service = ReportService::new(db);
 
-        // 准备数据（放在独立作用域中，确保 conn 在 async 调用前释放）
-        let _ = {
-            let conn = report_service.db.connection();
+        // 创建 Income / Expense 子账户
+        let income_root_id = report_service
+            .db
+            .account_get_by_name("Income")
+            .await
+            .unwrap()
+            .expect("seeded Income account should exist")
+            .id;
+        let expenses_root_id = report_service
+            .db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .expect("seeded Expenses account should exist")
+            .id;
+        let income_acc = sample_account("Salary", Some(income_root_id));
+        let expense_acc = sample_account("Food", Some(expenses_root_id));
+        let income_id = report_service
+            .db
+            .account_create_with_closure(&income_acc)
+            .await
+            .unwrap();
+        let expense_id = report_service
+            .db
+            .account_create_with_closure(&expense_acc)
+            .await
+            .unwrap();
 
-            // 创建 Income / Expense 子账户
-            let income_root_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Income")
-                .unwrap()
-                .expect("seeded Income account should exist")
-                .id;
-            let expenses_root_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Expenses")
-                .unwrap()
-                .expect("seeded Expenses account should exist")
-                .id;
-            let income_acc = sample_account("Salary", Some(income_root_id));
-            let expense_acc = sample_account("Food", Some(expenses_root_id));
-            let income_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &income_acc)
-                .unwrap();
-            let expense_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &expense_acc)
-                .unwrap();
-
-            // 创建标签
-            let tag = Tag {
-                id: TagId(0),
-                name: "餐饮".to_string(),
-                description: None,
-                is_system: false,
-            };
-            let tag_id = report_service.db.tag_repo().create(&conn, &tag).unwrap();
-
-            // 创建交易并关联标签
-            let tx = Transaction {
-                id: TransactionId(0),
-                date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
-                description: "Tag stat test".to_string(),
-                kind: TransactionKind::Normal,
-                member_id: None,
-                channel_id: None,
-            };
-            let tx_id = report_service
-                .db
-                .transaction_repo()
-                .insert(&conn, &tx, &[tag_id])
-                .unwrap();
-
-            // 插入分录
-            let mut p1 = sample_posting(income_id, "100");
-            p1.transaction_id = tx_id;
-            let mut p2 = sample_posting(expense_id, "-100");
-            p2.transaction_id = tx_id;
-            report_service.db.posting_repo().insert(&conn, &p1).unwrap();
-            report_service.db.posting_repo().insert(&conn, &p2).unwrap();
-
-            (income_id, expense_id, tag_id)
+        // 创建标签
+        let tag = Tag {
+            id: TagId(0),
+            name: "餐饮".to_string(),
+            description: None,
+            is_system: false,
         };
+        let tag_id = report_service.db.tag_create(&tag).await.unwrap();
+
+        // 创建交易并关联标签
+        let tx = Transaction {
+            id: TransactionId(0),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
+            description: "Tag stat test".to_string(),
+            kind: TransactionKind::Normal,
+            member_id: None,
+            channel_id: None,
+        };
+        let tx_id = report_service
+            .db
+            .transaction_insert(&tx, &[tag_id])
+            .await
+            .unwrap();
+
+        // 插入分录
+        let mut p1 = sample_posting(income_id, "100");
+        p1.transaction_id = tx_id;
+        let mut p2 = sample_posting(expense_id, "-100");
+        p2.transaction_id = tx_id;
+        report_service.db.posting_insert(&p1).await.unwrap();
+        report_service.db.posting_insert(&p2).await.unwrap();
 
         // 验证统计
         let stats = report_service
@@ -746,81 +707,69 @@ mod tests {
 
     #[tokio::test]
     async fn test_stats_by_member() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
-        db.initialize("en").unwrap();
+        let db = setup_db().await;
         let report_service = ReportService::new(db);
 
-        // 准备数据（放在独立作用域中，确保 conn 在 async 调用前释放）
-        let _ = {
-            let conn = report_service.db.connection();
+        // 创建 Income / Expense 子账户
+        let income_root_id = report_service
+            .db
+            .account_get_by_name("Income")
+            .await
+            .unwrap()
+            .expect("seeded Income account should exist")
+            .id;
+        let expenses_root_id = report_service
+            .db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .expect("seeded Expenses account should exist")
+            .id;
+        let income_acc = sample_account("Salary", Some(income_root_id));
+        let expense_acc = sample_account("Food", Some(expenses_root_id));
+        let income_id = report_service
+            .db
+            .account_create_with_closure(&income_acc)
+            .await
+            .unwrap();
+        let expense_id = report_service
+            .db
+            .account_create_with_closure(&expense_acc)
+            .await
+            .unwrap();
 
-            // 创建 Income / Expense 子账户
-            let income_root_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Income")
-                .unwrap()
-                .expect("seeded Income account should exist")
-                .id;
-            let expenses_root_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Expenses")
-                .unwrap()
-                .expect("seeded Expenses account should exist")
-                .id;
-            let income_acc = sample_account("Salary", Some(income_root_id));
-            let expense_acc = sample_account("Food", Some(expenses_root_id));
-            let income_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &income_acc)
-                .unwrap();
-            let expense_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &expense_acc)
-                .unwrap();
-
-            // 创建成员
-            let member = Member {
-                id: MemberId(0),
-                name: "Alice".to_string(),
-            };
-            let member_id = report_service
-                .db
-                .member_repo()
-                .create(&conn, &member)
-                .unwrap();
-
-            // 创建交易并设置成员
-            let tx = Transaction {
-                id: TransactionId(0),
-                date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
-                description: "Member stat test".to_string(),
-                kind: TransactionKind::Normal,
-                member_id: Some(member_id),
-                channel_id: None,
-            };
-            let tx_id = report_service
-                .db
-                .transaction_repo()
-                .insert(&conn, &tx, &[])
-                .unwrap();
-
-            // 插入分录
-            let mut p1 = sample_posting(income_id, "100");
-            p1.transaction_id = tx_id;
-            let mut p2 = sample_posting(expense_id, "-100");
-            p2.transaction_id = tx_id;
-            report_service.db.posting_repo().insert(&conn, &p1).unwrap();
-            report_service.db.posting_repo().insert(&conn, &p2).unwrap();
-
-            (income_id, expense_id, member_id)
+        // 创建成员
+        let member = Member {
+            id: MemberId(0),
+            name: "Alice".to_string(),
         };
+        let member_id = report_service.db.member_create(&member).await.unwrap();
+
+        // 创建交易并设置成员
+        let tx = Transaction {
+            id: TransactionId(0),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
+            description: "Member stat test".to_string(),
+            kind: TransactionKind::Normal,
+            member_id: Some(member_id),
+            channel_id: None,
+        };
+        let tx_id = report_service
+            .db
+            .transaction_insert(&tx, &[])
+            .await
+            .unwrap();
+
+        // 插入分录
+        let mut p1 = sample_posting(income_id, "100");
+        p1.transaction_id = tx_id;
+        let mut p2 = sample_posting(expense_id, "-100");
+        p2.transaction_id = tx_id;
+        report_service.db.posting_insert(&p1).await.unwrap();
+        report_service.db.posting_insert(&p2).await.unwrap();
 
         // 验证统计
         let stats = report_service
@@ -839,82 +788,70 @@ mod tests {
 
     #[tokio::test]
     async fn test_stats_by_channel() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
-        db.initialize("en").unwrap();
+        let db = setup_db().await;
         let report_service = ReportService::new(db);
 
-        // 准备数据（放在独立作用域中，确保 conn 在 async 调用前释放）
-        let _ = {
-            let conn = report_service.db.connection();
+        // 创建 Income / Expense 子账户
+        let income_root_id = report_service
+            .db
+            .account_get_by_name("Income")
+            .await
+            .unwrap()
+            .expect("seeded Income account should exist")
+            .id;
+        let expenses_root_id = report_service
+            .db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .expect("seeded Expenses account should exist")
+            .id;
+        let income_acc = sample_account("Salary", Some(income_root_id));
+        let expense_acc = sample_account("Food", Some(expenses_root_id));
+        let income_id = report_service
+            .db
+            .account_create_with_closure(&income_acc)
+            .await
+            .unwrap();
+        let expense_id = report_service
+            .db
+            .account_create_with_closure(&expense_acc)
+            .await
+            .unwrap();
 
-            // 创建 Income / Expense 子账户
-            let income_root_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Income")
-                .unwrap()
-                .expect("seeded Income account should exist")
-                .id;
-            let expenses_root_id = report_service
-                .db
-                .account_repo()
-                .get_by_name(&conn, "Expenses")
-                .unwrap()
-                .expect("seeded Expenses account should exist")
-                .id;
-            let income_acc = sample_account("Salary", Some(income_root_id));
-            let expense_acc = sample_account("Food", Some(expenses_root_id));
-            let income_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &income_acc)
-                .unwrap();
-            let expense_id = report_service
-                .db
-                .account_repo()
-                .create_with_closure(&conn, &expense_acc)
-                .unwrap();
-
-            // 创建渠道
-            let channel = Channel {
-                id: ChannelId(0),
-                name: "支付宝".to_string(),
-                description: None,
-            };
-            let channel_id = report_service
-                .db
-                .channel_repo()
-                .create(&conn, &channel)
-                .unwrap();
-
-            // 创建交易（带渠道）
-            let tx = Transaction {
-                id: TransactionId(0),
-                date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
-                description: "Channel stat test".to_string(),
-                kind: TransactionKind::Normal,
-                member_id: None,
-                channel_id: Some(channel_id),
-            };
-            let tx_id = report_service
-                .db
-                .transaction_repo()
-                .insert(&conn, &tx, &[])
-                .unwrap();
-
-            // 插入分录
-            let mut p1 = sample_posting(income_id, "100");
-            p1.transaction_id = tx_id;
-            let mut p2 = sample_posting(expense_id, "-100");
-            p2.transaction_id = tx_id;
-            report_service.db.posting_repo().insert(&conn, &p1).unwrap();
-            report_service.db.posting_repo().insert(&conn, &p2).unwrap();
-
-            (income_id, expense_id, channel_id)
+        // 创建渠道
+        let channel = Channel {
+            id: ChannelId(0),
+            name: "支付宝".to_string(),
+            description: None,
         };
+        let channel_id = report_service.db.channel_create(&channel).await.unwrap();
+
+        // 创建交易（带渠道）
+        let tx = Transaction {
+            id: TransactionId(0),
+            date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
+            description: "Channel stat test".to_string(),
+            kind: TransactionKind::Normal,
+            member_id: None,
+            channel_id: Some(channel_id),
+        };
+        let tx_id = report_service
+            .db
+            .transaction_insert(&tx, &[])
+            .await
+            .unwrap();
+
+        // 插入分录
+        let mut p1 = sample_posting(income_id, "100");
+        p1.transaction_id = tx_id;
+        let mut p2 = sample_posting(expense_id, "-100");
+        p2.transaction_id = tx_id;
+        report_service.db.posting_insert(&p1).await.unwrap();
+        report_service.db.posting_insert(&p2).await.unwrap();
 
         // 验证统计
         let stats = report_service

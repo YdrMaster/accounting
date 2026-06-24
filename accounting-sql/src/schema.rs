@@ -1,291 +1,324 @@
-use rusqlite::Connection;
+use sqlx::SqliteConnection;
 
 use crate::error::DbError;
 
 /// 初始化数据库表结构
-pub fn initialize_schema(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(SCHEMA_SQL)?;
+pub async fn initialize_schema(conn: &mut SqliteConnection) -> Result<(), DbError> {
+    for sql in SCHEMA_STATEMENTS {
+        sqlx::query(*sql)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    }
     Ok(())
 }
 
 /// 插入系统内置数据，支持语言选择
-pub fn insert_seed_data(conn: &Connection, lang: &str) -> Result<(), DbError> {
-    let (accounts_root, accounts_child) = if lang.starts_with("zh") {
-        (SEED_ACCOUNTS_ROOT_ZH, SEED_ACCOUNTS_CHILD_ZH)
+pub async fn insert_seed_data(conn: &mut SqliteConnection, lang: &str) -> Result<(), DbError> {
+    let (accounts_root, accounts_child, tags_sql) = if lang.starts_with("zh") {
+        (SEED_ACCOUNTS_ROOT_ZH, SEED_ACCOUNTS_CHILD_ZH, SEED_TAGS_ZH)
     } else {
-        (SEED_ACCOUNTS_ROOT_EN, SEED_ACCOUNTS_CHILD_EN)
+        (SEED_ACCOUNTS_ROOT_EN, SEED_ACCOUNTS_CHILD_EN, SEED_TAGS_EN)
     };
-    let tags_sql = if lang.starts_with("zh") {
-        SEED_TAGS_ZH
-    } else {
-        SEED_TAGS_EN
-    };
-    // 先插入根账户，再插入子账户（子查询依赖根账户已存在）
-    conn.execute_batch(&format!(
-        "{}{}{}{}{}",
-        SEED_COMMODITIES, accounts_root, accounts_child, tags_sql, SEED_CLOSURE
-    ))?;
+
+    for sql in [
+        SEED_COMMODITIES,
+        accounts_root,
+        accounts_child,
+        tags_sql,
+        SEED_CLOSURE,
+    ] {
+        sqlx::query(sql)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    }
+
     Ok(())
 }
 
-const SCHEMA_SQL: &str = r#"
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
-
-CREATE TABLE IF NOT EXISTS commodities (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    precision INTEGER NOT NULL DEFAULT 2,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS accounts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    parent_id INTEGER REFERENCES accounts(id),
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    closed_at TEXT,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    is_system INTEGER NOT NULL DEFAULT 0,
-    billing_day INTEGER CHECK(billing_day BETWEEN 1 AND 31),
-    repayment_day INTEGER CHECK(repayment_day BETWEEN 1 AND 31),
-    UNIQUE(parent_id, name)
-);
-
-CREATE TABLE IF NOT EXISTS account_ancestors (
-    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    ancestor_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    depth INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (account_id, ancestor_id)
-);
-
-CREATE TABLE IF NOT EXISTS account_owners (
-    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (account_id, member_id)
-);
-
-CREATE TABLE IF NOT EXISTS members (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS channels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS tags (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT,
-    is_system INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS transactions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date_time TEXT NOT NULL,
-    description TEXT NOT NULL,
-    member_id INTEGER REFERENCES members(id),
-    channel_id INTEGER REFERENCES channels(id),
-    kind INTEGER NOT NULL DEFAULT 1 CHECK(kind BETWEEN 1 AND 3),
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS postings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
-    account_id INTEGER NOT NULL REFERENCES accounts(id),
-    commodity_id INTEGER NOT NULL REFERENCES commodities(id),
-    amount INTEGER NOT NULL,
-    cost INTEGER,
-    cost_commodity_id INTEGER REFERENCES commodities(id),
-    description TEXT,
-    is_reimbursable INTEGER NOT NULL DEFAULT 0,
-    linked_posting_id INTEGER REFERENCES postings(id),
-    reversal_total INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS attachments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
-    filename TEXT NOT NULL,
-    data BLOB NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS transaction_tags (
-    transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
-    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (transaction_id, tag_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_accounts_parent ON accounts(parent_id);
-CREATE INDEX IF NOT EXISTS idx_account_ancestors_ancestor ON account_ancestors(ancestor_id);
-CREATE INDEX IF NOT EXISTS idx_account_ancestors_account ON account_ancestors(account_id);
-CREATE INDEX IF NOT EXISTS idx_postings_tx ON postings(transaction_id);
-CREATE INDEX IF NOT EXISTS idx_postings_account ON postings(account_id);
-CREATE INDEX IF NOT EXISTS idx_postings_commodity ON postings(commodity_id);
-CREATE INDEX IF NOT EXISTS idx_postings_account_commodity ON postings(account_id, commodity_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date_time);
-CREATE INDEX IF NOT EXISTS idx_transactions_kind ON transactions(kind);
-CREATE INDEX IF NOT EXISTS idx_postings_reimbursable ON postings(is_reimbursable);
-CREATE INDEX IF NOT EXISTS idx_postings_linked ON postings(linked_posting_id);
-CREATE INDEX IF NOT EXISTS idx_attachments_tx ON attachments(transaction_id);
-CREATE INDEX IF NOT EXISTS idx_transaction_tags_tag ON transaction_tags(tag_id);
-
-CREATE TRIGGER IF NOT EXISTS update_commodities_updated_at
-AFTER UPDATE ON commodities
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE commodities SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_accounts_updated_at
-AFTER UPDATE ON accounts
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE accounts SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_account_ancestors_updated_at
-AFTER UPDATE ON account_ancestors
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE account_ancestors SET updated_at = datetime('now')
-    WHERE account_id = NEW.account_id AND ancestor_id = NEW.ancestor_id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_account_owners_updated_at
-AFTER UPDATE ON account_owners
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE account_owners SET updated_at = datetime('now')
-    WHERE account_id = NEW.account_id AND member_id = NEW.member_id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_members_updated_at
-AFTER UPDATE ON members
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE members SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_channels_updated_at
-AFTER UPDATE ON channels
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE channels SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_tags_updated_at
-AFTER UPDATE ON tags
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE tags SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_transactions_updated_at
-AFTER UPDATE ON transactions
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE transactions SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_postings_updated_at
-AFTER UPDATE ON postings
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE postings SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_postings_reversal_insert
-AFTER INSERT ON postings
-WHEN (SELECT kind FROM transactions WHERE id = NEW.transaction_id) IN (2, 3) AND NEW.linked_posting_id IS NOT NULL
-BEGIN
-    UPDATE postings
-    SET reversal_total = reversal_total + NEW.amount
-    WHERE id = NEW.linked_posting_id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_postings_reversal_delete
-AFTER DELETE ON postings
-WHEN (SELECT kind FROM transactions WHERE id = OLD.transaction_id) IN (2, 3) AND OLD.linked_posting_id IS NOT NULL
-BEGIN
-    UPDATE postings
-    SET reversal_total = reversal_total - OLD.amount
-    WHERE id = OLD.linked_posting_id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_postings_reversal_update
-AFTER UPDATE OF amount ON postings
-WHEN (SELECT kind FROM transactions WHERE id = NEW.transaction_id) IN (2, 3) AND NEW.linked_posting_id IS NOT NULL
-BEGIN
-    UPDATE postings
-    SET reversal_total = reversal_total - OLD.amount + NEW.amount
-    WHERE id = NEW.linked_posting_id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_attachments_updated_at
-AFTER UPDATE ON attachments
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE attachments SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_transaction_tags_updated_at
-AFTER UPDATE ON transaction_tags
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE transaction_tags SET updated_at = datetime('now')
-    WHERE transaction_id = NEW.transaction_id AND tag_id = NEW.tag_id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_settings_updated_at
-AFTER UPDATE ON settings
-FOR EACH ROW
-WHEN OLD.updated_at = NEW.updated_at
-BEGIN
-    UPDATE settings SET updated_at = datetime('now') WHERE key = NEW.key;
-END;
-"#;
+const SCHEMA_STATEMENTS: &[&str] = &[
+    r#"
+    CREATE TABLE IF NOT EXISTS commodities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        precision INTEGER NOT NULL DEFAULT 2,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        parent_id INTEGER REFERENCES accounts(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        closed_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        is_system INTEGER NOT NULL DEFAULT 0,
+        billing_day INTEGER CHECK(billing_day BETWEEN 1 AND 31),
+        repayment_day INTEGER CHECK(repayment_day BETWEEN 1 AND 31),
+        UNIQUE(parent_id, name)
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS account_ancestors (
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        ancestor_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        depth INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (account_id, ancestor_id)
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS account_owners (
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (account_id, member_id)
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS channels (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        is_system INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date_time TEXT NOT NULL,
+        description TEXT NOT NULL,
+        member_id INTEGER REFERENCES members(id),
+        channel_id INTEGER REFERENCES channels(id),
+        kind INTEGER NOT NULL DEFAULT 1 CHECK(kind BETWEEN 1 AND 3),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS postings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        commodity_id INTEGER NOT NULL REFERENCES commodities(id),
+        amount INTEGER NOT NULL,
+        cost INTEGER,
+        cost_commodity_id INTEGER REFERENCES commodities(id),
+        description TEXT,
+        is_reimbursable INTEGER NOT NULL DEFAULT 0,
+        linked_posting_id INTEGER REFERENCES postings(id),
+        reversal_total INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS transaction_tags (
+        transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+        tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (transaction_id, tag_id)
+    );
+    "#,
+    "CREATE INDEX IF NOT EXISTS idx_accounts_parent ON accounts(parent_id);",
+    "CREATE INDEX IF NOT EXISTS idx_account_ancestors_ancestor ON account_ancestors(ancestor_id);",
+    "CREATE INDEX IF NOT EXISTS idx_account_ancestors_account ON account_ancestors(account_id);",
+    "CREATE INDEX IF NOT EXISTS idx_postings_tx ON postings(transaction_id);",
+    "CREATE INDEX IF NOT EXISTS idx_postings_account ON postings(account_id);",
+    "CREATE INDEX IF NOT EXISTS idx_postings_commodity ON postings(commodity_id);",
+    "CREATE INDEX IF NOT EXISTS idx_postings_account_commodity ON postings(account_id, commodity_id);",
+    "CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date_time);",
+    "CREATE INDEX IF NOT EXISTS idx_transactions_kind ON transactions(kind);",
+    "CREATE INDEX IF NOT EXISTS idx_postings_reimbursable ON postings(is_reimbursable);",
+    "CREATE INDEX IF NOT EXISTS idx_postings_linked ON postings(linked_posting_id);",
+    "CREATE INDEX IF NOT EXISTS idx_attachments_tx ON attachments(transaction_id);",
+    "CREATE INDEX IF NOT EXISTS idx_transaction_tags_tag ON transaction_tags(tag_id);",
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_commodities_updated_at
+    AFTER UPDATE ON commodities
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE commodities SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_accounts_updated_at
+    AFTER UPDATE ON accounts
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE accounts SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_account_ancestors_updated_at
+    AFTER UPDATE ON account_ancestors
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE account_ancestors SET updated_at = datetime('now')
+        WHERE account_id = NEW.account_id AND ancestor_id = NEW.ancestor_id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_account_owners_updated_at
+    AFTER UPDATE ON account_owners
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE account_owners SET updated_at = datetime('now')
+        WHERE account_id = NEW.account_id AND member_id = NEW.member_id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_members_updated_at
+    AFTER UPDATE ON members
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE members SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_channels_updated_at
+    AFTER UPDATE ON channels
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE channels SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_tags_updated_at
+    AFTER UPDATE ON tags
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE tags SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_transactions_updated_at
+    AFTER UPDATE ON transactions
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE transactions SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_postings_updated_at
+    AFTER UPDATE ON postings
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE postings SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS trg_postings_reversal_insert
+    AFTER INSERT ON postings
+    WHEN (SELECT kind FROM transactions WHERE id = NEW.transaction_id) IN (2, 3) AND NEW.linked_posting_id IS NOT NULL
+    BEGIN
+        UPDATE postings
+        SET reversal_total = reversal_total + NEW.amount
+        WHERE id = NEW.linked_posting_id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS trg_postings_reversal_delete
+    AFTER DELETE ON postings
+    WHEN (SELECT kind FROM transactions WHERE id = OLD.transaction_id) IN (2, 3) AND OLD.linked_posting_id IS NOT NULL
+    BEGIN
+        UPDATE postings
+        SET reversal_total = reversal_total - OLD.amount
+        WHERE id = OLD.linked_posting_id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS trg_postings_reversal_update
+    AFTER UPDATE OF amount ON postings
+    WHEN (SELECT kind FROM transactions WHERE id = NEW.transaction_id) IN (2, 3) AND NEW.linked_posting_id IS NOT NULL
+    BEGIN
+        UPDATE postings
+        SET reversal_total = reversal_total - OLD.amount + NEW.amount
+        WHERE id = NEW.linked_posting_id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_attachments_updated_at
+    AFTER UPDATE ON attachments
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE attachments SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_transaction_tags_updated_at
+    AFTER UPDATE ON transaction_tags
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE transaction_tags SET updated_at = datetime('now')
+        WHERE transaction_id = NEW.transaction_id AND tag_id = NEW.tag_id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_settings_updated_at
+    AFTER UPDATE ON settings
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE settings SET updated_at = datetime('now') WHERE key = NEW.key;
+    END;
+    "#,
+];
 
 const SEED_ACCOUNTS_ROOT_EN: &str = r#"
 INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
@@ -361,20 +394,25 @@ SELECT id, parent_id, depth FROM ancestors;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
+    use sqlx::{Connection, SqliteConnection};
 
-    #[test]
-    fn test_schema_initialization() {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_schema(&conn).unwrap();
-
-        let tables: Vec<String> = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .collect::<Result<_, _>>()
+    async fn setup() -> SqliteConnection {
+        let mut conn = sqlx::SqliteConnection::connect("sqlite::memory:")
+            .await
             .unwrap();
+        initialize_schema(&mut conn).await.unwrap();
+        conn
+    }
+
+    #[tokio::test]
+    async fn test_schema_initialization() {
+        let mut conn = setup().await;
+
+        let tables: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM sqlite_master WHERE type='table'")
+                .fetch_all(&mut conn)
+                .await
+                .unwrap();
 
         assert!(tables.contains(&"commodities".to_string()));
         assert!(tables.contains(&"accounts".to_string()));
@@ -390,44 +428,33 @@ mod tests {
         assert!(tables.contains(&"settings".to_string()));
     }
 
-    #[test]
-    fn test_seed_data() {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_schema(&conn).unwrap();
-        insert_seed_data(&conn, "en").unwrap();
+    #[tokio::test]
+    async fn test_seed_data() {
+        let mut conn = setup().await;
+        insert_seed_data(&mut conn, "en").await.unwrap();
 
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM commodities WHERE symbol='CNY'",
-                [],
-                |row| row.get(0),
-            )
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM commodities WHERE symbol='CNY'")
+            .fetch_one(&mut conn)
+            .await
             .unwrap();
         assert_eq!(count, 1);
 
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM accounts WHERE is_system=1",
-                [],
-                |row| row.get(0),
-            )
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM accounts WHERE is_system=1")
+            .fetch_one(&mut conn)
+            .await
             .unwrap();
         assert_eq!(count, 10);
 
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM tags WHERE name='repayment'",
-                [],
-                |row| row.get(0),
-            )
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE name='repayment'")
+            .fetch_one(&mut conn)
+            .await
             .unwrap();
         assert_eq!(count, 1);
     }
 
-    #[test]
-    fn test_audit_columns_exist() {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_schema(&conn).unwrap();
+    #[tokio::test]
+    async fn test_audit_columns_exist() {
+        let mut conn = setup().await;
 
         let tables = [
             "commodities",
@@ -445,12 +472,10 @@ mod tests {
         ];
 
         for table in tables {
-            let cols: Vec<String> = conn
-                .prepare(&format!("SELECT name FROM pragma_table_info('{}')", table))
-                .unwrap()
-                .query_map([], |row| row.get(0))
-                .unwrap()
-                .collect::<Result<_, _>>()
+            let cols: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info(?)")
+                .bind(table)
+                .fetch_all(&mut conn)
+                .await
                 .unwrap();
             assert!(
                 cols.contains(&"created_at".to_string()),
@@ -465,26 +490,25 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_updated_at_trigger() {
-        let conn = Connection::open_in_memory().unwrap();
-        initialize_schema(&conn).unwrap();
-        insert_seed_data(&conn, "en").unwrap();
+    #[tokio::test]
+    async fn test_updated_at_trigger() {
+        let mut conn = setup().await;
+        insert_seed_data(&mut conn, "en").await.unwrap();
 
         // 手动将 updated_at 设为过去日期，以便触发器能体现出变化
-        conn.execute(
-            "UPDATE accounts SET updated_at = '2000-01-01' WHERE id = 1",
-            [],
-        )
-        .unwrap();
-
-        conn.execute("UPDATE accounts SET name = name || 'X' WHERE id = 1", [])
+        sqlx::query("UPDATE accounts SET updated_at = '2000-01-01' WHERE id = 1")
+            .execute(&mut conn)
+            .await
             .unwrap();
 
-        let after: String = conn
-            .query_row("SELECT updated_at FROM accounts WHERE id = 1", [], |row| {
-                row.get(0)
-            })
+        sqlx::query("UPDATE accounts SET name = name || 'X' WHERE id = 1")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+
+        let after: String = sqlx::query_scalar("SELECT updated_at FROM accounts WHERE id = 1")
+            .fetch_one(&mut conn)
+            .await
             .unwrap();
 
         assert_ne!(after, "2000-01-01", "updated_at 触发器未生效");

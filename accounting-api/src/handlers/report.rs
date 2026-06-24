@@ -5,7 +5,6 @@ use accounting::account::Account;
 use accounting::id::AccountId;
 use accounting::transaction_filter::TransactionFilter;
 use accounting_service::report_service::ReportService;
-use accounting_sql::database::Database;
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -65,13 +64,11 @@ pub struct StatsQuery {
 async fn balance_sheet(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<BalanceSheetResponse>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
+    let db = state.db();
     let account_paths: HashMap<i64, String> = {
-        let db_for_conn = db.clone();
-        let conn = db_for_conn.connection();
         let accounts: HashMap<AccountId, Account> = db
-            .account_repo()
-            .list(&conn)
+            .account_list()
+            .await
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|a| (a.id, a))
@@ -82,7 +79,7 @@ async fn balance_sheet(
             .collect()
     };
 
-    let service = ReportService::new(db);
+    let service = ReportService::new(db.clone());
     let sheet = service.balance_sheet().await.map_err(|e| e.to_string())?;
 
     Ok(Json(BalanceSheetResponse {
@@ -103,13 +100,11 @@ async fn balance_sheet(
 async fn income_statement(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<IncomeStatementResponse>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
+    let db = state.db();
     let account_paths: HashMap<i64, String> = {
-        let db_for_conn = db.clone();
-        let conn = db_for_conn.connection();
         let accounts: HashMap<AccountId, Account> = db
-            .account_repo()
-            .list(&conn)
+            .account_list()
+            .await
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|a| (a.id, a))
@@ -120,7 +115,7 @@ async fn income_statement(
             .collect()
     };
 
-    let service = ReportService::new(db);
+    let service = ReportService::new(db.clone());
     let stmt = service
         .income_statement()
         .await
@@ -145,7 +140,7 @@ async fn stats(
     State(state): State<Arc<AppState>>,
     Query(query): Query<StatsQuery>,
 ) -> Result<Json<Vec<StatItem>>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
+    let db = state.db();
 
     let mut filter = TransactionFilter::default();
     if let Some(from) = query.from {
@@ -159,7 +154,7 @@ async fn stats(
         filter.end_date = Some(date);
     }
 
-    let service = ReportService::new(db);
+    let service = ReportService::new(db.clone());
 
     let items = match query.by.as_str() {
         "tag" => service

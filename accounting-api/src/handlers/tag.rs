@@ -4,7 +4,6 @@ use crate::dto::TagDto;
 use crate::handlers::member::AppState;
 use accounting::id::TagId;
 use accounting::tag::Tag;
-use accounting_sql::database::Database;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -15,11 +14,8 @@ use std::sync::Arc;
 
 /// 获取标签列表
 async fn list_tags(State(state): State<Arc<AppState>>) -> Result<Json<Vec<TagDto>>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let tags = db
-        .tag_repo()
-        .list(&db.connection())
-        .map_err(|e| e.to_string())?;
+    let db = state.db();
+    let tags = db.tag_list().await.map_err(|e| e.to_string())?;
     let dtos: Vec<TagDto> = tags
         .iter()
         .map(|t| TagDto {
@@ -44,13 +40,12 @@ async fn create_tag(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateTagRequest>,
 ) -> Result<Json<TagDto>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
+    let db = state.db();
 
     // 检查是否已存在
     if let Some(existing) = db
-        .tag_repo()
-        .get_by_name(&conn, &req.name)
+        .tag_get_by_name(&req.name)
+        .await
         .map_err(|e| e.to_string())?
     {
         return Ok(Json(TagDto {
@@ -67,10 +62,7 @@ async fn create_tag(
         description: req.description,
         is_system: false,
     };
-    let id = db
-        .tag_repo()
-        .create(&conn, &tag)
-        .map_err(|e| e.to_string())?;
+    let id = db.tag_create(&tag).await.map_err(|e| e.to_string())?;
 
     Ok(Json(TagDto {
         id: id.0,
@@ -85,11 +77,10 @@ async fn delete_tag(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<String, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let conn = db.connection();
+    let db = state.db();
 
     // 查询标签
-    let tags = db.tag_repo().list(&conn).map_err(|e| e.to_string())?;
+    let tags = db.tag_list().await.map_err(|e| e.to_string())?;
     let tag = tags
         .into_iter()
         .find(|t| t.id.0 == id)
@@ -99,9 +90,7 @@ async fn delete_tag(
         return Err(t!("cannot_delete_system_tag").to_string());
     }
 
-    db.tag_repo()
-        .delete(&conn, &tag.name)
-        .map_err(|e| e.to_string())?;
+    db.tag_delete(&tag.name).await.map_err(|e| e.to_string())?;
     Ok("deleted".to_string())
 }
 

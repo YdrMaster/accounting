@@ -2,8 +2,7 @@ use crate::cmd::{AccountRow, BalanceRow};
 use crate::output::{OutputFormat, print, print_line, print_vec};
 use accounting::account_type::AccountType;
 use accounting::id::AccountId;
-use accounting_sql::database::Database;
-use accounting_sql::impls::sqlite::SqliteDatabase;
+use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_i18n::t;
 use std::str::FromStr;
@@ -79,20 +78,17 @@ impl AccountCmd {
                 let service = accounting_service::account_service::AccountService::new(db.clone());
                 let root_id = args.r#type.map(AccountId);
                 let accounts = service.list(root_id, args.limit, args.offset).await?;
-                let conn = db.connection();
-                let rows: Vec<AccountRow> = accounts
-                    .iter()
-                    .map(|a| {
-                        let account_type = db
-                            .account_repo()
-                            .find_root_name(&conn, a.id)
-                            .ok()
-                            .and_then(|root_name| AccountType::from_str(&root_name).ok())
-                            .map(|ty| ty.display_name())
-                            .unwrap_or_default();
-                        AccountRow::new(a, account_type)
-                    })
-                    .collect();
+                let mut rows: Vec<AccountRow> = Vec::new();
+                for a in &accounts {
+                    let account_type = db
+                        .account_find_root_name(a.id)
+                        .await
+                        .ok()
+                        .and_then(|root_name| AccountType::from_str(&root_name).ok())
+                        .map(|ty| ty.display_name())
+                        .unwrap_or_default();
+                    rows.push(AccountRow::new(a, account_type));
+                }
                 print_vec(&rows, format);
             }
             AccountCmd::Add(args) => {
@@ -114,10 +110,9 @@ impl AccountCmd {
                 let account = service.get(AccountId(args.id)).await?;
                 match account {
                     Some(a) => {
-                        let conn = db.connection();
                         let account_type = db
-                            .account_repo()
-                            .find_root_name(&conn, a.id)
+                            .account_find_root_name(a.id)
+                            .await
                             .ok()
                             .and_then(|root_name| AccountType::from_str(&root_name).ok())
                             .map(|ty| ty.display_name())

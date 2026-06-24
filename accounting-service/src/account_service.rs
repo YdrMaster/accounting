@@ -3,27 +3,26 @@ use accounting::account_type::AccountType;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, CommodityId, MemberId};
 use accounting::validation::validate_account_close;
-use accounting_sql::database::Database;
-use accounting_sql::transaction::Transaction;
+use accounting_sql::SqliteDatabase;
 use rust_decimal::Decimal;
 use rust_i18n::t;
 use std::collections::HashMap;
 use std::str::FromStr;
 
 /// 账户服务
-pub struct AccountService<D: Database> {
-    db: D,
+pub struct AccountService {
+    db: SqliteDatabase,
 }
 
-impl<D: Database> AccountService<D> {
+impl AccountService {
     /// 创建服务实例
-    pub fn new(db: D) -> Self {
+    pub fn new(db: SqliteDatabase) -> Self {
         Self { db }
     }
 
     /// 创建账户并维护闭包表（保留原始接口）
     pub async fn create(&self, account: Account) -> Result<AccountId, AccountingError> {
-        let tx = self
+        let mut tx = self
             .db
             .transaction()
             .await
@@ -32,8 +31,8 @@ impl<D: Database> AccountService<D> {
         // 验证父账户存在；根账户则校验名称是否为有效根节点名
         if let Some(parent_id) = account.parent_id {
             let parent = tx
-                .account_repo()
-                .get(&tx.conn(), parent_id)
+                .account_get(parent_id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             if parent.is_none() {
                 return Err(AccountingError::AccountNotFound(format!(
@@ -51,8 +50,8 @@ impl<D: Database> AccountService<D> {
 
         // 同级 name 唯一性检查
         let existing = tx
-            .account_repo()
-            .get_by_parent_and_name(&tx.conn(), account.parent_id, &account.name)
+            .account_get_by_parent_and_name(account.parent_id, &account.name)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         if existing.is_some() {
             return Err(AccountingError::AccountAlreadyExists(account.name.clone()));
@@ -60,8 +59,8 @@ impl<D: Database> AccountService<D> {
 
         // 创建账户并维护闭包表
         let id = tx
-            .account_repo()
-            .create_with_closure(&tx.conn(), &account)
+            .account_create_with_closure(&account)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.commit()
@@ -96,7 +95,7 @@ impl<D: Database> AccountService<D> {
             )
         })?;
 
-        let tx = self
+        let mut tx = self
             .db
             .transaction()
             .await
@@ -108,8 +107,8 @@ impl<D: Database> AccountService<D> {
         for (i, segment) in segments.iter().enumerate() {
             // 检查是否已存在
             if let Some(existing) = tx
-                .account_repo()
-                .get_by_parent_and_name(&tx.conn(), parent_id, segment)
+                .account_get_by_parent_and_name(parent_id, segment)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
             {
                 parent_id = Some(existing.id);
@@ -129,8 +128,8 @@ impl<D: Database> AccountService<D> {
             };
 
             let id = tx
-                .account_repo()
-                .create_with_closure(&tx.conn(), &account)
+                .account_create_with_closure(&account)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             parent_id = Some(id);
             last_id = Some(id);
@@ -140,8 +139,8 @@ impl<D: Database> AccountService<D> {
         if !owner_ids.is_empty()
             && let Some(account_id) = last_id
         {
-            tx.account_repo()
-                .set_owners(&tx.conn(), account_id, owner_ids)
+            tx.account_set_owners(account_id, owner_ids)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
@@ -156,15 +155,15 @@ impl<D: Database> AccountService<D> {
 
     /// 关闭账户（含余额验证 + 级联关闭子账户）
     pub async fn close(&self, id: AccountId) -> Result<(), AccountingError> {
-        let tx = self
+        let mut tx = self
             .db
             .transaction()
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         let account = tx
-            .account_repo()
-            .get(&tx.conn(), id)
+            .account_get(id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         let account = account.ok_or_else(|| {
             AccountingError::AccountNotFound(t!("account_not_found_id", id = id).to_string())
@@ -172,30 +171,30 @@ impl<D: Database> AccountService<D> {
 
         // 验证余额
         let balances = tx
-            .posting_repo()
-            .sum_by_account(&tx.conn(), id)
+            .posting_sum_by_account(id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         let root_name = tx
-            .account_repo()
-            .find_root_name(&tx.conn(), account.id)
+            .account_find_root_name(account.id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         let account_type =
             AccountType::from_str(&root_name).map_err(AccountingError::DatabaseError)?;
         validate_account_close(account_type, &balances)?;
 
         // 关闭目标账户
-        tx.account_repo()
-            .close(&tx.conn(), id)
+        tx.account_close(id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 级联关闭子账户
         let children = tx
-            .account_repo()
-            .list_children(&tx.conn(), id)
+            .account_list_children(id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         for child in children {
-            tx.account_repo()
-                .close(&tx.conn(), child.id)
+            tx.account_close(child.id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
@@ -207,7 +206,7 @@ impl<D: Database> AccountService<D> {
 
     /// 重新开启账户（级联恢复子账户）
     pub async fn reopen(&self, id: AccountId) -> Result<(), AccountingError> {
-        let tx = self
+        let mut tx = self
             .db
             .transaction()
             .await
@@ -215,17 +214,17 @@ impl<D: Database> AccountService<D> {
 
         // 级联恢复子账户
         let children = tx
-            .account_repo()
-            .list_children(&tx.conn(), id)
+            .account_list_children(id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         for child in children {
-            tx.account_repo()
-                .reopen(&tx.conn(), child.id)
+            tx.account_reopen(child.id)
+                .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
-        tx.account_repo()
-            .reopen(&tx.conn(), id)
+        tx.account_reopen(id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.commit()
@@ -241,23 +240,24 @@ impl<D: Database> AccountService<D> {
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<Account>, AccountingError> {
-        let conn = self.db.connection();
         let mut accounts = self
             .db
-            .account_repo()
-            .list(&conn)
+            .account_list()
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         if let Some(root_id) = root_id {
-            let root_ids: Result<Vec<_>, _> = accounts
-                .iter()
-                .map(|a| self.db.account_repo().find_root_id(&conn, a.id))
-                .collect();
-            let root_ids = root_ids.map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-            accounts = accounts
-                .into_iter()
-                .zip(root_ids)
-                .filter_map(|(a, rid)| if rid == root_id { Some(a) } else { None })
-                .collect();
+            let mut filtered = Vec::new();
+            for a in accounts {
+                let rid = self
+                    .db
+                    .account_find_root_id(a.id)
+                    .await
+                    .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+                if rid == root_id {
+                    filtered.push(a);
+                }
+            }
+            accounts = filtered;
         }
         let offset = offset.unwrap_or(0) as usize;
         let limit = limit.map(|l| l as usize).unwrap_or(accounts.len());
@@ -272,10 +272,9 @@ impl<D: Database> AccountService<D> {
 
     /// 根据 ID 查询账户
     pub async fn get(&self, id: AccountId) -> Result<Option<Account>, AccountingError> {
-        let conn = self.db.connection();
         self.db
-            .account_repo()
-            .get(&conn, id)
+            .account_get(id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
 
@@ -284,15 +283,15 @@ impl<D: Database> AccountService<D> {
         &self,
         id: AccountId,
     ) -> Result<HashMap<CommodityId, Decimal>, AccountingError> {
-        let tx = self
+        let mut tx = self
             .db
             .transaction()
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         let totals = tx
-            .posting_repo()
-            .sum_with_ancestors(&tx.conn(), id)
+            .posting_sum_with_ancestors(id)
+            .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         tx.commit()
@@ -307,7 +306,11 @@ mod tests {
     use super::*;
     use accounting::account::Account;
     use accounting::id::AccountId;
-    use accounting_sql::impls::sqlite::SqliteDatabase;
+    use accounting_sql::SqliteDatabase;
+
+    async fn setup_db() -> SqliteDatabase {
+        SqliteDatabase::open_in_memory().await.unwrap()
+    }
 
     fn sample_account(name: &str) -> Account {
         Account {
@@ -323,47 +326,42 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_account() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
+        let db = setup_db().await;
         let service = AccountService::new(db);
-        let account = sample_account("Assets");
+        let account = sample_account("Asset");
         let id = service.create(account).await.unwrap();
         assert!(id.0 > 0);
     }
 
     #[tokio::test]
     async fn test_create_account_with_parent() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
+        let db = setup_db().await;
         let service = AccountService::new(db);
 
-        let parent = sample_account("Assets");
+        let parent = sample_account("Equity");
         let parent_id = service.create(parent).await.unwrap();
 
-        let mut child = sample_account("Cash");
+        let mut child = sample_account("OpeningSvc");
         child.parent_id = Some(parent_id);
         let child_id = service.create(child).await.unwrap();
 
-        // 验证闭包表
-        let conn = service.db.connection();
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM account_ancestors WHERE account_id = ?1",
-                rusqlite::params![child_id.0],
-                |row| row.get(0),
-            )
-            .unwrap();
-        // child_id -> child_id (depth 0) + child_id -> parent_id (depth 1) = 2
-        assert_eq!(count, 2);
+        // 验证闭包关系：子账户的根应为父账户
+        let root_id = service.db.account_find_root_id(child_id).await.unwrap();
+        assert_eq!(root_id, parent_id);
+
+        let child = service.get(child_id).await.unwrap().unwrap();
+        assert_eq!(child.parent_id, Some(parent_id));
     }
 
     #[tokio::test]
     async fn test_create_duplicate_name_fails() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
+        let db = setup_db().await;
         let service = AccountService::new(db);
 
-        let parent = sample_account("Assets");
+        let parent = sample_account("Income");
         let parent_id = service.create(parent).await.unwrap();
 
-        let mut child = sample_account("Cash");
+        let mut child = sample_account("SalarySvc");
         child.parent_id = Some(parent_id);
         service.create(child.clone()).await.unwrap();
         let result = service.create(child).await;
@@ -375,9 +373,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_with_nonexistent_parent_fails() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
+        let db = setup_db().await;
         let service = AccountService::new(db);
-        let mut account = sample_account("Cash");
+        let mut account = sample_account("Expense");
         account.parent_id = Some(AccountId(99999));
         let result = service.create(account).await;
         assert!(matches!(result, Err(AccountingError::AccountNotFound(_))));
@@ -385,42 +383,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_close_and_reopen_account() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
+        let db = setup_db().await;
         let service = AccountService::new(db);
 
-        let parent = sample_account("Assets");
+        let parent = sample_account("Expenses");
         let parent_id = service.create(parent).await.unwrap();
 
-        let mut child = sample_account("Cash");
+        let mut child = sample_account("FoodSvc");
         child.parent_id = Some(parent_id);
         let id = service.create(child).await.unwrap();
 
         service.close(id).await.unwrap();
 
-        {
-            let conn = service.db.connection();
-            let closed: Option<String> = conn
-                .query_row(
-                    "SELECT closed_at FROM accounts WHERE id = ?1",
-                    rusqlite::params![id.0],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert!(closed.is_some());
-        }
+        let closed = service.get(id).await.unwrap().unwrap();
+        assert!(closed.closed_at.is_some());
 
         service.reopen(id).await.unwrap();
 
-        {
-            let conn = service.db.connection();
-            let reopened: Option<String> = conn
-                .query_row(
-                    "SELECT closed_at FROM accounts WHERE id = ?1",
-                    rusqlite::params![id.0],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert!(reopened.is_none());
-        }
+        let reopened = service.get(id).await.unwrap().unwrap();
+        assert!(reopened.closed_at.is_none());
     }
 }

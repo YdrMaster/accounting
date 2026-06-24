@@ -1,330 +1,253 @@
+use chrono::NaiveDateTime;
+use sqlx::{QueryBuilder, SqliteConnection};
+
+use crate::error::DbError;
 use accounting::datetime_utils;
 use accounting::id::{TagId, TransactionId};
 use accounting::transaction::Transaction;
 use accounting::transaction::TransactionKind;
 use accounting::transaction_filter::TransactionFilter;
-use chrono::NaiveDateTime;
-use rusqlite::{Connection, params};
 
-/// Transaction 仓库 trait
-pub trait TransactionRepo {
-    /// 插入交易及标签关联，返回交易 ID
-    fn insert(
-        &self,
-        conn: &Connection,
-        tx: &Transaction,
-        tag_ids: &[TagId],
-    ) -> Result<TransactionId, crate::error::DbError>;
-    /// 根据 ID 查询交易
-    fn get(
-        &self,
-        conn: &Connection,
-        id: TransactionId,
-    ) -> Result<Option<Transaction>, crate::error::DbError>;
-    /// 多条件筛选查询交易列表
-    fn list(
-        &self,
-        conn: &Connection,
-        filter: &TransactionFilter,
-        limit: usize,
-        offset: usize,
-    ) -> Result<Vec<Transaction>, crate::error::DbError>;
-    /// 多条件筛选统计交易数量
-    fn count(
-        &self,
-        conn: &Connection,
-        filter: &TransactionFilter,
-    ) -> Result<usize, crate::error::DbError>;
-    /// 删除交易（级联删除分录、附件、标签关联）
-    fn delete(&self, conn: &Connection, id: TransactionId) -> Result<(), crate::error::DbError>;
-    /// 更新交易及标签关联
-    fn update(
-        &self,
-        conn: &Connection,
-        tx: &Transaction,
-        tag_ids: &[TagId],
-    ) -> Result<(), crate::error::DbError>;
+pub async fn transaction_insert(
+    conn: &mut SqliteConnection,
+    tx: &Transaction,
+    tag_ids: &[TagId],
+) -> Result<TransactionId, DbError> {
+    let tx_id: i64 = sqlx::query_scalar(
+        "INSERT INTO transactions (date_time, description, member_id, channel_id, kind)
+         VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id",
+    )
+    .bind(tx.date_time.to_string())
+    .bind(&tx.description)
+    .bind(tx.member_id.map(|id| id.0))
+    .bind(tx.channel_id.map(|id| id.0))
+    .bind(tx.kind as i32)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+
+    let tx_id = TransactionId(tx_id);
+    for tag_id in tag_ids {
+        sqlx::query(
+            "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?1, ?2)",
+        )
+        .bind(tx_id.0)
+        .bind(tag_id.0)
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    }
+    Ok(tx_id)
 }
 
-/// SQLite TransactionRepo 实现
-#[derive(Clone)]
-pub struct SqliteTransactionRepo;
+pub async fn transaction_get(
+    conn: &mut SqliteConnection,
+    id: TransactionId,
+) -> Result<Option<Transaction>, DbError> {
+    let row: Option<TransactionRow> = sqlx::query_as(
+        "SELECT id, date_time, description, kind, member_id, channel_id FROM transactions WHERE id = ?1",
+    )
+    .bind(id.0)
+    .fetch_optional(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+    row.map(|r| r.try_into()).transpose()
+}
 
-impl TransactionRepo for SqliteTransactionRepo {
-    fn insert(
-        &self,
-        conn: &Connection,
-        tx: &Transaction,
-        tag_ids: &[TagId],
-    ) -> Result<TransactionId, crate::error::DbError> {
-        conn.execute(
-            "INSERT INTO transactions (date_time, description, member_id, channel_id, kind)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                tx.date_time.to_string(),
-                tx.description,
-                tx.member_id.map(|id| id.0),
-                tx.channel_id.map(|id| id.0),
-                tx.kind as i32,
-            ],
-        )?;
-        let tx_id = TransactionId(conn.last_insert_rowid());
-        for tag_id in tag_ids {
-            conn.execute(
-                "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?1, ?2)",
-                params![tx_id.0, tag_id.0],
-            )?;
-        }
-        Ok(tx_id)
+pub async fn transaction_list(
+    conn: &mut SqliteConnection,
+    filter: &TransactionFilter,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<Transaction>, DbError> {
+    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+        "SELECT DISTINCT transactions.id, transactions.date_time, transactions.description, transactions.kind, transactions.member_id, transactions.channel_id FROM transactions ",
+    );
+
+    // 可报销过滤需要 JOIN postings 表
+    if filter.has_reimbursable == Some(true) {
+        builder.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id ");
     }
 
-    fn get(
-        &self,
-        conn: &Connection,
-        id: TransactionId,
-    ) -> Result<Option<Transaction>, crate::error::DbError> {
-        let mut stmt = conn.prepare(
-            "SELECT id, date_time, description, kind, member_id, channel_id FROM transactions WHERE id = ?1",
-        )?;
-        let mut rows = stmt.query(params![id.0])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(map_transaction(row)?))
-        } else {
-            Ok(None)
-        }
+    builder.push("WHERE 1=1 ");
+
+    apply_transaction_filter(&mut builder, filter);
+
+    builder.push("ORDER BY transactions.date_time DESC, transactions.id DESC LIMIT ");
+    builder.push_bind(limit as i64);
+    builder.push(" OFFSET ");
+    builder.push_bind(offset as i64);
+
+    let rows: Vec<TransactionRow> = builder
+        .build_query_as()
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    rows.into_iter()
+        .map(|r| r.try_into())
+        .collect::<Result<_, _>>()
+}
+
+pub async fn transaction_count(
+    conn: &mut SqliteConnection,
+    filter: &TransactionFilter,
+) -> Result<usize, DbError> {
+    let mut builder: QueryBuilder<sqlx::Sqlite> =
+        QueryBuilder::new("SELECT COUNT(DISTINCT transactions.id) FROM transactions ");
+
+    if filter.has_reimbursable == Some(true) {
+        builder.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id ");
     }
 
-    fn list(
-        &self,
-        conn: &Connection,
-        filter: &TransactionFilter,
-        limit: usize,
-        offset: usize,
-    ) -> Result<Vec<Transaction>, crate::error::DbError> {
-        // 动态构建 JOIN 与 WHERE 条件
-        let mut joins: Vec<&str> = Vec::new();
-        let mut conditions: Vec<String> = vec!["1=1".to_string()];
-        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
+    builder.push("WHERE 1=1 ");
 
-        // 按过滤条件追加 WHERE 子句与参数
-        if let Some(start) = filter.start_date {
-            conditions.push("transactions.date_time >= ?".to_string());
-            params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
-        }
-        if let Some(end) = filter.end_date {
-            conditions.push("transactions.date_time <= ?".to_string());
-            params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
-        }
-        if !filter.member_ids.is_empty() {
-            let placeholders: Vec<&str> = filter.member_ids.iter().map(|_| "?").collect();
-            conditions.push(format!(
-                "transactions.member_id IN ({})",
-                placeholders.join(", ")
-            ));
-            for member in &filter.member_ids {
-                params_vec.push(Box::new(member.0));
-            }
-        }
-        if let Some(ref keyword) = filter.keyword {
-            conditions.push("transactions.description LIKE ?".to_string());
-            params_vec.push(Box::new(format!("%{}%", keyword)));
-        }
-        // 账户过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
-        if !filter.account_ids.is_empty() {
-            let placeholders: Vec<&str> = filter.account_ids.iter().map(|_| "?").collect();
-            conditions.push(format!(
-                "EXISTS (SELECT 1 FROM postings p WHERE p.transaction_id = transactions.id AND p.account_id IN ({}))",
-                placeholders.join(", ")
-            ));
-            for account in &filter.account_ids {
-                params_vec.push(Box::new(account.0));
-            }
-        }
-        // 标签过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
-        if !filter.tag_ids.is_empty() {
-            let placeholders: Vec<&str> = filter.tag_ids.iter().map(|_| "?").collect();
-            conditions.push(format!(
-                "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = transactions.id AND tt.tag_id IN ({}))",
-                placeholders.join(", ")
-            ));
-            for tag in &filter.tag_ids {
-                params_vec.push(Box::new(tag.0));
-            }
-        }
-        // 渠道过滤直接查 transactions 表
-        if !filter.channel_ids.is_empty() {
-            let placeholders: Vec<&str> = filter.channel_ids.iter().map(|_| "?").collect();
-            conditions.push(format!(
-                "transactions.channel_id IN ({})",
-                placeholders.join(", ")
-            ));
-            for channel in &filter.channel_ids {
-                params_vec.push(Box::new(channel.0));
-            }
-        }
-        // 可报销过滤需要 JOIN postings 表
-        if let Some(true) = filter.has_reimbursable {
-            joins.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id");
-            conditions.push("p_reimb.is_reimbursable = 1".to_string());
-        }
+    apply_transaction_filter(&mut builder, filter);
 
-        // 组装最终 SQL
-        let join_clause = joins.join(" ");
-        let where_clause = conditions.join(" AND ");
-        let sql = format!(
-            "SELECT DISTINCT transactions.id, transactions.date_time, transactions.description, transactions.kind, transactions.member_id, transactions.channel_id
-             FROM transactions {}
-             WHERE {}
-             ORDER BY transactions.date_time DESC, transactions.id DESC
-             LIMIT ? OFFSET ?",
-            join_clause,
-            where_clause
+    let count: i64 = builder
+        .build_query_scalar()
+        .fetch_one(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(count as usize)
+}
+
+fn apply_transaction_filter(builder: &mut QueryBuilder<sqlx::Sqlite>, filter: &TransactionFilter) {
+    if let Some(start) = filter.start_date {
+        builder.push("AND transactions.date_time >= ");
+        builder.push_bind(datetime_utils::start_of_day(start).to_string());
+        builder.push(" ");
+    }
+    if let Some(end) = filter.end_date {
+        builder.push("AND transactions.date_time <= ");
+        builder.push_bind(datetime_utils::end_of_day(end).to_string());
+        builder.push(" ");
+    }
+    if !filter.member_ids.is_empty() {
+        builder.push("AND transactions.member_id IN (");
+        let mut separated = builder.separated(", ");
+        for member in &filter.member_ids {
+            separated.push_bind(member.0);
+        }
+        builder.push(") ");
+    }
+    if let Some(ref keyword) = filter.keyword {
+        builder.push("AND transactions.description LIKE ");
+        builder.push_bind(format!("%{}%", keyword));
+        builder.push(" ");
+    }
+    // 账户过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
+    if !filter.account_ids.is_empty() {
+        builder.push(
+            "AND EXISTS (SELECT 1 FROM postings p WHERE p.transaction_id = transactions.id AND p.account_id IN (",
         );
-        params_vec.push(Box::new(limit as i64));
-        params_vec.push(Box::new(offset as i64));
-
-        // 执行查询并映射结果
-        let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(param_refs), map_transaction)?;
-        rows.collect::<Result<_, _>>().map_err(Into::into)
+        let mut separated = builder.separated(", ");
+        for account in &filter.account_ids {
+            separated.push_bind(account.0);
+        }
+        builder.push(")) ");
     }
-
-    fn count(
-        &self,
-        conn: &Connection,
-        filter: &TransactionFilter,
-    ) -> Result<usize, crate::error::DbError> {
-        // 动态构建 JOIN 与 WHERE 条件（逻辑与 list 保持一致）
-        let mut joins: Vec<&str> = Vec::new();
-        let mut conditions: Vec<String> = vec!["1=1".to_string()];
-        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![];
-
-        if let Some(start) = filter.start_date {
-            conditions.push("transactions.date_time >= ?".to_string());
-            params_vec.push(Box::new(datetime_utils::start_of_day(start).to_string()));
-        }
-        if let Some(end) = filter.end_date {
-            conditions.push("transactions.date_time <= ?".to_string());
-            params_vec.push(Box::new(datetime_utils::end_of_day(end).to_string()));
-        }
-        if !filter.member_ids.is_empty() {
-            let placeholders: Vec<&str> = filter.member_ids.iter().map(|_| "?").collect();
-            conditions.push(format!(
-                "transactions.member_id IN ({})",
-                placeholders.join(", ")
-            ));
-            for member in &filter.member_ids {
-                params_vec.push(Box::new(member.0));
-            }
-        }
-        if let Some(ref keyword) = filter.keyword {
-            conditions.push("transactions.description LIKE ?".to_string());
-            params_vec.push(Box::new(format!("%{}%", keyword)));
-        }
-        // 账户过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
-        if !filter.account_ids.is_empty() {
-            let placeholders: Vec<&str> = filter.account_ids.iter().map(|_| "?").collect();
-            conditions.push(format!(
-                "EXISTS (SELECT 1 FROM postings p WHERE p.transaction_id = transactions.id AND p.account_id IN ({}))",
-                placeholders.join(", ")
-            ));
-            for account in &filter.account_ids {
-                params_vec.push(Box::new(account.0));
-            }
-        }
-        // 标签过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
-        if !filter.tag_ids.is_empty() {
-            let placeholders: Vec<&str> = filter.tag_ids.iter().map(|_| "?").collect();
-            conditions.push(format!(
-                "EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = transactions.id AND tt.tag_id IN ({}))",
-                placeholders.join(", ")
-            ));
-            for tag in &filter.tag_ids {
-                params_vec.push(Box::new(tag.0));
-            }
-        }
-        if !filter.channel_ids.is_empty() {
-            let placeholders: Vec<&str> = filter.channel_ids.iter().map(|_| "?").collect();
-            conditions.push(format!(
-                "transactions.channel_id IN ({})",
-                placeholders.join(", ")
-            ));
-            for channel in &filter.channel_ids {
-                params_vec.push(Box::new(channel.0));
-            }
-        }
-        if let Some(true) = filter.has_reimbursable {
-            joins.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id");
-            conditions.push("p_reimb.is_reimbursable = 1".to_string());
-        }
-
-        // 组装 COUNT SQL 并执行
-        let join_clause = joins.join(" ");
-        let where_clause = conditions.join(" AND ");
-        let sql = format!(
-            "SELECT COUNT(DISTINCT transactions.id) FROM transactions {} WHERE {}",
-            join_clause, where_clause
+    // 标签过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
+    if !filter.tag_ids.is_empty() {
+        builder.push(
+            "AND EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = transactions.id AND tt.tag_id IN (",
         );
-        let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
-        let count: i64 = conn.query_row(&sql, rusqlite::params_from_iter(param_refs), |row| {
-            row.get(0)
-        })?;
-        Ok(count as usize)
-    }
-
-    fn delete(&self, conn: &Connection, id: TransactionId) -> Result<(), crate::error::DbError> {
-        conn.execute("DELETE FROM transactions WHERE id = ?1", params![id.0])?;
-        Ok(())
-    }
-
-    fn update(
-        &self,
-        conn: &Connection,
-        tx: &Transaction,
-        tag_ids: &[TagId],
-    ) -> Result<(), crate::error::DbError> {
-        conn.execute(
-            "UPDATE transactions
-             SET date_time = ?1, description = ?2, member_id = ?3, channel_id = ?4, kind = ?5
-             WHERE id = ?6",
-            params![
-                tx.date_time.to_string(),
-                tx.description,
-                tx.member_id.map(|id| id.0),
-                tx.channel_id.map(|id| id.0),
-                tx.kind as i32,
-                tx.id.0,
-            ],
-        )?;
-        conn.execute(
-            "DELETE FROM transaction_tags WHERE transaction_id = ?1",
-            params![tx.id.0],
-        )?;
-        for tag_id in tag_ids {
-            conn.execute(
-                "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?1, ?2)",
-                params![tx.id.0, tag_id.0],
-            )?;
+        let mut separated = builder.separated(", ");
+        for tag in &filter.tag_ids {
+            separated.push_bind(tag.0);
         }
-        Ok(())
+        builder.push(")) ");
+    }
+    // 渠道过滤直接查 transactions 表
+    if !filter.channel_ids.is_empty() {
+        builder.push("AND transactions.channel_id IN (");
+        let mut separated = builder.separated(", ");
+        for channel in &filter.channel_ids {
+            separated.push_bind(channel.0);
+        }
+        builder.push(") ");
+    }
+    if filter.has_reimbursable == Some(true) {
+        builder.push("AND p_reimb.is_reimbursable = 1 ");
     }
 }
 
-fn map_transaction(row: &rusqlite::Row) -> Result<Transaction, rusqlite::Error> {
-    let date_str: String = row.get(1)?;
-    let date_time = NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S").map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
-    })?;
+pub async fn transaction_delete(
+    conn: &mut SqliteConnection,
+    id: TransactionId,
+) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM transactions WHERE id = ?1")
+        .bind(id.0)
+        .execute(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(())
+}
 
-    Ok(Transaction {
-        id: TransactionId(row.get(0)?),
-        date_time,
-        description: row.get(2)?,
-        kind: TransactionKind::from_db(row.get::<_, i32>(3)?).unwrap_or(TransactionKind::Normal),
-        member_id: row.get::<_, Option<i64>>(4)?.map(accounting::id::MemberId),
-        channel_id: row.get::<_, Option<i64>>(5)?.map(accounting::id::ChannelId),
-    })
+pub async fn transaction_update(
+    conn: &mut SqliteConnection,
+    tx: &Transaction,
+    tag_ids: &[TagId],
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE transactions
+         SET date_time = ?1, description = ?2, member_id = ?3, channel_id = ?4, kind = ?5
+         WHERE id = ?6",
+    )
+    .bind(tx.date_time.to_string())
+    .bind(&tx.description)
+    .bind(tx.member_id.map(|id| id.0))
+    .bind(tx.channel_id.map(|id| id.0))
+    .bind(tx.kind as i32)
+    .bind(tx.id.0)
+    .execute(&mut *conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+
+    sqlx::query("DELETE FROM transaction_tags WHERE transaction_id = ?1")
+        .bind(tx.id.0)
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    for tag_id in tag_ids {
+        sqlx::query(
+            "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?1, ?2)",
+        )
+        .bind(tx.id.0)
+        .bind(tag_id.0)
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    }
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct TransactionRow {
+    id: i64,
+    date_time: String,
+    description: String,
+    kind: i32,
+    member_id: Option<i64>,
+    channel_id: Option<i64>,
+}
+
+impl TryFrom<TransactionRow> for Transaction {
+    type Error = DbError;
+
+    fn try_from(row: TransactionRow) -> Result<Self, Self::Error> {
+        let date_time = NaiveDateTime::parse_from_str(&row.date_time, "%Y-%m-%d %H:%M:%S")
+            .map_err(|e| DbError::Database(e.to_string()))?;
+
+        Ok(Transaction {
+            id: TransactionId(row.id),
+            date_time,
+            description: row.description,
+            kind: TransactionKind::from_db(row.kind).unwrap_or(TransactionKind::Normal),
+            member_id: row.member_id.map(accounting::id::MemberId),
+            channel_id: row.channel_id.map(accounting::id::ChannelId),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -332,13 +255,17 @@ mod tests {
     use super::*;
     use accounting::id::MemberId;
     use chrono::NaiveDate;
-    use rusqlite::Connection;
+    use sqlx::{Connection, SqliteConnection};
 
-    fn setup() -> (Connection, SqliteTransactionRepo) {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::schema::initialize_schema(&conn).unwrap();
-        crate::schema::insert_seed_data(&conn, "en").unwrap();
-        (conn, SqliteTransactionRepo)
+    async fn setup() -> SqliteConnection {
+        let mut conn = sqlx::SqliteConnection::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::schema::initialize_schema(&mut conn).await.unwrap();
+        crate::schema::insert_seed_data(&mut conn, "en")
+            .await
+            .unwrap();
+        conn
     }
 
     fn sample_tx() -> Transaction {
@@ -355,57 +282,56 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_insert_and_get() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_insert_and_get() {
+        let mut conn = setup().await;
         let tx = sample_tx();
-        let id = repo.insert(&conn, &tx, &[]).unwrap();
-        let fetched = repo.get(&conn, id).unwrap().unwrap();
+        let id = transaction_insert(&mut conn, &tx, &[]).await.unwrap();
+        let fetched = transaction_get(&mut conn, id).await.unwrap().unwrap();
         assert_eq!(fetched.description, "Grocery shopping");
         assert_eq!(fetched.date_time, tx.date_time);
     }
 
-    #[test]
-    fn test_insert_with_tags() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_insert_with_tags() {
+        let mut conn = setup().await;
         let tx = sample_tx();
         let tag_id = TagId(1); // repayment seed tag
-        let id = repo.insert(&conn, &tx, &[tag_id]).unwrap();
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM transaction_tags WHERE transaction_id = ?1",
-                params![id.0],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let id = transaction_insert(&mut conn, &tx, &[tag_id]).await.unwrap();
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM transaction_tags WHERE transaction_id = ?1")
+                .bind(id.0)
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
         assert_eq!(count, 1);
     }
 
-    #[test]
-    fn test_delete() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_delete() {
+        let mut conn = setup().await;
         let tx = sample_tx();
-        let id = repo.insert(&conn, &tx, &[]).unwrap();
-        repo.delete(&conn, id).unwrap();
-        assert!(repo.get(&conn, id).unwrap().is_none());
+        let id = transaction_insert(&mut conn, &tx, &[]).await.unwrap();
+        transaction_delete(&mut conn, id).await.unwrap();
+        assert!(transaction_get(&mut conn, id).await.unwrap().is_none());
     }
 
-    #[test]
-    fn test_update() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_update() {
+        let mut conn = setup().await;
         let tx = sample_tx();
-        let id = repo.insert(&conn, &tx, &[]).unwrap();
+        let id = transaction_insert(&mut conn, &tx, &[]).await.unwrap();
         let mut updated = tx.clone();
         updated.id = id;
         updated.description = "Updated desc".to_string();
-        repo.update(&conn, &updated, &[]).unwrap();
-        let fetched = repo.get(&conn, id).unwrap().unwrap();
+        transaction_update(&mut conn, &updated, &[]).await.unwrap();
+        let fetched = transaction_get(&mut conn, id).await.unwrap().unwrap();
         assert_eq!(fetched.description, "Updated desc");
     }
 
-    #[test]
-    fn test_list_filter_by_date() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_list_filter_by_date() {
+        let mut conn = setup().await;
         let mut tx1 = sample_tx();
         tx1.date_time = NaiveDate::from_ymd_opt(2024, 1, 1)
             .unwrap()
@@ -416,65 +342,68 @@ mod tests {
             .unwrap()
             .and_hms_opt(0, 0, 0)
             .unwrap();
-        repo.insert(&conn, &tx1, &[]).unwrap();
-        repo.insert(&conn, &tx2, &[]).unwrap();
+        transaction_insert(&mut conn, &tx1, &[]).await.unwrap();
+        transaction_insert(&mut conn, &tx2, &[]).await.unwrap();
 
         let filter = TransactionFilter {
             start_date: Some(NaiveDate::from_ymd_opt(2024, 6, 1).unwrap()),
             end_date: Some(NaiveDate::from_ymd_opt(2024, 12, 31).unwrap()),
             ..Default::default()
         };
-        let list = repo.list(&conn, &filter, 10, 0).unwrap();
+        let list = transaction_list(&mut conn, &filter, 10, 0).await.unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].date_time, tx2.date_time);
     }
 
-    #[test]
-    fn test_list_filter_by_keyword() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_list_filter_by_keyword() {
+        let mut conn = setup().await;
         let mut tx1 = sample_tx();
         tx1.description = "Buy coffee".to_string();
         let mut tx2 = sample_tx();
         tx2.description = "Pay rent".to_string();
-        repo.insert(&conn, &tx1, &[]).unwrap();
-        repo.insert(&conn, &tx2, &[]).unwrap();
+        transaction_insert(&mut conn, &tx1, &[]).await.unwrap();
+        transaction_insert(&mut conn, &tx2, &[]).await.unwrap();
 
         let filter = TransactionFilter {
             keyword: Some("rent".to_string()),
             ..Default::default()
         };
-        let list = repo.list(&conn, &filter, 10, 0).unwrap();
+        let list = transaction_list(&mut conn, &filter, 10, 0).await.unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].description, "Pay rent");
     }
 
-    #[test]
-    fn test_count() {
-        let (conn, repo) = setup();
+    #[tokio::test]
+    async fn test_count() {
+        let mut conn = setup().await;
         let tx = sample_tx();
-        repo.insert(&conn, &tx, &[]).unwrap();
-        repo.insert(&conn, &tx, &[]).unwrap();
+        transaction_insert(&mut conn, &tx, &[]).await.unwrap();
+        transaction_insert(&mut conn, &tx, &[]).await.unwrap();
 
         let filter = TransactionFilter::default();
-        let count = repo.count(&conn, &filter).unwrap();
+        let count = transaction_count(&mut conn, &filter).await.unwrap();
         assert_eq!(count, 2);
     }
 
-    #[test]
-    fn test_list_filter_by_member() {
-        let (conn, repo) = setup();
-        conn.execute("INSERT INTO members (name) VALUES ('Alice')", [])
-            .unwrap();
-        let member_id = MemberId(conn.last_insert_rowid());
+    #[tokio::test]
+    async fn test_list_filter_by_member() {
+        let mut conn = setup().await;
+        let member_id: i64 =
+            sqlx::query_scalar("INSERT INTO members (name) VALUES ('Alice') RETURNING id")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+        let member_id = MemberId(member_id);
         let mut tx = sample_tx();
         tx.member_id = Some(member_id);
-        repo.insert(&conn, &tx, &[]).unwrap();
+        transaction_insert(&mut conn, &tx, &[]).await.unwrap();
 
         let filter = TransactionFilter {
             member_ids: vec![member_id],
             ..Default::default()
         };
-        let list = repo.list(&conn, &filter, 10, 0).unwrap();
+        let list = transaction_list(&mut conn, &filter, 10, 0).await.unwrap();
         assert_eq!(list.len(), 1);
     }
 }

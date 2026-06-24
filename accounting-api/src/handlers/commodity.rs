@@ -2,7 +2,6 @@
 
 use crate::dto::CommodityDto;
 use crate::handlers::member::AppState;
-use accounting_sql::database::Database;
 use axum::{Json, Router, extract::State, routing::get};
 use std::sync::Arc;
 
@@ -10,11 +9,8 @@ use std::sync::Arc;
 async fn list_commodities(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<CommodityDto>>, String> {
-    let db = state.db().map_err(|e| e.to_string())?;
-    let commodities = db
-        .commodity_repo()
-        .list(&db.connection())
-        .map_err(|e| e.to_string())?;
+    let db = state.db();
+    let commodities = db.commodity_list().await.map_err(|e| e.to_string())?;
     let dtos: Vec<CommodityDto> = commodities
         .iter()
         .map(|c| CommodityDto {

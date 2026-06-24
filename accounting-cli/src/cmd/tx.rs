@@ -5,8 +5,7 @@ use accounting::id::{AccountId, MemberId, PostingId, TagId, TransactionId};
 use accounting::posting::Posting;
 use accounting::transaction::Transaction;
 use accounting::transaction_filter::TransactionFilter;
-use accounting_sql::database::Database;
-use accounting_sql::impls::sqlite::SqliteDatabase;
+use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_decimal::Decimal;
 use rust_i18n::t;
@@ -107,7 +106,7 @@ impl TxCmd {
                 // 构建过滤条件并查询交易列表
                 let limit = args.limit;
                 let offset = args.offset;
-                let filter = build_filter(&args, &db)?;
+                let filter = build_filter(&args, &db).await?;
                 let service = accounting_service::transaction_service::TransactionService::new(db);
                 let results = service.list(filter, limit, offset).await?;
                 let rows: Vec<TransactionRow> = results.iter().map(|(t, _)| t.into()).collect();
@@ -254,10 +253,9 @@ async fn parse_postings(
         }
 
         // 查询数据库验证账户与商品是否存在
-        let conn = db.connection();
         let account = db
-            .account_repo()
-            .get_by_name(&conn, &account_name)
+            .account_get_by_name(&account_name)
+            .await
             .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         let account_id = account
             .ok_or_else(|| {
@@ -269,8 +267,8 @@ async fn parse_postings(
             .id;
 
         let commodity = db
-            .commodity_repo()
-            .get_by_symbol(&conn, commodity_symbol)
+            .commodity_get_by_symbol(commodity_symbol)
+            .await
             .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         let commodity_id = commodity
             .ok_or_else(|| {
@@ -284,8 +282,8 @@ async fn parse_postings(
         // 若存在 cost，则进一步查询 cost_commodity 并构造 Posting
         let (cost, cost_commodity_id) = if let Some(cost_commodity_symbol) = cost_commodity {
             let cost_commodity = db
-                .commodity_repo()
-                .get_by_symbol(&conn, cost_commodity_symbol)
+                .commodity_get_by_symbol(cost_commodity_symbol)
+                .await
                 .map_err(|e| AccountingError::Unknown(e.to_string()))?;
             let cost_commodity_id = cost_commodity
                 .ok_or_else(|| {
@@ -322,11 +320,10 @@ async fn resolve_tags(
     db: &SqliteDatabase,
 ) -> Result<Vec<TagId>, AccountingError> {
     let mut tag_ids = Vec::new();
-    let conn = db.connection();
     for name in tag_names {
         let tag = db
-            .tag_repo()
-            .get_by_name(&conn, name)
+            .tag_get_by_name(name)
+            .await
             .map_err(|e| AccountingError::Unknown(e.to_string()))?;
         let tag_id = tag
             .ok_or_else(|| {
@@ -338,7 +335,7 @@ async fn resolve_tags(
     Ok(tag_ids)
 }
 
-fn build_filter(
+async fn build_filter(
     args: &TxListArgs,
     db: &SqliteDatabase,
 ) -> Result<TransactionFilter, AccountingError> {
@@ -352,10 +349,9 @@ fn build_filter(
     filter.account_ids = args.account.iter().map(|&id| AccountId(id)).collect();
     filter.member_ids = args.member.iter().map(|&id| MemberId(id)).collect();
     for tag_name in &args.tag {
-        let conn = db.connection();
         let tag = db
-            .tag_repo()
-            .get_by_name(&conn, tag_name)
+            .tag_get_by_name(tag_name)
+            .await
             .map_err(|e| AccountingError::Unknown(e.to_string()))?
             .ok_or_else(|| {
                 AccountingError::Unknown(format!("{}", t!("tag_name_not_found", name = tag_name)))

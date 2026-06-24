@@ -5,7 +5,6 @@ rust_i18n::i18n!("locales", fallback = "en");
 mod cmd;
 mod output;
 
-use accounting_sql::database::Database;
 use clap::Parser;
 use cmd::{Cli, Commands};
 use std::process;
@@ -39,13 +38,15 @@ async fn initialize(
     if db_path.exists() {
         return Err(accounting::error::AccountingError::DbAlreadyExists);
     }
-    let db = accounting_sql::impls::sqlite::SqliteDatabase::open(db_path.to_str().unwrap())
+    let db = accounting_sql::SqliteDatabase::open(db_path.to_str().unwrap())
+        .await
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
     let lang = cli_lang
         .map(|s| s.to_string())
         .unwrap_or_else(detect_system_language);
     rust_i18n::set_locale(&lang);
     db.initialize(&lang)
+        .await
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
     println!("{}", rust_i18n::t!("db_initialized"));
     Ok(())
@@ -55,18 +56,15 @@ async fn run_command(cli: Cli) -> Result<(), accounting::error::AccountingError>
     if !cli.db.exists() {
         return Err(accounting::error::AccountingError::DbNotInitialized);
     }
-    let db = accounting_sql::impls::sqlite::SqliteDatabase::open(cli.db.to_str().unwrap())
+    let db = accounting_sql::SqliteDatabase::open(cli.db.to_str().unwrap())
+        .await
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
 
     // 从数据库读取语言配置，优先级：--lang > 数据库配置 > 系统默认
     let db_lang: Option<String> = db
-        .connection()
-        .query_row(
-            "SELECT value FROM settings WHERE key = 'language'",
-            [],
-            |row| row.get(0),
-        )
-        .ok();
+        .get_setting("language")
+        .await
+        .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
 
     let lang = cli
         .lang

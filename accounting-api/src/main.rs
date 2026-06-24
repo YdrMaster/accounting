@@ -7,7 +7,6 @@ mod handlers;
 mod router;
 
 use accounting::error::AccountingError;
-use accounting_sql::database::Database;
 use axum::{Json, http::StatusCode, response::IntoResponse};
 use clap::Parser;
 use dto::ErrorResponse;
@@ -75,8 +74,8 @@ fn npm_command(args: &[&str], cwd: &Path) -> io::Result<ExitStatus> {
         Command::new("cmd")
             .args(&cmd_args)
             .current_dir(cwd)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .status()
     }
     #[cfg(not(target_os = "windows"))]
@@ -167,16 +166,18 @@ async fn main() {
         }
     }
 
-    let state = Arc::new(handlers::member::AppState { db_path: args.db });
-    // 预热：服务启动时确保数据库已初始化（schema + seed + language）
-    let db = state.db().unwrap_or_else(|e| {
-        eprintln!("Failed to open database: {}", e);
-        std::process::exit(1);
-    });
-    db.initialize(&lang).unwrap_or_else(|e| {
+    let db = accounting_sql::SqliteDatabase::open(&args.db)
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to open database: {}", e);
+            std::process::exit(1);
+        });
+    db.initialize(&lang).await.unwrap_or_else(|e| {
         eprintln!("Failed to initialize database: {}", e);
         std::process::exit(1);
     });
+
+    let state = Arc::new(handlers::member::AppState { db });
     let app = router::create_app(state, &args.static_dir);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));

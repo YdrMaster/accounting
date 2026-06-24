@@ -1,21 +1,21 @@
-﻿# accounting-sql 迁移到 sqlx 0.9 实施计划
+# accounting-sql 迁移到 sqlx 0.9 实施计划
 
 ## 状态跟踪
 
-- [ ] Step 1: 依赖替换
-- [ ] Step 2: error.rs 重构
-- [ ] Step 3: 删除旧 trait 和 pool.rs
-- [ ] Step 4: 重写 schema.rs（async）
-- [ ] Step 5: 重写 database.rs → SqliteDatabase
-- [ ] Step 6: 重写 transaction.rs → SqliteTransaction
-- [ ] Step 7a-h: 重写 8 个 repo 模块
-- [ ] Step 8: 新增 API 层缺失的 repo 方法
-- [ ] Step 9: Service 层适配
-- [ ] Step 10: API 层适配
-- [ ] Step 11: CLI 层适配
-- [ ] Step 12: 测试适配
-- [ ] Step 13: lib.rs 更新
-- [ ] Step 14: 验证
+- [x] Step 1: 依赖替换
+- [x] Step 2: error.rs 重构
+- [x] Step 3: 删除旧 trait 和 pool.rs
+- [x] Step 4: 重写 schema.rs（async）
+- [x] Step 5: 重写 database.rs → SqliteDatabase
+- [x] Step 6: 重写 transaction.rs → SqliteTransaction
+- [x] Step 7a-h: 重写 8 个 repo 模块
+- [x] Step 8: 新增 API 层缺失的 repo 方法
+- [x] Step 9: Service 层适配
+- [x] Step 10: API 层适配
+- [x] Step 11: CLI 层适配
+- [x] Step 12: 测试适配
+- [x] Step 13: lib.rs 更新
+- [x] Step 14: 验证
 
 ## 核心决策
 

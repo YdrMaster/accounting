@@ -1,28 +1,25 @@
 use accounting::commodity::Commodity;
 use accounting::error::AccountingError;
 use accounting::id::CommodityId;
-use accounting_sql::database::Database;
+use accounting_sql::SqliteDatabase;
 
 /// 商品/货币服务
-pub struct CommodityService<D: Database> {
-    db: D,
+pub struct CommodityService {
+    db: SqliteDatabase,
 }
 
-impl<D: Database> CommodityService<D> {
+impl CommodityService {
     /// 创建服务实例
-    pub fn new(db: D) -> Self {
+    pub fn new(db: SqliteDatabase) -> Self {
         Self { db }
     }
 
     /// 列出所有商品
     pub async fn list(&self) -> Result<Vec<Commodity>, AccountingError> {
-        let conn = self.db.connection();
-        let commodities = self
-            .db
-            .commodity_repo()
-            .list(&conn)
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        Ok(commodities)
+        self.db
+            .commodity_list()
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
 
     /// 添加商品
@@ -32,30 +29,28 @@ impl<D: Database> CommodityService<D> {
         name: String,
         precision: u8,
     ) -> Result<CommodityId, AccountingError> {
-        let conn = self.db.connection();
         let commodity = Commodity {
             id: CommodityId(0),
             symbol,
             name,
             precision,
         };
-        let id = self
-            .db
-            .commodity_repo()
-            .create(&conn, &commodity)
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        Ok(id)
+        self.db
+            .commodity_create(&commodity)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use accounting_sql::impls::sqlite::SqliteDatabase;
+    use accounting_sql::SqliteDatabase;
 
     #[tokio::test]
     async fn test_commodity_lifecycle() {
-        let db = SqliteDatabase::open_in_memory().unwrap();
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize("en").await.unwrap();
         let service = CommodityService::new(db);
 
         let id = service

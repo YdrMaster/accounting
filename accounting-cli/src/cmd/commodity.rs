@@ -1,6 +1,6 @@
 use crate::cmd::CommodityRow;
 use crate::output::{OutputFormat, print_line, print_vec};
-use accounting_sql::impls::sqlite::SqliteDatabase;
+use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_i18n::t;
 
