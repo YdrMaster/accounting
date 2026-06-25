@@ -845,6 +845,7 @@ mod tests {
             name: "支付宝".to_string(),
             description: None,
             account_id: None,
+            is_system: false,
         };
         let channel_id = report_service.db.channel_create(&channel).await.unwrap();
 

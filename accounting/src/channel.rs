@@ -11,4 +11,6 @@ pub struct Channel {
     pub description: Option<String>,
     /// 关联资产账户 ID（可选一对一）
     pub account_id: Option<AccountId>,
+    /// 是否为系统内置渠道
+    pub is_system: bool,
 }

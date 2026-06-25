@@ -414,7 +414,7 @@ mod tests {
         let mut conn = setup().await;
 
         let channel_id: i64 =
-            sqlx::query_scalar("INSERT INTO channels (name) VALUES ('Alipay') RETURNING id")
+            sqlx::query_scalar("INSERT INTO channels (name) VALUES ('TestPay') RETURNING id")
                 .fetch_one(&mut conn)
                 .await
                 .unwrap();

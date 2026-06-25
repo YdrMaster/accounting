@@ -26,6 +26,7 @@ async fn list_channels(
             name: c.name,
             description: c.description,
             account_id: c.account_id.map(|id| id.0),
+            is_system: c.is_system,
         })
         .collect();
 
@@ -43,6 +44,7 @@ async fn create_channel(
         name: req.name,
         description: req.description,
         account_id: req.account_id.map(AccountId),
+        is_system: false,
     };
     let id = db
         .channel_create(&channel)

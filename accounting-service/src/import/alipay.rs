@@ -9,14 +9,14 @@ use std::str::FromStr;
 pub struct AlipayAdapter;
 
 impl BillAdapter for AlipayAdapter {
-    fn name(&self) -> &str {
-        "alipay"
+    fn names(&self) -> &[&str] {
+        &["alipay", "支付宝"]
     }
 
     fn parse<'a>(
         &'a self,
         data: &[u8],
-        _ctx: &super::ImportContext,
+        ctx: &super::ImportContext,
     ) -> Result<Box<dyn Iterator<Item = Result<BillEntry, AdaptError>> + 'a>, AdaptError> {
         // 支付宝导出为 GBK 编码，先尝试 GBK 解码，失败回退 UTF-8
         let (text, _, had_errors) = GBK.decode(data);
@@ -34,6 +34,7 @@ impl BillAdapter for AlipayAdapter {
         Ok(Box::new(AlipayIterator {
             lines: text.lines().map(|l| l.to_string()).collect(),
             pos: 0,
+            import_root: ctx.import_root.clone(),
         }))
     }
 }
@@ -41,6 +42,7 @@ impl BillAdapter for AlipayAdapter {
 struct AlipayIterator {
     lines: Vec<String>,
     pos: usize,
+    import_root: String,
 }
 
 impl Iterator for AlipayIterator {
@@ -80,7 +82,7 @@ impl Iterator for AlipayIterator {
             let row_num = self.pos + 1;
             self.pos += 1;
 
-            return Some(parse_alipay_row(row_num, &fields));
+            return Some(parse_alipay_row(row_num, &fields, &self.import_root));
         }
 
         None
@@ -92,7 +94,11 @@ impl Iterator for AlipayIterator {
 /// 支付宝 CSV 导出格式（2026 年版本）：
 /// 交易时间, 交易分类, 交易对方, 对方账号, 商品说明, 收/支, 金额, 收/付款方式, 交易状态, 交易订单号, 商家订单号, 备注
 /// 索引:  0          1         2         3         4       5     6      7          8         9            10        11
-fn parse_alipay_row(row: usize, fields: &[&str]) -> Result<BillEntry, AdaptError> {
+fn parse_alipay_row(
+    row: usize,
+    fields: &[&str],
+    import_root: &str,
+) -> Result<BillEntry, AdaptError> {
     let field = |idx: usize, name: &str| -> Result<&str, AdaptError> {
         fields
             .get(idx)
@@ -169,8 +175,8 @@ fn parse_alipay_row(row: usize, fields: &[&str]) -> Result<BillEntry, AdaptError
     };
 
     // 构建 BillPosting
-    let expense_path = format!("Import:支付宝:{category}");
-    let asset_path = "Import:支付宝".to_string();
+    let expense_path = format!("{import_root}:支付宝:{category}");
+    let asset_path = format!("{import_root}:支付宝");
     let commodity_symbol = "CNY".to_string();
 
     let postings = vec![
@@ -194,6 +200,7 @@ fn parse_alipay_row(row: usize, fields: &[&str]) -> Result<BillEntry, AdaptError
         kind,
         postings,
         tags: vec![],
+        row: Some(row),
     })
 }
 
@@ -227,13 +234,14 @@ mod tests {
             member_id: MemberId(1),
             channel_id: ChannelId(1),
             commodity_id: CommodityId(1),
+            import_root: "Import".to_string(),
         }
     }
 
     #[test]
-    fn test_alipay_adapter_name() {
+    fn test_alipay_adapter_names() {
         let adapter = AlipayAdapter;
-        assert_eq!(adapter.name(), "alipay");
+        assert_eq!(adapter.names(), &["alipay", "支付宝"]);
     }
 
     #[test]

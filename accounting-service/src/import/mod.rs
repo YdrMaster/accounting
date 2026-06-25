@@ -7,8 +7,8 @@ use std::fmt;
 
 /// 账单适配器 trait — 定义统一的账单解析接口
 pub trait BillAdapter {
-    /// 适配器标识名称（如 "alipay"）
-    fn name(&self) -> &str;
+    /// 适配器名称列表（如 &["alipay", "支付宝"]），任一匹配即可
+    fn names(&self) -> &[&str];
 
     /// 解析原始文件字节，返回 BillEntry 迭代器
     fn parse<'a>(
@@ -24,6 +24,8 @@ pub struct ImportContext {
     pub member_id: MemberId,
     pub channel_id: ChannelId,
     pub commodity_id: CommodityId,
+    /// 导入根账户名称（如 "Import" 或 "导入"）
+    pub import_root: String,
 }
 
 /// 适配器输出的标准账目条目
@@ -34,6 +36,8 @@ pub struct BillEntry {
     pub kind: TransactionKind,
     pub postings: Vec<BillPosting>,
     pub tags: Vec<String>,
+    /// 源文件行号（用于错误报告）
+    pub row: Option<usize>,
 }
 
 /// 账目条目中的单个分录
@@ -83,7 +87,7 @@ pub fn find_adapter<'a>(
 ) -> Option<&'a dyn BillAdapter> {
     adapters
         .iter()
-        .find(|a| a.name() == name)
+        .find(|a| a.names().iter().any(|n| n.eq_ignore_ascii_case(name)))
         .map(|a| a.as_ref())
 }
 
@@ -98,7 +102,11 @@ mod tests {
         let adapters = builtin_adapters();
         let found = find_adapter("alipay", &adapters);
         assert!(found.is_some());
-        assert_eq!(found.unwrap().name(), "alipay");
+        assert_eq!(found.unwrap().names(), &["alipay", "支付宝"]);
+
+        let found_alias = find_adapter("支付宝", &adapters);
+        assert!(found_alias.is_some());
+        assert_eq!(found_alias.unwrap().names(), &["alipay", "支付宝"]);
 
         let missing = find_adapter("unknown", &adapters);
         assert!(missing.is_none());

@@ -63,11 +63,15 @@ impl ImportService {
         // 4. 查找 "待处理" 系统 Tag
         let pending_tag_id = self.resolve_pending_tag_id().await?;
 
-        // 5. 构造 ImportContext
+        // 5. 查找导入根账户名称
+        let import_root = self.resolve_import_root().await?;
+
+        // 6. 构造 ImportContext
         let ctx = ImportContext {
             member_id,
             channel_id,
             commodity_id,
+            import_root,
         };
 
         // 6. 调用适配器解析
@@ -114,7 +118,15 @@ impl ImportService {
                 }
                 Err(e) => {
                     result.skipped += 1;
-                    result.errors.push(AdaptError::FormatError(e.to_string()));
+                    let error = if let Some(row) = entry.row {
+                        AdaptError::RowError {
+                            row,
+                            message: e.to_string(),
+                        }
+                    } else {
+                        AdaptError::FormatError(e.to_string())
+                    };
+                    result.errors.push(error);
                 }
             }
         }
@@ -223,6 +235,35 @@ impl ImportService {
         }
         Ok(None)
     }
+
+    /// 解析导入根账户名称
+    async fn resolve_import_root(&self) -> Result<String, AccountingError> {
+        // 尝试中文
+        if let Some(account) = self
+            .db
+            .account_get_by_name("导入")
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+            && account.parent_id.is_none()
+            && account.is_system
+        {
+            return Ok("导入".to_string());
+        }
+        // 尝试英文
+        if let Some(account) = self
+            .db
+            .account_get_by_name("Import")
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+            && account.parent_id.is_none()
+            && account.is_system
+        {
+            return Ok("Import".to_string());
+        }
+        Err(AccountingError::AccountNotFound(
+            "导入根账户不存在，请检查数据库初始化".to_string(),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -247,6 +288,7 @@ mod tests {
             name: "alipay".to_string(),
             description: Some("支付宝".to_string()),
             account_id: None,
+            is_system: false,
         };
         db.channel_create(&channel).await.unwrap();
 
@@ -274,10 +316,9 @@ mod tests {
         assert_eq!(result.transaction_ids.len(), 2);
 
         // 验证交易带 "pending" Tag
-        for tx_id in &result.transaction_ids {
+        if let Some(tx_id) = result.transaction_ids.first() {
             let tx = db.transaction_get(*tx_id).await.unwrap().unwrap();
             assert_eq!(tx.description, "美团外卖 - 美团外卖-午餐");
-            break;
         }
 
         // 验证 Import 子账户已创建

@@ -15,10 +15,20 @@ pub async fn initialize_schema(conn: &mut SqliteConnection) -> Result<(), DbErro
 
 /// 插入系统内置数据，支持语言选择
 pub async fn insert_seed_data(conn: &mut SqliteConnection, lang: &str) -> Result<(), DbError> {
-    let (accounts_root, accounts_child, tags_sql) = if lang.starts_with("zh") {
-        (SEED_ACCOUNTS_ROOT_ZH, SEED_ACCOUNTS_CHILD_ZH, SEED_TAGS_ZH)
+    let (accounts_root, accounts_child, tags_sql, channels_sql) = if lang.starts_with("zh") {
+        (
+            SEED_ACCOUNTS_ROOT_ZH,
+            SEED_ACCOUNTS_CHILD_ZH,
+            SEED_TAGS_ZH,
+            SEED_CHANNELS_ZH,
+        )
     } else {
-        (SEED_ACCOUNTS_ROOT_EN, SEED_ACCOUNTS_CHILD_EN, SEED_TAGS_EN)
+        (
+            SEED_ACCOUNTS_ROOT_EN,
+            SEED_ACCOUNTS_CHILD_EN,
+            SEED_TAGS_EN,
+            SEED_CHANNELS_EN,
+        )
     };
 
     for sql in [
@@ -26,6 +36,7 @@ pub async fn insert_seed_data(conn: &mut SqliteConnection, lang: &str) -> Result
         accounts_root,
         accounts_child,
         tags_sql,
+        channels_sql,
         SEED_CLOSURE,
     ] {
         sqlx::query(sql)
@@ -95,6 +106,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         name TEXT NOT NULL UNIQUE,
         description TEXT,
         account_id INTEGER REFERENCES accounts(id),
+        is_system INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -396,6 +408,16 @@ INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
 ('待处理', '导入交易待审查标记', 1);
 "#;
 
+const SEED_CHANNELS_EN: &str = r#"
+INSERT OR IGNORE INTO channels (name, is_system) VALUES
+('Alipay', 1);
+"#;
+
+const SEED_CHANNELS_ZH: &str = r#"
+INSERT OR IGNORE INTO channels (name, is_system) VALUES
+('支付宝', 1);
+"#;
+
 /// 维护系统内置账户的闭包表
 const SEED_CLOSURE: &str = r#"
 -- 1. 每个账户的自身关系 (depth = 0)
@@ -490,6 +512,26 @@ mod tests {
         .fetch_one(&mut conn)
         .await
         .unwrap();
+        assert_eq!(count, 1);
+
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE name='Alipay' AND is_system=1")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_seed_data_zh_channels() {
+        let mut conn = setup().await;
+        insert_seed_data(&mut conn, "zh").await.unwrap();
+
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE name='支付宝' AND is_system=1")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
         assert_eq!(count, 1);
     }
 

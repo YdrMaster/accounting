@@ -831,7 +831,7 @@ mod tests {
         let expense = insert_expense_account(&mut conn, "Expenses:Shopping").await;
 
         let channel_id: i64 = sqlx::query_scalar(
-            "INSERT INTO channels (name, description) VALUES ('Alipay', NULL) RETURNING id",
+            "INSERT INTO channels (name, description) VALUES ('TestPay', NULL) RETURNING id",
         )
         .fetch_one(&mut conn)
         .await

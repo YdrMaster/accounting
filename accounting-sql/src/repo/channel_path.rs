@@ -184,7 +184,7 @@ mod tests {
     async fn test_create_and_list() {
         let mut conn = setup().await;
         let ch1 = insert_channel(&mut conn, "Taobao").await;
-        let ch2 = insert_channel(&mut conn, "Alipay").await;
+        let ch2 = insert_channel(&mut conn, "TestPay").await;
         let ch3 = insert_channel(&mut conn, "Huabei").await;
         let tx_id = insert_transaction(&mut conn).await;
 
@@ -222,7 +222,7 @@ mod tests {
     async fn test_terminal_multi_item() {
         let mut conn = setup().await;
         let ch1 = insert_channel(&mut conn, "Taobao").await;
-        let ch2 = insert_channel(&mut conn, "Alipay").await;
+        let ch2 = insert_channel(&mut conn, "TestPay").await;
         let ch3 = insert_channel(&mut conn, "Huabei").await;
         let ch4 = insert_channel(&mut conn, "CreditCard").await;
         let tx_id = insert_transaction(&mut conn).await;
@@ -347,7 +347,7 @@ mod tests {
         // When a transaction is deleted, channel_paths should be cascade-deleted
         let mut conn = setup().await;
         let ch1 = insert_channel(&mut conn, "Taobao").await;
-        let ch2 = insert_channel(&mut conn, "Alipay").await;
+        let ch2 = insert_channel(&mut conn, "TestPay").await;
         let tx_id = insert_transaction(&mut conn).await;
 
         let nodes = vec![
@@ -389,7 +389,7 @@ mod tests {
     async fn test_channel_delete_rejected_when_referenced() {
         // Verify that channel_count_transactions_by_id detects channel_path references
         let mut conn = setup().await;
-        let ch = insert_channel(&mut conn, "Alipay").await;
+        let ch = insert_channel(&mut conn, "TestPay").await;
         let tx_id = insert_transaction(&mut conn).await;
 
         let node = ChannelPathNode {
@@ -413,7 +413,7 @@ mod tests {
         // Test marking and unmarking reconciled state
         let mut conn = setup().await;
         let ch1 = insert_channel(&mut conn, "Taobao").await;
-        let ch2 = insert_channel(&mut conn, "Alipay").await;
+        let ch2 = insert_channel(&mut conn, "TestPay").await;
         let tx_id = insert_transaction(&mut conn).await;
 
         let node1 = ChannelPathNode {
@@ -453,7 +453,7 @@ mod tests {
         // Query only unreconciled paths for a transaction
         let mut conn = setup().await;
         let ch1 = insert_channel(&mut conn, "Taobao").await;
-        let ch2 = insert_channel(&mut conn, "Alipay").await;
+        let ch2 = insert_channel(&mut conn, "TestPay").await;
         let tx_id = insert_transaction(&mut conn).await;
 
         let node1 = ChannelPathNode {

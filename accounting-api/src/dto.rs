@@ -181,6 +181,8 @@ pub struct ChannelDto {
     pub description: Option<String>,
     /// 关联资产账户 ID。
     pub account_id: Option<i64>,
+    /// 是否为系统内置渠道。
+    pub is_system: bool,
 }
 
 /// 创建渠道请求。
