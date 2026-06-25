@@ -153,6 +153,88 @@ impl AccountService {
         })
     }
 
+    /// 根据路径级联查找/创建账户（支持系统根账户）
+    ///
+    /// 与 `create_cascading` 类似，但允许首段为非标准根类型名称（如 "Import"），
+    /// 只要首段对应的根账户已存在且为系统账户即可。
+    /// 用于导入场景：在 Import 系统根账户下自动创建子账户。
+    pub async fn ensure_cascading(&self, path: &str) -> Result<AccountId, AccountingError> {
+        let segments: Vec<&str> = path.split(':').collect();
+        if segments.is_empty() {
+            return Err(AccountingError::InvalidTransaction(
+                t!("account_name_empty").to_string(),
+            ));
+        }
+
+        // 校验首段：必须是已有的系统根账户
+        let root = self
+            .db
+            .account_get_by_parent_and_name(None, segments[0])
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        if let Some(root) = &root {
+            if !root.is_system {
+                return Err(AccountingError::InvalidTransaction(format!(
+                    "根账户 '{}' 不是系统账户",
+                    segments[0]
+                )));
+            }
+        } else {
+            return Err(AccountingError::AccountNotFound(format!(
+                "根账户 '{}' 不存在",
+                segments[0]
+            )));
+        }
+
+        // 首段已存在，从第二段开始查找/创建
+        let mut tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        let mut parent_id: Option<AccountId> = Some(root.as_ref().unwrap().id);
+        let mut last_id: Option<AccountId> = Some(root.as_ref().unwrap().id);
+
+        for segment in segments.iter().skip(1) {
+            // 检查是否已存在
+            if let Some(existing) = tx
+                .account_get_by_parent_and_name(parent_id, segment)
+                .await
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+            {
+                parent_id = Some(existing.id);
+                last_id = Some(existing.id);
+                continue;
+            }
+
+            let account = Account {
+                id: AccountId(0),
+                name: segment.to_string(),
+                parent_id,
+                closed_at: None,
+                is_system: false,
+                billing_day: None,
+                repayment_day: None,
+            };
+
+            let id = tx
+                .account_create_with_closure(&account)
+                .await
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+            parent_id = Some(id);
+            last_id = Some(id);
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        last_id.ok_or_else(|| {
+            AccountingError::InvalidTransaction(t!("cascade_create_failed").to_string())
+        })
+    }
+
     /// 关闭账户（含余额验证 + 级联关闭子账户）
     pub async fn close(&self, id: AccountId) -> Result<(), AccountingError> {
         let mut tx = self
@@ -402,5 +484,89 @@ mod tests {
 
         let reopened = service.get(id).await.unwrap().unwrap();
         assert!(reopened.closed_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_ensure_cascading_under_import_root() {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize("en").await.unwrap();
+        let service = AccountService::new(db);
+
+        // Import 根账户已通过 seed data 创建
+        let leaf_id = service
+            .ensure_cascading("Import:支付宝:餐饮美食")
+            .await
+            .unwrap();
+        assert!(leaf_id.0 > 0);
+
+        // 验证路径上的账户都存在
+        let root = service
+            .db
+            .account_get_by_parent_and_name(None, "Import")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(root.is_system);
+
+        let alipay = service
+            .db
+            .account_get_by_parent_and_name(Some(root.id), "支付宝")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!alipay.is_system);
+
+        let food = service
+            .db
+            .account_get_by_parent_and_name(Some(alipay.id), "餐饮美食")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(food.id, leaf_id);
+        assert!(!food.is_system);
+    }
+
+    #[tokio::test]
+    async fn test_ensure_cascading_idempotent() {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize("en").await.unwrap();
+        let service = AccountService::new(db);
+
+        let id1 = service
+            .ensure_cascading("Import:支付宝:餐饮美食")
+            .await
+            .unwrap();
+        let id2 = service
+            .ensure_cascading("Import:支付宝:餐饮美食")
+            .await
+            .unwrap();
+        assert_eq!(id1, id2, "重复调用应返回相同 AccountId");
+    }
+
+    #[tokio::test]
+    async fn test_ensure_cascading_rejects_nonexistent_root() {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize("en").await.unwrap();
+        let service = AccountService::new(db);
+
+        let result = service.ensure_cascading("Nonexistent:子账户").await;
+        assert!(result.is_err(), "不存在的根账户应报错");
+    }
+
+    #[tokio::test]
+    async fn test_ensure_cascading_rejects_non_system_root() {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize("en").await.unwrap();
+        let service = AccountService::new(db);
+
+        // 先在 Assets 下创建普通子账户
+        let _bank_id = service
+            .create_cascading("Assets:Bank", None, None, &[])
+            .await
+            .unwrap();
+
+        // Bank 不是系统根账户，ensure_cascading 应拒绝
+        let result = service.ensure_cascading("Bank:SubAccount").await;
+        assert!(result.is_err(), "非系统根账户应报错");
     }
 }

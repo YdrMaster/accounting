@@ -263,6 +263,14 @@ impl SqliteDatabase {
         crate::repo::channel::channel_get(&mut conn, id).await
     }
 
+    pub async fn channel_get_by_name(
+        &self,
+        name: &str,
+    ) -> Result<Option<accounting::channel::Channel>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel::channel_get_by_name(&mut conn, name).await
+    }
+
     pub async fn channel_list(&self) -> Result<Vec<accounting::channel::Channel>, DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::channel::channel_list(&mut conn).await

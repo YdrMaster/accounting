@@ -52,6 +52,19 @@ pub async fn channel_get(
     Ok(row.map(|r| r.into_channel()))
 }
 
+pub async fn channel_get_by_name(
+    conn: &mut SqliteConnection,
+    name: &str,
+) -> Result<Option<Channel>, DbError> {
+    let row: Option<ChannelRow> =
+        sqlx::query_as("SELECT id, name, description, account_id FROM channels WHERE name = ?1")
+            .bind(name)
+            .fetch_optional(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(row.map(|r| r.into_channel()))
+}
+
 pub async fn channel_list(conn: &mut SqliteConnection) -> Result<Vec<Channel>, DbError> {
     let rows: Vec<ChannelRow> =
         sqlx::query_as("SELECT id, name, description, account_id FROM channels ORDER BY id")

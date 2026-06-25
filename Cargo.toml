@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "accounting",
+    "accounting-import",
     "accounting-sql",
     "accounting-service",
     "accounting-cli",
@@ -10,6 +11,7 @@ resolver = "3"
 
 [workspace.dependencies]
 accounting.path = "accounting"
+accounting-import.path = "accounting-import"
 accounting-sql.path = "accounting-sql"
 accounting-service.path = "accounting-service"
 

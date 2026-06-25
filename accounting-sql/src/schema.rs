@@ -347,7 +347,8 @@ INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
 ('Assets', NULL, 1),
 ('Equity', NULL, 1),
 ('Income', NULL, 1),
-('Expenses', NULL, 1);
+('Expenses', NULL, 1),
+('Import', NULL, 1);
 "#;
 
 const SEED_ACCOUNTS_CHILD_EN: &str = r#"
@@ -365,7 +366,8 @@ INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
 ('资产', NULL, 1),
 ('权益', NULL, 1),
 ('收入', NULL, 1),
-('支出', NULL, 1);
+('支出', NULL, 1),
+('导入', NULL, 1);
 "#;
 
 const SEED_ACCOUNTS_CHILD_ZH: &str = r#"
@@ -384,12 +386,14 @@ INSERT OR IGNORE INTO commodities (symbol, name, precision) VALUES ('CNY', '人�
 
 const SEED_TAGS_EN: &str = r#"
 INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
-('repayment', 'Installment or credit card repayment marker', 1);
+('repayment', 'Installment or credit card repayment marker', 1),
+('pending', 'Imported transaction pending review', 1);
 "#;
 
 const SEED_TAGS_ZH: &str = r#"
 INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
-('还款', '分期/信用卡还款标记', 1);
+('还款', '分期/信用卡还款标记', 1),
+('待处理', '导入交易待审查标记', 1);
 "#;
 
 /// 维护系统内置账户的闭包表
@@ -466,12 +470,26 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(count, 10);
+        assert_eq!(count, 11);
 
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE name='repayment'")
             .fetch_one(&mut conn)
             .await
             .unwrap();
+        assert_eq!(count, 1);
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE name='pending'")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM accounts WHERE name='Import' AND parent_id IS NULL",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
         assert_eq!(count, 1);
     }
 

@@ -1,5 +1,6 @@
 pub mod account;
 pub mod commodity;
+pub mod import;
 pub mod member;
 pub mod report;
 pub mod tag;
@@ -47,6 +48,8 @@ pub enum Commands {
     /// 报告查询
     #[command(subcommand)]
     Report(report::ReportCmd),
+    /// 导入账单
+    Import(import::ImportArgs),
 }
 
 // --- Tabled + Serialize wrapper types ---

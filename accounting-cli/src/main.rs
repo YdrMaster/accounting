@@ -81,5 +81,6 @@ async fn run_command(cli: Cli) -> Result<(), accounting::error::AccountingError>
         Commands::Tx(cmd) => cmd.run(db, cli.format).await,
         Commands::Tag(cmd) => cmd.run(db, cli.format).await,
         Commands::Report(cmd) => cmd.run(db, cli.format).await,
+        Commands::Import(cmd) => cmd.run(db, cli.format).await,
     }
 }

@@ -180,6 +180,13 @@ impl<'a> SqliteTransaction<'a> {
         crate::repo::channel::channel_get(&mut self.tx, id).await
     }
 
+    pub async fn channel_get_by_name(
+        &mut self,
+        name: &str,
+    ) -> Result<Option<accounting::channel::Channel>, DbError> {
+        crate::repo::channel::channel_get_by_name(&mut self.tx, name).await
+    }
+
     pub async fn channel_list(&mut self) -> Result<Vec<accounting::channel::Channel>, DbError> {
         crate::repo::channel::channel_list(&mut self.tx).await
     }
