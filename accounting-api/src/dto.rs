@@ -63,6 +63,26 @@ pub struct SetAccountOwnersRequest {
     pub owner_ids: Vec<i64>,
 }
 
+/// 链路节点响应。
+#[derive(Serialize)]
+pub struct ChannelPathNodeDto {
+    /// 在链路中的位置（从 0 开始）。
+    pub position: i32,
+    /// 渠道 ID。
+    pub channel_id: i64,
+    /// 是否已对账。
+    pub reconciled: bool,
+}
+
+/// 链路节点请求。
+#[derive(Deserialize, Clone)]
+pub struct ChannelPathNodeRequest {
+    /// 在链路中的位置（从 0 开始）。
+    pub position: i32,
+    /// 渠道 ID。
+    pub channel_id: i64,
+}
+
 /// 交易响应。
 #[derive(Serialize)]
 pub struct TransactionDto {
@@ -76,8 +96,8 @@ pub struct TransactionDto {
     pub kind: String,
     /// 成员 ID。
     pub member_id: Option<i64>,
-    /// 渠道 ID。
-    pub channel_id: Option<i64>,
+    /// 渠道链路节点列表。
+    pub channel_paths: Vec<ChannelPathNodeDto>,
     /// 分录列表。
     pub postings: Vec<PostingDto>,
 }
@@ -115,8 +135,9 @@ pub struct CreateTransactionRequest {
     pub kind: String,
     /// 成员 ID。
     pub member_id: Option<i64>,
-    /// 渠道 ID。
-    pub channel_id: Option<i64>,
+    /// 渠道链路节点列表。
+    #[serde(default)]
+    pub channel_paths: Vec<ChannelPathNodeRequest>,
     /// 分录列表。
     pub postings: Vec<PostingRequest>,
     /// 标签列表。
@@ -152,6 +173,8 @@ pub struct ChannelDto {
     pub name: String,
     /// 渠道描述。
     pub description: Option<String>,
+    /// 关联资产账户 ID。
+    pub account_id: Option<i64>,
 }
 
 /// 创建渠道请求。
@@ -161,6 +184,22 @@ pub struct CreateChannelRequest {
     pub name: String,
     /// 渠道描述。
     pub description: Option<String>,
+    /// 关联资产账户 ID。
+    pub account_id: Option<i64>,
+}
+
+/// 更新渠道请求。
+#[derive(Deserialize)]
+pub struct UpdateChannelRequest {
+    /// 关联资产账户 ID。
+    pub account_id: Option<i64>,
+}
+
+/// 对账标记请求。
+#[derive(Deserialize)]
+pub struct ReconcileRequest {
+    /// 是否已对账。
+    pub reconciled: bool,
 }
 
 /// 标签响应。

@@ -14,13 +14,12 @@ pub async fn transaction_insert(
     tag_ids: &[TagId],
 ) -> Result<TransactionId, DbError> {
     let tx_id: i64 = sqlx::query_scalar(
-        "INSERT INTO transactions (date_time, description, member_id, channel_id, kind)
-         VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id",
+        "INSERT INTO transactions (date_time, description, member_id, kind)
+         VALUES (?1, ?2, ?3, ?4) RETURNING id",
     )
     .bind(tx.date_time.to_string())
     .bind(&tx.description)
     .bind(tx.member_id.map(|id| id.0))
-    .bind(tx.channel_id.map(|id| id.0))
     .bind(tx.kind as i32)
     .fetch_one(&mut *conn)
     .await
@@ -45,7 +44,7 @@ pub async fn transaction_get(
     id: TransactionId,
 ) -> Result<Option<Transaction>, DbError> {
     let row: Option<TransactionRow> = sqlx::query_as(
-        "SELECT id, date_time, description, kind, member_id, channel_id FROM transactions WHERE id = ?1",
+        "SELECT id, date_time, description, kind, member_id FROM transactions WHERE id = ?1",
     )
     .bind(id.0)
     .fetch_optional(conn)
@@ -61,12 +60,17 @@ pub async fn transaction_list(
     offset: usize,
 ) -> Result<Vec<Transaction>, DbError> {
     let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
-        "SELECT DISTINCT transactions.id, transactions.date_time, transactions.description, transactions.kind, transactions.member_id, transactions.channel_id FROM transactions ",
+        "SELECT DISTINCT transactions.id, transactions.date_time, transactions.description, transactions.kind, transactions.member_id FROM transactions ",
     );
 
     // 可报销过滤需要 JOIN postings 表
     if filter.has_reimbursable == Some(true) {
         builder.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id ");
+    }
+
+    // 渠道过滤需要 JOIN channel_paths 表
+    if !filter.channel_ids.is_empty() {
+        builder.push("JOIN channel_paths cp_filter ON cp_filter.transaction_id = transactions.id ");
     }
 
     builder.push("WHERE 1=1 ");
@@ -97,6 +101,10 @@ pub async fn transaction_count(
 
     if filter.has_reimbursable == Some(true) {
         builder.push("JOIN postings p_reimb ON p_reimb.transaction_id = transactions.id ");
+    }
+
+    if !filter.channel_ids.is_empty() {
+        builder.push("JOIN channel_paths cp_filter ON cp_filter.transaction_id = transactions.id ");
     }
 
     builder.push("WHERE 1=1 ");
@@ -157,9 +165,9 @@ fn apply_transaction_filter(builder: &mut QueryBuilder<sqlx::Sqlite>, filter: &T
         }
         builder.push(")) ");
     }
-    // 渠道过滤直接查 transactions 表
+    // 渠道过滤通过 channel_paths JOIN 实现（语义：链路中包含指定渠道的交易）
     if !filter.channel_ids.is_empty() {
-        builder.push("AND transactions.channel_id IN (");
+        builder.push("AND cp_filter.channel_id IN (");
         let mut separated = builder.separated(", ");
         for channel in &filter.channel_ids {
             separated.push_bind(channel.0);
@@ -190,13 +198,12 @@ pub async fn transaction_update(
 ) -> Result<(), DbError> {
     sqlx::query(
         "UPDATE transactions
-         SET date_time = ?1, description = ?2, member_id = ?3, channel_id = ?4, kind = ?5
-         WHERE id = ?6",
+         SET date_time = ?1, description = ?2, member_id = ?3, kind = ?4
+         WHERE id = ?5",
     )
     .bind(tx.date_time.to_string())
     .bind(&tx.description)
     .bind(tx.member_id.map(|id| id.0))
-    .bind(tx.channel_id.map(|id| id.0))
     .bind(tx.kind as i32)
     .bind(tx.id.0)
     .execute(&mut *conn)
@@ -229,7 +236,6 @@ struct TransactionRow {
     description: String,
     kind: i32,
     member_id: Option<i64>,
-    channel_id: Option<i64>,
 }
 
 impl TryFrom<TransactionRow> for Transaction {
@@ -245,7 +251,6 @@ impl TryFrom<TransactionRow> for Transaction {
             description: row.description,
             kind: TransactionKind::from_db(row.kind).unwrap_or(TransactionKind::Normal),
             member_id: row.member_id.map(accounting::id::MemberId),
-            channel_id: row.channel_id.map(accounting::id::ChannelId),
         })
     }
 }
@@ -258,9 +263,7 @@ mod tests {
     use sqlx::{Connection, SqliteConnection};
 
     async fn setup() -> SqliteConnection {
-        let mut conn = sqlx::SqliteConnection::connect("sqlite::memory:")
-            .await
-            .unwrap();
+        let mut conn = SqliteConnection::connect("sqlite::memory:").await.unwrap();
         crate::schema::initialize_schema(&mut conn).await.unwrap();
         crate::schema::insert_seed_data(&mut conn, "en")
             .await
@@ -278,7 +281,6 @@ mod tests {
             description: "Grocery shopping".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         }
     }
 
@@ -401,6 +403,37 @@ mod tests {
 
         let filter = TransactionFilter {
             member_ids: vec![member_id],
+            ..Default::default()
+        };
+        let list = transaction_list(&mut conn, &filter, 10, 0).await.unwrap();
+        assert_eq!(list.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_list_filter_by_channel() {
+        let mut conn = setup().await;
+
+        let channel_id: i64 =
+            sqlx::query_scalar("INSERT INTO channels (name) VALUES ('Alipay') RETURNING id")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+
+        let tx = sample_tx();
+        let tx_id = transaction_insert(&mut conn, &tx, &[]).await.unwrap();
+
+        // Add a channel_path for this transaction
+        sqlx::query(
+            "INSERT INTO channel_paths (transaction_id, position, channel_id) VALUES (?1, 0, ?2)",
+        )
+        .bind(tx_id.0)
+        .bind(channel_id)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+
+        let filter = TransactionFilter {
+            channel_ids: vec![accounting::id::ChannelId(channel_id)],
             ..Default::default()
         };
         let list = transaction_list(&mut conn, &filter, 10, 0).await.unwrap();

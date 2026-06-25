@@ -1,5 +1,6 @@
+use accounting::channel_path::ChannelPathNode;
 use accounting::error::AccountingError;
-use accounting::id::{TagId, TransactionId};
+use accounting::id::{ChannelPathId, TagId, TransactionId};
 use accounting::posting::Posting;
 use accounting::transaction::Transaction;
 use accounting::transaction_filter::TransactionFilter;
@@ -22,12 +23,13 @@ impl TransactionService {
         Self { db }
     }
 
-    /// 提交交易：验证 → 插入交易 + 分录 → 提交
+    /// 提交交易：验证 → 插入交易 + 分录 + 链路 → 提交
     pub async fn submit(
         &self,
         transaction: Transaction,
         mut postings: Vec<Posting>,
         tag_ids: Vec<TagId>,
+        channel_path_nodes: Vec<ChannelPathNode>,
     ) -> Result<TransactionId, AccountingError> {
         validate_transaction(&postings)?;
         validate_reversal_direction(&postings)?;
@@ -41,6 +43,11 @@ impl TransactionService {
 
         let tx_id = tx
             .transaction_insert(&transaction, &tag_ids)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        // 写入 channel_paths（渠道存在性由 FK 约束保证）
+        tx.channel_path_create_batch(tx_id, &channel_path_nodes)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
@@ -105,12 +112,13 @@ impl TransactionService {
         Ok(tx_id)
     }
 
-    /// 更新交易（全量替换）：删除旧分录 → 更新交易 → 插入新分录 → 提交
+    /// 更新交易（全量替换）：删除旧分录+链路 → 更新交易 → 插入新分录+链路 → 提交
     pub async fn update(
         &self,
         transaction: Transaction,
         mut postings: Vec<Posting>,
         tag_ids: Vec<TagId>,
+        channel_path_nodes: Vec<ChannelPathNode>,
     ) -> Result<(), AccountingError> {
         validate_transaction(&postings)?;
         validate_reversal_direction(&postings)?;
@@ -127,8 +135,18 @@ impl TransactionService {
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
+        // 整体替换链路（删除旧 channel_paths，创建新的）
+        tx.channel_path_delete_by_transaction(transaction.id)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
         // 更新交易
         tx.transaction_update(&transaction, &tag_ids)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        // 写入新链路
+        tx.channel_path_create_batch(transaction.id, &channel_path_nodes)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
@@ -194,7 +212,7 @@ impl TransactionService {
         Ok(())
     }
 
-    /// 删除交易（级联删除分录、附件、标签关联由外键约束处理）
+    /// 删除交易（级联删除分录、附件、标签关联、链路由外键约束处理）
     pub async fn delete(&self, id: TransactionId) -> Result<(), AccountingError> {
         let mut tx = self
             .db
@@ -212,13 +230,13 @@ impl TransactionService {
         Ok(())
     }
 
-    /// 列出交易（含分录）
+    /// 列出交易（含分录和渠道链路）
     pub async fn list(
         &self,
         filter: TransactionFilter,
         limit: Option<i64>,
         offset: Option<i64>,
-    ) -> Result<Vec<(Transaction, Vec<Posting>)>, AccountingError> {
+    ) -> Result<Vec<(Transaction, Vec<Posting>, Vec<ChannelPathNode>)>, AccountingError> {
         let limit = limit.map(|l| l as usize).unwrap_or(100);
         let offset = offset.map(|o| o as usize).unwrap_or(0);
         let transactions = self
@@ -233,16 +251,29 @@ impl TransactionService {
                 .posting_list_by_transaction(tx.id)
                 .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-            result.push((tx, postings));
+            let paths = self
+                .db
+                .channel_path_list_by_transaction(tx.id)
+                .await
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+            let nodes: Vec<ChannelPathNode> = paths
+                .into_iter()
+                .map(|p| ChannelPathNode {
+                    position: p.position,
+                    channel_id: p.channel_id,
+                    reconciled: p.reconciled,
+                })
+                .collect();
+            result.push((tx, postings, nodes));
         }
         Ok(result)
     }
 
-    /// 查询单笔交易（含分录）
+    /// 查询单笔交易（含分录和渠道链路）
     pub async fn get(
         &self,
         id: TransactionId,
-    ) -> Result<Option<(Transaction, Vec<Posting>)>, AccountingError> {
+    ) -> Result<Option<(Transaction, Vec<Posting>, Vec<ChannelPathNode>)>, AccountingError> {
         let transaction = self
             .db
             .transaction_get(id)
@@ -255,10 +286,36 @@ impl TransactionService {
                     .posting_list_by_transaction(tx.id)
                     .await
                     .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-                Ok(Some((tx, postings)))
+                let paths = self
+                    .db
+                    .channel_path_list_by_transaction(tx.id)
+                    .await
+                    .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+                let nodes: Vec<ChannelPathNode> = paths
+                    .into_iter()
+                    .map(|p| ChannelPathNode {
+                        position: p.position,
+                        channel_id: p.channel_id,
+                        reconciled: p.reconciled,
+                    })
+                    .collect();
+                Ok(Some((tx, postings, nodes)))
             }
             None => Ok(None),
         }
+    }
+
+    /// 标记/取消标记链路节点的对账状态
+    pub async fn update_reconciled(
+        &self,
+        channel_path_id: ChannelPathId,
+        reconciled: bool,
+    ) -> Result<(), AccountingError> {
+        self.db
+            .channel_path_update_reconciled(channel_path_id, reconciled)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        Ok(())
     }
 }
 
@@ -326,11 +383,13 @@ mod tests {
             description: "Test".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
 
-        let tx_id = tx_service.submit(tx, postings, vec![]).await.unwrap();
+        let tx_id = tx_service
+            .submit(tx, postings, vec![], vec![])
+            .await
+            .unwrap();
         assert!(tx_id.0 > 0);
     }
 
@@ -352,11 +411,10 @@ mod tests {
             description: "Bad".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-50")];
 
-        let result = tx_service.submit(tx, postings, vec![]).await;
+        let result = tx_service.submit(tx, postings, vec![], vec![]).await;
         assert!(matches!(
             result,
             Err(AccountingError::InvalidTransaction(_))
@@ -381,12 +439,11 @@ mod tests {
             description: "Original".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
 
         let tx_id = tx_service
-            .submit(tx.clone(), postings, vec![])
+            .submit(tx.clone(), postings, vec![], vec![])
             .await
             .unwrap();
 
@@ -397,12 +454,11 @@ mod tests {
             description: "Updated".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         };
         let new_postings = vec![sample_posting(id1, "200"), sample_posting(id2, "-200")];
 
         tx_service
-            .update(updated_tx, new_postings, vec![])
+            .update(updated_tx, new_postings, vec![], vec![])
             .await
             .unwrap();
 
@@ -434,11 +490,13 @@ mod tests {
             description: "ToDelete".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
 
-        let tx_id = tx_service.submit(tx, postings, vec![]).await.unwrap();
+        let tx_id = tx_service
+            .submit(tx, postings, vec![], vec![])
+            .await
+            .unwrap();
         tx_service.delete(tx_id).await.unwrap();
 
         assert!(

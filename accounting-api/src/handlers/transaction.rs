@@ -1,7 +1,8 @@
 //! 交易 API handler
 
-use crate::dto::{CreateTransactionRequest, PostingDto, TransactionDto};
+use crate::dto::{ChannelPathNodeDto, CreateTransactionRequest, PostingDto, TransactionDto};
 use crate::handlers::member::AppState;
+use accounting::channel_path::ChannelPathNode;
 use accounting::datetime_utils;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, ChannelId, MemberId, PostingId, TagId, TransactionId};
@@ -13,7 +14,7 @@ use accounting_service::transaction_service::TransactionService;
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    routing::get,
+    routing::{get, put},
 };
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
@@ -32,6 +33,8 @@ pub struct TxQuery {
     pub member: Vec<i64>,
     #[serde(default)]
     pub tag: Vec<String>,
+    #[serde(deserialize_with = "deserialize_vec_from_single_or_list")]
+    pub channel: Vec<i64>,
     pub keyword: Option<String>,
     pub reimbursable: Option<bool>,
     pub limit: Option<i64>,
@@ -90,6 +93,8 @@ async fn list_transactions(
 
     filter.member_ids = query.member.into_iter().map(MemberId).collect();
 
+    filter.channel_ids = query.channel.into_iter().map(ChannelId).collect();
+
     for tag_name in &query.tag {
         let tag = db
             .tag_get_by_name(tag_name)
@@ -143,7 +148,7 @@ async fn list_transactions(
 
     let dtos: Vec<TransactionDto> = transactions
         .into_iter()
-        .map(|(tx, postings)| TransactionDto {
+        .map(|(tx, postings, channel_paths)| TransactionDto {
             id: tx.id.0,
             date_time: tx.date_time.to_string(),
             description: tx.description,
@@ -155,7 +160,14 @@ async fn list_transactions(
                 _ => "normal".to_string(),
             },
             member_id: tx.member_id.map(|id| id.0),
-            channel_id: tx.channel_id.map(|id| id.0),
+            channel_paths: channel_paths
+                .into_iter()
+                .map(|n| ChannelPathNodeDto {
+                    position: n.position,
+                    channel_id: n.channel_id.0,
+                    reconciled: n.reconciled,
+                })
+                .collect(),
             postings: postings
                 .into_iter()
                 .map(|p| PostingDto {
@@ -190,7 +202,6 @@ async fn create_transaction(
 
     let date_time = parse_date_time(&req.date_time).map_err(|e| e.to_string())?;
     let member_id = req.member_id.map(MemberId);
-    let tx_description = req.description;
 
     let mut postings = Vec::new();
     for posting_req in req.postings {
@@ -254,38 +265,43 @@ async fn create_transaction(
     let transaction = Transaction {
         id: TransactionId(0),
         date_time,
-        description: tx_description,
+        description: req.description,
         kind: tx_kind,
         member_id,
-        channel_id: req.channel_id.map(ChannelId),
     };
+
+    let channel_path_nodes: Vec<ChannelPathNode> = req
+        .channel_paths
+        .into_iter()
+        .map(|n| ChannelPathNode {
+            position: n.position,
+            channel_id: ChannelId(n.channel_id),
+            reconciled: false,
+        })
+        .collect();
 
     let service = TransactionService::new(db.clone());
     let id = service
-        .submit(transaction, postings, tag_ids)
+        .submit(transaction, postings, tag_ids, channel_path_nodes)
         .await
         .map_err(|e| e.to_string())?;
 
     Ok(Json(id.0))
 }
 
-/// 获取单笔交易（含分录）
+/// 获取单笔交易（含分录和链路）
 async fn get_transaction(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<TransactionDto>, String> {
     let db = state.db();
 
-    let tx = db
-        .transaction_get(TransactionId(id))
+    let service = TransactionService::new(db.clone());
+    let (tx, postings, channel_paths) = service
+        .get(TransactionId(id))
         .await
         .map_err(|e| e.to_string())?
         .ok_or("Transaction not found")?;
-
-    let postings = db
-        .posting_list_by_transaction(TransactionId(id))
-        .await
-        .map_err(|e| e.to_string())?;
 
     // 批量查询账户和商品名称
     let accounts: std::collections::HashMap<
@@ -341,7 +357,14 @@ async fn get_transaction(
             _ => "normal".to_string(),
         },
         member_id: tx.member_id.map(|id| id.0),
-        channel_id: tx.channel_id.map(|id| id.0),
+        channel_paths: channel_paths
+            .into_iter()
+            .map(|n| ChannelPathNodeDto {
+                position: n.position,
+                channel_id: n.channel_id.0,
+                reconciled: n.reconciled,
+            })
+            .collect(),
         postings: posting_dtos,
     }))
 }
@@ -477,12 +500,21 @@ async fn update_transaction(
         description: req.description,
         kind: tx_kind,
         member_id,
-        channel_id: req.channel_id.map(ChannelId),
     };
+
+    let channel_path_nodes: Vec<ChannelPathNode> = req
+        .channel_paths
+        .into_iter()
+        .map(|n| ChannelPathNode {
+            position: n.position,
+            channel_id: ChannelId(n.channel_id),
+            reconciled: false,
+        })
+        .collect();
 
     let service = TransactionService::new(db.clone());
     service
-        .update(transaction, postings, tag_ids)
+        .update(transaction, postings, tag_ids, channel_path_nodes)
         .await
         .map_err(|e| e.to_string())?;
     Ok("updated".to_string())
@@ -502,6 +534,21 @@ async fn delete_transaction(
     Ok("deleted".to_string())
 }
 
+/// 对账标记
+async fn reconcile_channel_path(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<crate::dto::ReconcileRequest>,
+) -> Result<String, String> {
+    let db = state.db();
+    let service = TransactionService::new(db.clone());
+    service
+        .update_reconciled(accounting::id::ChannelPathId(id), req.reconciled)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok("updated".to_string())
+}
+
 /// 交易路由
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -516,4 +563,8 @@ pub fn router() -> Router<Arc<AppState>> {
                 .delete(delete_transaction),
         )
         .route("/api/postings/{id}", get(get_posting))
+        .route(
+            "/api/channel-paths/{id}/reconcile",
+            put(reconcile_channel_path),
+        )
 }

@@ -141,6 +141,9 @@ pub struct TransactionRow {
     pub date_time: String,
     pub description: String,
     pub member_id: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[tabled(skip)]
+    pub channel_paths: Vec<super::cmd::tx::ChannelPathRow>,
 }
 
 impl From<&accounting::transaction::Transaction> for TransactionRow {
@@ -150,6 +153,7 @@ impl From<&accounting::transaction::Transaction> for TransactionRow {
             date_time: t.date_time.to_string(),
             description: t.description.clone(),
             member_id: t.member_id.map(|id| id.0.to_string()).unwrap_or_default(),
+            channel_paths: Vec::new(),
         }
     }
 }

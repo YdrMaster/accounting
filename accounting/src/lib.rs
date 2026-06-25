@@ -12,6 +12,8 @@ pub mod attachment;
 pub mod balance;
 /// 支付渠道模型
 pub mod channel;
+/// 交易链路模型
+pub mod channel_path;
 /// 闭包表计算
 pub mod closure;
 /// 商品/货币模型

@@ -276,18 +276,19 @@ pub async fn posting_sum_by_channel(
     let precisions = load_precisions(conn).await?;
 
     let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
-        "SELECT t.channel_id, p.commodity_id, ra.name, SUM(p.amount) as total
+        "SELECT cp.channel_id, p.commodity_id, ra.name, SUM(p.amount) as total
          FROM postings p
          JOIN accounts a ON p.account_id = a.id
          JOIN account_ancestors aa ON a.id = aa.account_id AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
          JOIN accounts ra ON aa.ancestor_id = ra.id
          JOIN transactions t ON p.transaction_id = t.id
-         WHERE t.channel_id IS NOT NULL ",
+         JOIN channel_paths cp ON cp.transaction_id = t.id
+         WHERE 1=1 ",
     );
 
     apply_posting_filter(&mut builder, filter, true);
 
-    builder.push(" GROUP BY t.channel_id, p.commodity_id, ra.name");
+    builder.push(" GROUP BY cp.channel_id, p.commodity_id, ra.name");
 
     let rows: Vec<(i64, i64, String, i64)> = builder
         .build_query_as()
@@ -344,12 +345,14 @@ fn apply_posting_filter(
         builder.push(") ");
     }
     if !filter.channel_ids.is_empty() && !skip_member_channel {
-        builder.push("AND t.channel_id IN (");
+        builder.push(
+            "AND EXISTS (SELECT 1 FROM channel_paths cp WHERE cp.transaction_id = t.id AND cp.channel_id IN (",
+        );
         let mut separated = builder.separated(", ");
         for channel in &filter.channel_ids {
             separated.push_bind(channel.0);
         }
-        builder.push(") ");
+        builder.push(")) ");
     }
     if !filter.tag_ids.is_empty() {
         builder.push(
@@ -768,13 +771,22 @@ mod tests {
         let channel_id = ChannelId(channel_id);
 
         let tx_id: i64 = sqlx::query_scalar(
-            "INSERT INTO transactions (date_time, description, channel_id) VALUES ('2024-06-01 00:00:00', 'online shopping', ?1) RETURNING id",
+            "INSERT INTO transactions (date_time, description) VALUES ('2024-06-01 00:00:00', 'online shopping') RETURNING id",
         )
-        .bind(channel_id.0)
         .fetch_one(&mut conn)
         .await
         .unwrap();
         let tx_id = TransactionId(tx_id);
+
+        // Add channel_path for this transaction
+        sqlx::query(
+            "INSERT INTO channel_paths (transaction_id, position, channel_id) VALUES (?1, 0, ?2)",
+        )
+        .bind(tx_id.0)
+        .bind(channel_id.0)
+        .execute(&mut conn)
+        .await
+        .unwrap();
 
         let p1 = sample_posting(tx_id, income, "300.00");
         let p2 = sample_posting(tx_id, expense, "-300.00");

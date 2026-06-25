@@ -284,6 +284,86 @@ impl SqliteDatabase {
         crate::repo::channel::channel_force_delete_by_id(&mut conn, channel_id).await
     }
 
+    pub async fn channel_update(
+        &self,
+        id: accounting::id::ChannelId,
+        account_id: Option<accounting::id::AccountId>,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel::channel_update(&mut conn, id, account_id).await
+    }
+
+    // === ChannelPath ===
+
+    pub async fn channel_path_create(
+        &self,
+        transaction_id: accounting::id::TransactionId,
+        node: &accounting::channel_path::ChannelPathNode,
+    ) -> Result<accounting::id::ChannelPathId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel_path::channel_path_create(&mut conn, transaction_id, node).await
+    }
+
+    pub async fn channel_path_create_batch(
+        &self,
+        transaction_id: accounting::id::TransactionId,
+        nodes: &[accounting::channel_path::ChannelPathNode],
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel_path::channel_path_create_batch(&mut conn, transaction_id, nodes).await
+    }
+
+    pub async fn channel_path_list_by_transaction(
+        &self,
+        transaction_id: accounting::id::TransactionId,
+    ) -> Result<Vec<accounting::channel_path::ChannelPath>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel_path::channel_path_list_by_transaction(&mut conn, transaction_id).await
+    }
+
+    pub async fn channel_path_delete_by_transaction(
+        &self,
+        transaction_id: accounting::id::TransactionId,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel_path::channel_path_delete_by_transaction(&mut conn, transaction_id)
+            .await
+    }
+
+    pub async fn channel_path_find_transactions_by_channel(
+        &self,
+        channel_id: accounting::id::ChannelId,
+    ) -> Result<Vec<accounting::id::TransactionId>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel_path::channel_path_find_transactions_by_channel(&mut conn, channel_id)
+            .await
+    }
+
+    pub async fn channel_path_count_by_channel(
+        &self,
+        channel_id: accounting::id::ChannelId,
+    ) -> Result<i64, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel_path::channel_path_count_by_channel(&mut conn, channel_id).await
+    }
+
+    pub async fn channel_path_update_reconciled(
+        &self,
+        id: accounting::id::ChannelPathId,
+        reconciled: bool,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel_path::channel_path_update_reconciled(&mut conn, id, reconciled).await
+    }
+
+    pub async fn channel_path_get(
+        &self,
+        id: accounting::id::ChannelPathId,
+    ) -> Result<Option<accounting::channel_path::ChannelPath>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel_path::channel_path_get(&mut conn, id).await
+    }
+
     // === Tag ===
 
     pub async fn tag_get_by_name(

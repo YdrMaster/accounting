@@ -94,6 +94,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
         description TEXT,
+        account_id INTEGER REFERENCES accounts(id),
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -114,8 +115,18 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         date_time TEXT NOT NULL,
         description TEXT NOT NULL,
         member_id INTEGER REFERENCES members(id),
-        channel_id INTEGER REFERENCES channels(id),
         kind INTEGER NOT NULL DEFAULT 1 CHECK(kind BETWEEN 1 AND 3),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS channel_paths (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        channel_id INTEGER NOT NULL REFERENCES channels(id),
+        reconciled INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -173,6 +184,8 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_postings_account_commodity ON postings(account_id, commodity_id);",
     "CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date_time);",
     "CREATE INDEX IF NOT EXISTS idx_transactions_kind ON transactions(kind);",
+    "CREATE INDEX IF NOT EXISTS idx_channel_paths_transaction_id ON channel_paths(transaction_id);",
+    "CREATE INDEX IF NOT EXISTS idx_channel_paths_channel_id ON channel_paths(channel_id);",
     "CREATE INDEX IF NOT EXISTS idx_postings_reimbursable ON postings(is_reimbursable);",
     "CREATE INDEX IF NOT EXISTS idx_postings_linked ON postings(linked_posting_id);",
     "CREATE INDEX IF NOT EXISTS idx_attachments_tx ON attachments(transaction_id);",
@@ -231,6 +244,15 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     WHEN OLD.updated_at = NEW.updated_at
     BEGIN
         UPDATE channels SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_channel_paths_updated_at
+    AFTER UPDATE ON channel_paths
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE channel_paths SET updated_at = datetime('now') WHERE id = NEW.id;
     END;
     "#,
     r#"
@@ -420,6 +442,7 @@ mod tests {
         assert!(tables.contains(&"account_owners".to_string()));
         assert!(tables.contains(&"members".to_string()));
         assert!(tables.contains(&"channels".to_string()));
+        assert!(tables.contains(&"channel_paths".to_string()));
         assert!(tables.contains(&"tags".to_string()));
         assert!(tables.contains(&"transactions".to_string()));
         assert!(tables.contains(&"postings".to_string()));
@@ -463,6 +486,7 @@ mod tests {
             "account_owners",
             "members",
             "channels",
+            "channel_paths",
             "tags",
             "transactions",
             "postings",

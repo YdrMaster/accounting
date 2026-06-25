@@ -1,13 +1,13 @@
 //! 渠道 API handler
 
-use crate::dto::{ChannelDto, CreateChannelRequest};
+use crate::dto::{ChannelDto, CreateChannelRequest, UpdateChannelRequest};
 use crate::handlers::member::AppState;
 use accounting::channel::Channel;
-use accounting::id::ChannelId;
+use accounting::id::{AccountId, ChannelId};
 use axum::{
     Json, Router,
     extract::{Path, State},
-    routing::{delete, get},
+    routing::{get, put},
 };
 use rust_i18n::t;
 use std::sync::Arc;
@@ -25,6 +25,7 @@ async fn list_channels(
             id: c.id.0,
             name: c.name,
             description: c.description,
+            account_id: c.account_id.map(|id| id.0),
         })
         .collect();
 
@@ -41,6 +42,7 @@ async fn create_channel(
         id: ChannelId(0),
         name: req.name,
         description: req.description,
+        account_id: req.account_id.map(AccountId),
     };
     let id = db
         .channel_create(&channel)
@@ -49,13 +51,26 @@ async fn create_channel(
     Ok(Json(id.0))
 }
 
+/// 更新渠道（修改 account_id 关联）
+async fn update_channel(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateChannelRequest>,
+) -> Result<String, String> {
+    let db = state.db();
+    db.channel_update(ChannelId(id), req.account_id.map(AccountId))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok("updated".to_string())
+}
+
 /// 删除渠道
 async fn delete_channel(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<String, String> {
     let db = state.db();
-    // 检查渠道是否被交易引用
+    // 检查渠道是否被 channel_paths 引用
     let count = db
         .channel_count_transactions_by_id(ChannelId(id))
         .await
@@ -73,5 +88,8 @@ async fn delete_channel(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/channels", get(list_channels).post(create_channel))
-        .route("/api/channels/{id}", delete(delete_channel))
+        .route(
+            "/api/channels/{id}",
+            put(update_channel).delete(delete_channel),
+        )
 }

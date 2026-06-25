@@ -20,6 +20,7 @@ define_id!(PostingId);
 define_id!(CommodityId);
 define_id!(MemberId);
 define_id!(ChannelId);
+define_id!(ChannelPathId);
 define_id!(TagId);
 define_id!(AttachmentId);
 

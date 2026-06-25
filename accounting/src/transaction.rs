@@ -1,4 +1,4 @@
-use crate::id::{ChannelId, MemberId, TransactionId};
+use crate::id::{MemberId, TransactionId};
 use chrono::NaiveDateTime;
 
 /// 交易类型
@@ -37,6 +37,4 @@ pub struct Transaction {
     pub kind: TransactionKind,
     /// 关联成员 ID
     pub member_id: Option<MemberId>,
-    /// 支付渠道 ID
-    pub channel_id: Option<ChannelId>,
 }

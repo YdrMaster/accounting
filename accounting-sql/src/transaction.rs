@@ -198,6 +198,83 @@ impl<'a> SqliteTransaction<'a> {
         crate::repo::channel::channel_force_delete_by_id(&mut self.tx, channel_id).await
     }
 
+    pub async fn channel_update(
+        &mut self,
+        id: accounting::id::ChannelId,
+        account_id: Option<accounting::id::AccountId>,
+    ) -> Result<(), DbError> {
+        crate::repo::channel::channel_update(&mut self.tx, id, account_id).await
+    }
+
+    // === ChannelPath ===
+
+    pub async fn channel_path_create(
+        &mut self,
+        transaction_id: accounting::id::TransactionId,
+        node: &accounting::channel_path::ChannelPathNode,
+    ) -> Result<accounting::id::ChannelPathId, DbError> {
+        crate::repo::channel_path::channel_path_create(&mut self.tx, transaction_id, node).await
+    }
+
+    pub async fn channel_path_create_batch(
+        &mut self,
+        transaction_id: accounting::id::TransactionId,
+        nodes: &[accounting::channel_path::ChannelPathNode],
+    ) -> Result<(), DbError> {
+        crate::repo::channel_path::channel_path_create_batch(&mut self.tx, transaction_id, nodes)
+            .await
+    }
+
+    pub async fn channel_path_list_by_transaction(
+        &mut self,
+        transaction_id: accounting::id::TransactionId,
+    ) -> Result<Vec<accounting::channel_path::ChannelPath>, DbError> {
+        crate::repo::channel_path::channel_path_list_by_transaction(&mut self.tx, transaction_id)
+            .await
+    }
+
+    pub async fn channel_path_delete_by_transaction(
+        &mut self,
+        transaction_id: accounting::id::TransactionId,
+    ) -> Result<(), DbError> {
+        crate::repo::channel_path::channel_path_delete_by_transaction(&mut self.tx, transaction_id)
+            .await
+    }
+
+    pub async fn channel_path_find_transactions_by_channel(
+        &mut self,
+        channel_id: accounting::id::ChannelId,
+    ) -> Result<Vec<accounting::id::TransactionId>, DbError> {
+        crate::repo::channel_path::channel_path_find_transactions_by_channel(
+            &mut self.tx,
+            channel_id,
+        )
+        .await
+    }
+
+    pub async fn channel_path_count_by_channel(
+        &mut self,
+        channel_id: accounting::id::ChannelId,
+    ) -> Result<i64, DbError> {
+        crate::repo::channel_path::channel_path_count_by_channel(&mut self.tx, channel_id).await
+    }
+
+    pub async fn channel_path_update_reconciled(
+        &mut self,
+        id: accounting::id::ChannelPathId,
+        reconciled: bool,
+    ) -> Result<(), DbError> {
+        crate::repo::channel_path::channel_path_update_reconciled(&mut self.tx, id, reconciled)
+            .await
+    }
+
+    pub async fn channel_path_get(
+        &mut self,
+        id: accounting::id::ChannelPathId,
+    ) -> Result<Option<accounting::channel_path::ChannelPath>, DbError> {
+        crate::repo::channel_path::channel_path_get(&mut self.tx, id).await
+    }
+
     // === Tag ===
 
     pub async fn tag_get_by_name(

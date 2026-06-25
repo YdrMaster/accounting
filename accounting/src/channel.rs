@@ -1,4 +1,4 @@
-use crate::id::ChannelId;
+use crate::id::{AccountId, ChannelId};
 
 /// 支付渠道
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,4 +9,6 @@ pub struct Channel {
     pub name: String,
     /// 渠道描述
     pub description: Option<String>,
+    /// 关联资产账户 ID（可选一对一）
+    pub account_id: Option<AccountId>,
 }

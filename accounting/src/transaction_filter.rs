@@ -12,7 +12,7 @@ pub struct TransactionFilter {
     pub account_ids: Vec<AccountId>,
     /// 指定成员 ID（多选，空 = 不筛选）
     pub member_ids: Vec<MemberId>,
-    /// 指定支付渠道 ID（多选，空 = 不筛选）
+    /// 指定支付渠道 ID（多选，空 = 不筛选，语义为"链路中包含指定渠道的交易"）
     pub channel_ids: Vec<ChannelId>,
     /// 指定标签 ID（多选，空 = 不筛选）
     pub tag_ids: Vec<TagId>,

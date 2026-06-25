@@ -399,7 +399,6 @@ mod tests {
             description: "Report test".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         };
         let tx_id = report_service
             .db
@@ -485,7 +484,6 @@ mod tests {
             description: "Initial balance".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         };
         let tx1_id = report_service
             .db
@@ -510,7 +508,6 @@ mod tests {
             description: "Salary".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         };
         let tx2_id = report_service
             .db
@@ -586,7 +583,6 @@ mod tests {
             description: "Income statement test".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         };
         let tx_id = report_service
             .db
@@ -674,7 +670,6 @@ mod tests {
             description: "Tag stat test".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: None,
         };
         let tx_id = report_service
             .db
@@ -755,7 +750,6 @@ mod tests {
             description: "Member stat test".to_string(),
             kind: TransactionKind::Normal,
             member_id: Some(member_id),
-            channel_id: None,
         };
         let tx_id = report_service
             .db
@@ -824,10 +818,11 @@ mod tests {
             id: ChannelId(0),
             name: "支付宝".to_string(),
             description: None,
+            account_id: None,
         };
         let channel_id = report_service.db.channel_create(&channel).await.unwrap();
 
-        // 创建交易（带渠道）
+        // 创建交易
         let tx = Transaction {
             id: TransactionId(0),
             date_time: NaiveDate::from_ymd_opt(2024, 6, 1)
@@ -837,11 +832,22 @@ mod tests {
             description: "Channel stat test".to_string(),
             kind: TransactionKind::Normal,
             member_id: None,
-            channel_id: Some(channel_id),
         };
         let tx_id = report_service
             .db
             .transaction_insert(&tx, &[])
+            .await
+            .unwrap();
+
+        // 添加 channel_path
+        let node = accounting::channel_path::ChannelPathNode {
+            position: 0,
+            channel_id,
+            reconciled: false,
+        };
+        report_service
+            .db
+            .channel_path_create(tx_id, &node)
             .await
             .unwrap();
 

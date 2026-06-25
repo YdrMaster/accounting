@@ -4,6 +4,8 @@ pub mod account;
 pub mod attachment;
 /// Channel Repository
 pub mod channel;
+/// ChannelPath Repository
+pub mod channel_path;
 /// Commodity Repository
 pub mod commodity;
 /// Member Repository
