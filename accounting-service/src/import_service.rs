@@ -1,11 +1,11 @@
 use crate::account_service::AccountService;
+use crate::import::{AdaptError, BillEntry, ImportContext, builtin_adapters, find_adapter};
 use crate::transaction_service::TransactionService;
 use accounting::channel_path::ChannelPathNode;
 use accounting::error::AccountingError;
 use accounting::id::{ChannelId, CommodityId, MemberId, PostingId, TagId, TransactionId};
 use accounting::posting::Posting;
 use accounting::transaction::Transaction;
-use accounting_import::{AdaptError, BillEntry, ImportContext, builtin_adapters, find_adapter};
 use accounting_sql::SqliteDatabase;
 use rust_decimal::Decimal;
 

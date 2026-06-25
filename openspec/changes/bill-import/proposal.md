@@ -4,10 +4,9 @@
 
 ## What Changes
 
-- 新增 `accounting-import` crate：实现账单适配器 trait（`BillAdapter`）及具体渠道适配器（首批实现支付宝 CSV 适配器），输入原始字节 + 补充上下文，输出 `Iterator<Item = BillEntry>`
+- 修改 `accounting-service` crate：新增 `import` 模块，包含账单适配器 trait（`BillAdapter`）、具体渠道适配器（首批支付宝 CSV）和 `ImportService` 编排逻辑，输入原始字节 + 补充上下文，输出 `Iterator<Item = BillEntry>`，编排适配器选择 → 账户自动创建 → 迭代写入 → 返回批次交易 ID 列表
 - 新增 `Import` 系统根账户（`is_system=true`）：导入的交易 Posting 全部挂在 `Import:<来源>:<分类>` 下，不污染用户账户体系
 - 新增 `待处理` 系统 Tag（`is_system=true`）：标记来自导入的未确认交易，用户修正后去除 tag 即可，无需专门的移动/合并操作
-- 修改 `accounting-service` crate：新增 `ImportService`，编排适配器选择 → 账户自动创建 → 迭代写入 → 返回批次交易 ID 列表
 - 修改 `accounting-cli` crate：新增 `import` 子命令，接受文件路径、来源、成员等参数
 - 修改 seed data 初始化：添加 `Import` 根账户和 `待处理` 系统 Tag
 
@@ -21,8 +20,7 @@
 
 ## Impact
 
-- **新增 crate**：`accounting-import`，仅依赖 `accounting`（核心模型），不依赖 `accounting-sql` 或 `accounting-service`；各适配器按需引入文件格式解析依赖
-- **核心模型层**（accounting crate）：无变更，`BillEntry` 等类型定义在 `accounting-import` crate 中
+- **核心模型层**（accounting crate）：无变更
 - **数据库层**（accounting-sql crate）：新增 `Import` 根账户和 `待处理` 系统 Tag 的 seed data
-- **Service 层**（accounting-service crate）：新增 `ImportService`，依赖 `accounting-import` + `accounting-sql`
+- **Service 层**（accounting-service crate）：新增 `import` 模块（含 `BillAdapter` trait、适配器实现、`ImportService`），依赖 `accounting` + `accounting-sql`
 - **CLI 层**（accounting-cli crate）：新增 `import` 子命令

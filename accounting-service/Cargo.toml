@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 accounting.workspace = true
-accounting-import.workspace = true
 accounting-sql.workspace = true
 chrono.workspace = true
+encoding_rs = "0.8"
 rust_decimal.workspace = true
 rust-i18n.workspace = true
 

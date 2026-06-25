@@ -7,6 +7,8 @@ pub mod account_service;
 /// 商品/货币服务
 pub mod commodity_service;
 /// 导入服务
+pub mod import;
+/// 导入服务编排
 pub mod import_service;
 /// 成员服务
 pub mod member_service;

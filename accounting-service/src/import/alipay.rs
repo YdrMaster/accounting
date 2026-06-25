@@ -1,4 +1,4 @@
-use crate::{AdaptError, BillAdapter, BillEntry, BillPosting};
+use super::{AdaptError, BillAdapter, BillEntry, BillPosting};
 use accounting::transaction::TransactionKind;
 use chrono::NaiveDateTime;
 use encoding_rs::GBK;
@@ -16,7 +16,7 @@ impl BillAdapter for AlipayAdapter {
     fn parse<'a>(
         &'a self,
         data: &[u8],
-        _ctx: &crate::ImportContext,
+        _ctx: &super::ImportContext,
     ) -> Result<Box<dyn Iterator<Item = Result<BillEntry, AdaptError>> + 'a>, AdaptError> {
         // 支付宝导出为 GBK 编码，先尝试 GBK 解码，失败回退 UTF-8
         let (text, _, had_errors) = GBK.decode(data);
@@ -222,8 +222,8 @@ mod tests {
     use accounting::id::{ChannelId, CommodityId, MemberId};
     use std::str::FromStr;
 
-    fn test_context() -> crate::ImportContext {
-        crate::ImportContext {
+    fn test_context() -> crate::import::ImportContext {
+        crate::import::ImportContext {
             member_id: MemberId(1),
             channel_id: ChannelId(1),
             commodity_id: CommodityId(1),

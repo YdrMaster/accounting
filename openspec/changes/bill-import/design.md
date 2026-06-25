@@ -15,7 +15,7 @@
 ## Goals / Non-Goals
 
 **Goals:**
-- 新增 `accounting-import` crate，实现适配器 trait 和具体渠道适配器（首批支付宝）
+- 在 `accounting-service` 中新增 `import` 模块，实现适配器 trait 和具体渠道适配器（首批支付宝）
 - 支持从渠道 App 导出的账单文件批量导入交易（首批支付宝 CSV）
 - 导入的交易 Posting 全部挂在 `Import:<来源>:<分类>` 根账户下，不污染用户定义的账户体系
 - 使用 `待处理` 系统 Tag 标记导入的未确认交易
@@ -35,15 +35,25 @@
 
 ## Decisions
 
-### D1: 新增独立 crate `accounting-import`，而非放在现有 crate 中
+### D1: 导入逻辑放在 `accounting-service` crate 的 `import` 子模块中，而非独立 crate
 
-**选择**：新增 `accounting-import` crate，仅依赖 `accounting`（核心模型），不依赖 `accounting-sql` 或 `accounting-service`。
+**选择**：在 `accounting-service` 中新增 `import` 模块，包含适配器 trait、适配器实现、`ImportService`。不新增独立 crate。
 
 **替代方案**：
-- 在 `accounting-service` 中实现所有导入逻辑：耦合度高，文件解析依赖会传染到 service crate，且适配器逻辑与业务逻辑混杂。
+- 新增独立 `accounting-import` crate：初期适配器逻辑简单（仅一个支付宝适配器），独立 crate 的收益（隔离依赖、独立测试）不足以抵消维护成本（workspace member、Cargo.toml、路径引用）。
 - 在 `accounting` 核心模型 crate 中定义适配器 trait：核心 crate 应保持纯数据模型，不应引入 I/O 依赖。
 
-**理由**：独立 crate 允许适配器层独立测试（输入字节 + context → 输出 BillEntry），不依赖数据库。依赖方向清晰：`accounting-cli` → `accounting-service` → `accounting-import` → `accounting`。文件格式解析依赖被隔离在 import crate 内部，各适配器按需引入自己的解析库。
+**理由**：导入逻辑天然依赖 service 层（账户查找/创建、交易提交），放在同一 crate 内减少模块间耦合。`import` 子模块内部按职责拆分（`adapter` trait + 各适配器实现 + `service` 编排），结构清晰。未来如果适配器逻辑膨胀到需要独立 crate，再提取也不迟。
+
+**模块结构**：
+```
+accounting-service/src/
+  import/
+    mod.rs          ← BillAdapter trait、BillEntry、ImportContext、AdaptError、注册机制
+    alipay.rs       ← AlipayAdapter 实现
+    mod.rs          ← re-exports
+  import_service.rs ← ImportService 编排逻辑
+```
 
 ### D2: 适配器 trait 输入 `&[u8]`，不耦合具体文件格式
 
@@ -98,7 +108,7 @@
 
 **选择**：`BillPosting.account_path: String`（如 `"Import:支付宝:餐饮美食"`）和 `BillPosting.commodity_symbol: String`，在 service 层解析为真实 ID。
 
-**理由**：`accounting-import` crate 不依赖 `accounting-sql`，无法查询数据库获取 `AccountId`。字符串路径是最自然的表达方式，service 层可通过 `ensure_cascading` 查找或创建对应账户。
+**理由**：`BillEntry` 等类型定义在 `import` 模块中，使用字符串路径作为适配器与 service 层之间的中间表示，无需直接依赖数据库 ID。service 层通过 `ensure_cascading` 查找或创建对应账户。
 
 ### D8: 适配器实现聚焦支付宝 CSV，其他格式留待扩展
 
@@ -109,7 +119,7 @@
 ## Risks / Trade-offs
 
 - **[Import 根账户可能积累大量子账户]** → 每个 `来源:分类` 组合都会创建一个子账户，长期积累后 Import 下可能有上百个子账户。但这是隔离设计的必要代价，未来可通过映射表减少手动操作。
-- **[适配器对文件格式敏感]** → 各渠道 App 的导出格式可能随版本变化，适配器需要持续维护。设计上通过独立 crate 隔离变更影响，各适配器内部可做格式版本检测。
+- **[适配器对文件格式敏感]** → 各渠道 App 的导出格式可能随版本变化，适配器需要持续维护。适配器逻辑集中在 `import` 模块内，变更影响受控。
 - **[退款关联未自动处理]** → 退款行导入为独立交易，不自动关联原始消费。用户需手动在 UI/CLI 中建立 `linked_posting_id` 关系。这是已知的非目标。
 - **[交易去重未处理]** → 同一笔交易可能出现在多个渠道账单中（淘宝→支付宝→银行卡），当前不检测去重。这是已知的非目标，留待未来通过自动化判断处理。
 

@@ -1,6 +1,6 @@
-## 1. accounting-import crate 骨架
+## 1. 导入模块骨架（accounting-service）
 
-- [x] 1.1 在 workspace Cargo.toml 中添加 `accounting-import` member，创建 crate 目录和 `Cargo.toml`（依赖 `accounting`、`chrono`、`rust_decimal`、`thiserror`）
+- [x] 1.1 在 `accounting-service/src/` 下新建 `import/` 模块目录，定义 `pub mod import` 并 re-export 公共类型
 - [x] 1.2 定义 `BillAdapter` trait：`fn name(&self) -> &str`、`fn parse(&self, data: &[u8], ctx: &ImportContext) -> Result<Box<dyn Iterator<Item = Result<BillEntry, AdaptError>>>, AdaptError>`
 - [x] 1.3 定义 `ImportContext` 结构体：`member_id: MemberId`、`channel_id: ChannelId`、`commodity_id: CommodityId`
 - [x] 1.4 定义 `BillEntry` 结构体：`date_time: NaiveDateTime`、`description: String`、`kind: TransactionKind`、`postings: Vec<BillPosting>`、`tags: Vec<String>`
@@ -11,14 +11,14 @@
 
 ## 2. 支付宝适配器
 
-- [x] 2.1 实现 `AlipayAdapter` 结构体，实现 `BillAdapter` trait
-- [x] 2.2 `parse` 内部将 `&[u8]` 转为 UTF-8 字符串，按行解析 CSV 格式，跳过表头和非数据行
-- [x] 2.3 解析支付宝 CSV 列：交易时间、交易分类、交易对方、商品说明、金额、收/支等，映射到 `BillEntry`
-- [x] 2.4 生成 `BillPosting`：支出侧 `account_path = "Import:支付宝:<分类>"`，金额为负；资产侧 `account_path = "Import:支付宝"`，金额为正
-- [x] 2.5 退款行（金额 > 0 且标记为收入）映射为 `TransactionKind::Refund`
+- [x] 2.1 在 `accounting-service/src/import/` 下实现 `AlipayAdapter` 结构体，实现 `BillAdapter` trait
+- [x] 2.2 `parse` 内部用 `encoding_rs` 解码 GBK（失败回退 UTF-8），按行解析 CSV 格式，跳过元数据头部和非数据行
+- [x] 2.3 解析支付宝 CSV 列：交易时间（索引 0）、交易分类（索引 1）、交易对方（索引 2）、商品说明（索引 4）、金额（索引 6）、收/支（索引 5）、交易状态（索引 8），映射到 `BillEntry`
+- [x] 2.4 生成 `BillPosting`：支出侧 `account_path = "Import:支付宝:<交易分类>"`，资产侧 `account_path = "Import:支付宝"`
+- [x] 2.5 交易分类为"退款"时映射为 `TransactionKind::Refund`，金额始终取正值
 - [x] 2.6 解析错误时返回 `AdaptError::RowError { row, message }`，不 panic
-- [x] 2.7 编写 unit test：构造最小 CSV 测试数据，验证 `AlipayAdapter::parse` 输出的 `BillEntry`
-- [x] 2.8 更新 `accounting-import/Cargo.toml` 添加 CSV 解析所需依赖（如 `csv` crate 或手写解析）
+- [x] 2.7 编写 unit test：构造真实格式 CSV 测试数据，验证 `AlipayAdapter::parse` 输出的 `BillEntry`
+- [x] 2.8 编写基于混淆后真实文件的回归测试（`test/支付宝交易明细.csv`），验证 346 条成功 + 8 条跳过 + 18 个分类
 
 ## 3. seed data 更新
 
@@ -37,23 +37,23 @@
 
 ## 5. ImportService
 
-- [x] 5.1 在 `accounting-service/src/` 中新建 `import_service.rs`，定义 `ImportService { db: SqliteDatabase }`
+- [x] 5.1 在 `accounting-service/src/` 中新建 `import/service.rs`，定义 `ImportService { db: SqliteDatabase }`
 - [x] 5.2 定义 `ImportResult` 结构体：`transaction_ids: Vec<TransactionId>`、`imported: usize`、`skipped: usize`、`errors: Vec<AdaptError>`
 - [x] 5.3 实现 `import` 方法：接受 `data: &[u8]`、`source: &str`、`member_id: MemberId`，返回 `ImportResult`
-- [x] 5.4 import 流程：(1) 从 `builtin_adapters()` 中按 `source` 查找适配器 (2) 通过 `channel_get_by_name` 或类似方式解析 source 为 ChannelId (3) 查找或使用默认 CommodityId (4) 构造 ImportContext (5) 调用 `adapter.parse(data, &ctx)` (6) 迭代 BillEntry 逐条处理
+- [x] 5.4 import 流程：(1) 从 `builtin_adapters()` 中按 `source` 查找适配器 (2) 通过 `channel_get_by_name` 解析 source 为 ChannelId (3) 查找或使用默认 CommodityId (4) 构造 ImportContext (5) 调用 `adapter.parse(data, &ctx)` (6) 迭代 BillEntry 逐条处理
 - [x] 5.5 每个 BillEntry 处理：(1) 对每个 BillPosting.account_path 调用 `ensure_cascading` 创建/查找账户 (2) 将 commodity_symbol 解析为 CommodityId (3) 构建 Transaction + Postings (4) 解析 tags 名称为 TagId（含 "待处理" 系统 Tag） (5) 构建 ChannelPathNode (6) 调用 `TransactionService::submit`
 - [x] 5.6 skip-on-error：当 `BillEntry` 迭代返回 `Err(AdaptError)` 时，记录到 `errors` 列表，继续迭代；submit 失败时同样记录错误继续
-- [x] 5.7 更新 `accounting-service/src/lib.rs` 添加 `pub mod import_service;`
-- [x] 5.8 更新 `accounting-service/Cargo.toml` 添加 `accounting-import` 依赖
+- [x] 5.7 更新 `accounting-service/src/lib.rs` 添加 `pub mod import;`
+- [x] 5.8 更新 `accounting-service/Cargo.toml` 添加 `encoding_rs` 依赖（GBK 解码）
 - [x] 5.9 编写 integration test：构造内存 CSV + 内存 SQLite，完整运行 ImportService::import 并验证返回的 transaction_ids、Import 子账户创建、"待处理" Tag 关联
 
 ## 6. CLI import 子命令
 
 - [x] 6.1 在 `accounting-cli/src/cmd/` 中新建 `import.rs`，定义 `ImportArgs`（`--file <PathBuf>`、`--source <String>`、`--member <i64>`）
-- [x] 6.2 实现 `ImportCmd::run`：读取文件字节、调用 `ImportService::import`、格式化输出摘要（imported/skipped/errors）和 transaction_ids 列表
-- [x] 6.3 在 `accounting-cli/src/cmd/mod.rs` 中添加 `pub mod import;`，在 `Commands` 枚举中添加 `Import(import::ImportCmd)` 变体
+- [x] 6.2 实现 `ImportArgs::run`：读取文件字节、调用 `ImportService::import`、格式化输出摘要（imported/skipped/errors）和 transaction_ids 列表
+- [x] 6.3 在 `accounting-cli/src/cmd/mod.rs` 中添加 `pub mod import;`，在 `Commands` 枚举中添加 `Import(import::ImportArgs)` 变体
 - [x] 6.4 在 `accounting-cli/src/main.rs` 的 match 分发中添加 `Commands::Import(cmd) => cmd.run(db, cli.format).await`
-- [x] 6.5 更新 `accounting-cli/Cargo.toml` 添加 `accounting-import` 依赖
+- [x] 6.5 更新 `accounting-cli/Cargo.toml` 添加 `encoding_rs` 依赖（如果 CLI 需要直接读取文件，实际上通过 service 层已间接依赖）
 - [x] 6.6 编写 CLI 集成测试：验证 `import --source alipay --member 1 --file test.csv` 的完整流程
 - [x] 6.7 错误处理：不支持的 source、文件不存在、Channel 不存在等场景的友好错误输出
 

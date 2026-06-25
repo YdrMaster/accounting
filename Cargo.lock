@@ -49,24 +49,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "accounting-import"
-version = "0.1.0"
-dependencies = [
- "accounting",
- "chrono",
- "encoding_rs",
- "rust_decimal",
- "thiserror",
-]
-
-[[package]]
 name = "accounting-service"
 version = "0.1.0"
 dependencies = [
  "accounting",
- "accounting-import",
  "accounting-sql",
  "chrono",
+ "encoding_rs",
  "rust-i18n",
  "rust_decimal",
  "tokio",

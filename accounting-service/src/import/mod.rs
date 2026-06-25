@@ -87,7 +87,7 @@ pub fn find_adapter<'a>(
         .map(|a| a.as_ref())
 }
 
-mod alipay;
+pub mod alipay;
 
 #[cfg(test)]
 mod tests {
