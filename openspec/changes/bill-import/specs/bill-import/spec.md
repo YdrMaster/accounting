@@ -1,0 +1,127 @@
+## ADDED Requirements
+
+### Requirement: 账单适配器 trait
+系统 SHALL 提供 `BillAdapter` trait，定义统一的账单解析接口。trait 方法接受 `&[u8]`（原始文件字节）和 `ImportContext`（补充上下文），返回 `Iterator<Item = Result<BillEntry, AdaptError>>`。trait 中 SHALL 不出现任何具体文件格式解析库的类型。适配器内部自行决定如何解析输入字节。
+
+#### Scenario: 支付宝适配器解析账单
+- **WHEN** 调用 AlipayAdapter 的 `parse` 方法，传入支付宝导出的账单文件字节和 ImportContext
+- **THEN** 返回一个迭代器，每次 `next()` 产出一个 `BillEntry`，包含日期、描述、金额、分类等信息
+
+#### Scenario: 适配器名称
+- **WHEN** 调用任意适配器的 `name()` 方法
+- **THEN** 返回该适配器的标识字符串（如 `"alipay"`）
+
+### Requirement: BillEntry 数据结构
+系统 SHALL 定义 `BillEntry` 结构体作为适配器输出的标准格式，包含 `date_time`、`description`、`kind`、`postings: Vec<BillPosting>`、`tags: Vec<String>` 字段。`BillPosting` SHALL 使用 `account_path: String` 和 `commodity_symbol: String` 而非数据库 ID。
+
+#### Scenario: BillEntry 包含完整记账信息
+- **WHEN** 适配器解析一行支付宝账单 "美团外卖 -35.00 餐饮美食"
+- **THEN** 产出的 BillEntry 包含 date_time、description="美团外卖"、kind=Normal、两个 BillPosting（支出侧 "Import:支付宝:餐饮美食" -35.00 和资产侧 "Import:支付宝" +35.00）。适配器根据文件格式自行提取日期、分类、金额等字段
+
+#### Scenario: BillEntry 使用字符串账户路径
+- **WHEN** BillPosting 的 account_path 为 "Import:支付宝:餐饮美食"
+- **THEN** service 层可通过 `ensure_cascading("Import:支付宝:餐饮美食")` 自动创建完整路径的账户
+
+### Requirement: ImportContext 补充上下文
+系统 SHALL 定义 `ImportContext` 结构体，包含 `member_id`、`channel_id`、`commodity_id` 字段，在调用适配器时传入，为解析提供运行时补充信息。
+
+#### Scenario: 传入 member_id 和 channel_id
+- **WHEN** 用户指定 `--member 1 --source alipay` 进行导入
+- **THEN** ImportContext 包含 member_id=MemberId(1)、channel_id 对应支付宝渠道
+
+#### Scenario: 默认商品为 CNY
+- **WHEN** 用户未指定 commodity
+- **THEN** ImportContext 的 commodity_id 默认为 CNY 对应的 ID
+
+### Requirement: Import 系统根账户
+系统 SHALL 新增 `Import` 系统根账户（`is_system=true`），作为所有导入交易的 Posting 容器。适配器 SHALL 按 `Import:<来源>:<分类>` 格式生成账户路径，由 service 层通过 `ensure_cascading` 自动创建。
+
+#### Scenario: Import 根账户在初始化时创建
+- **WHEN** 数据库初始化（seed data）
+- **THEN** `Import` 根账户存在，`is_system=true`，`parent_id=NULL`
+
+#### Scenario: 导入时自动创建子账户
+- **WHEN** 适配器输出 BillPosting 的 account_path 为 "Import:支付宝:餐饮美食"
+- **THEN** service 层自动创建 Import → 支付宝 → 餐饮美食 三级账户
+
+#### Scenario: 相同路径不重复创建
+- **WHEN** 两条 BillEntry 都使用 "Import:支付宝:餐饮美食" 路径
+- **THEN** 系统只创建一次该账户，两条 Posting 指向同一个 AccountId
+
+### Requirement: 待处理系统 Tag
+系统 SHALL 新增 `待处理` 系统 Tag（`is_system=true`），所有通过导入创建的交易 SHALL 自动添加此 Tag。用户确认交易后 SHALL 手动移除此 Tag。
+
+#### Scenario: 导入交易自动标记待处理
+- **WHEN** 通过 `import` 命令导入一批交易
+- **THEN** 每笔交易的 tag 列表中包含 "待处理" Tag
+
+#### Scenario: 用户确认后移除待处理 Tag
+- **WHEN** 用户审查并确认一笔导入的交易
+- **THEN** 用户移除该交易的 "待处理" Tag，交易仍保留在 Import 账户下（账户移动是独立操作）
+
+#### Scenario: 按待处理 Tag 筛选交易
+- **WHEN** 用户执行 `tx list --tag 待处理`
+- **THEN** 返回所有标记了 "待处理" Tag 的交易，包括导入的和用户手动标记的
+
+### Requirement: ImportService 编排导入流程
+系统 SHALL 在 `accounting-service` crate 中新增 `ImportService`，负责编排完整导入流程：确保 Import 根账户和待处理 Tag 存在 → 选择适配器 → 调用适配器解析 → 迭代 BillEntry → 查找/创建账户 → 调用 `TransactionService::submit` → 收集 TransactionId → 返回批次结果。
+
+#### Scenario: 完整导入流程
+- **WHEN** 调用 ImportService 的 import 方法，传入文件字节、来源和补充信息
+- **THEN** 系统执行：确保 Import 根账户和待处理 Tag 存在 → 选择匹配的适配器 → 解析账单文件 → 对每个 BillEntry 查找/创建账户 → 提交交易（带待处理 Tag）→ 返回导入结果
+
+#### Scenario: 返回批次交易 ID 列表
+- **WHEN** 导入完成
+- **THEN** 返回 `Vec<TransactionId>`，包含本次导入创建的所有交易 ID
+
+#### Scenario: 批次 ID 列表不落盘
+- **WHEN** 导入完成并返回 TransactionId 列表
+- **THEN** 该列表仅在内存中，不写入数据库任何表
+
+### Requirement: skip-on-error 策略
+导入过程中，单行解析错误 SHALL 不中断整批导入。系统 SHALL 记录错误行号和原因，继续处理后续行，最终汇总输出成功数和错误详情。
+
+#### Scenario: 跳过格式错误的行
+- **WHEN** 第 5 行的金额字段为空、第 18 行的日期格式无效
+- **THEN** 系统跳过这两行，继续处理其他行，最终报告"导入 23 条，跳过 2 条（第 5 行：金额为空；第 18 行：日期格式无效）"
+
+#### Scenario: 所有行均成功
+- **WHEN** 所有行解析成功
+- **THEN** 最终报告"导入 N 条，跳过 0 条"
+
+### Requirement: CLI import 子命令
+系统 SHALL 在 CLI 中新增 `import` 子命令，接受 `--file <路径>`、`--source <来源>`、`--member <ID>` 等参数，执行导入并输出结果摘要和交易 ID 列表。
+
+#### Scenario: 基本导入命令
+- **WHEN** 用户执行 `accounting import --source alipay --member 1 --file bill.csv`
+- **THEN** 系统读取文件，选择支付宝适配器，执行导入，输出摘要信息和交易 ID 列表
+
+#### Scenario: 不支持的来源
+- **WHEN** 用户指定 `--source unknown_provider`
+- **THEN** 系统返回错误"不支持的来源: unknown_provider"
+
+#### Scenario: 文件不存在
+- **WHEN** 用户指定的文件路径不存在
+- **THEN** 系统返回文件读取错误
+
+### Requirement: 适配器与渠道自动关联
+当用户指定 `--source` 选择适配器类型时，系统 SHALL 同时确定渠道（Channel）并设置到 ImportContext 中。适配器名称与渠道名称 SHALL 保持一致的映射关系。
+
+#### Scenario: 选择支付宝适配器时自动设置渠道
+- **WHEN** 用户指定 `--source alipay`
+- **THEN** 系统查找名为 "支付宝" 的 Channel（或按适配器名称匹配），将其 channel_id 设入 ImportContext，导入交易的 channel_path 为 [支付宝]
+
+#### Scenario: 渠道不存在时报错
+- **WHEN** 指定的来源对应的渠道在系统中不存在
+- **THEN** 系统返回错误，提示用户先创建对应渠道
+
+### Requirement: 适配器注册机制
+系统 SHALL 提供适配器注册机制，使得 `ImportService` 可根据 `source` 名称查找对应的适配器实例。内置适配器通过 `builtin_adapters()` 函数提供。
+
+#### Scenario: 查找内置适配器
+- **WHEN** 调用 `find_adapter("alipay", &builtin_adapters())`
+- **THEN** 返回 AlipayAdapter 实例的引用
+
+#### Scenario: 查找不存在的适配器
+- **WHEN** 调用 `find_adapter("unknown", &builtin_adapters())`
+- **THEN** 返回 None
