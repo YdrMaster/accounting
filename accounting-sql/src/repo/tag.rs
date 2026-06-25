@@ -1,8 +1,9 @@
 use sqlx::{FromRow, SqliteConnection};
 
 use crate::error::DbError;
-use accounting::id::TagId;
+use accounting::id::{TagId, TransactionId};
 use accounting::tag::Tag;
+use std::collections::HashMap;
 
 #[derive(FromRow)]
 struct TagRow {
@@ -65,6 +66,36 @@ pub async fn tag_delete(conn: &mut SqliteConnection, name: &str) -> Result<(), D
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(())
+}
+
+pub async fn tag_names_by_transactions(
+    conn: &mut SqliteConnection,
+    transaction_ids: &[TransactionId],
+) -> Result<HashMap<TransactionId, Vec<String>>, DbError> {
+    if transaction_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut query = sqlx::QueryBuilder::new(
+        "SELECT tt.transaction_id, t.name FROM transaction_tags tt JOIN tags t ON tt.tag_id = t.id WHERE tt.transaction_id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for id in transaction_ids {
+        separated.push_bind(id.0);
+    }
+    query.push(")");
+
+    let rows: Vec<(i64, String)> = query
+        .build_query_as()
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    let mut map: HashMap<TransactionId, Vec<String>> = HashMap::new();
+    for (tx_id, name) in rows {
+        map.entry(TransactionId(tx_id)).or_default().push(name);
+    }
+    Ok(map)
 }
 
 #[cfg(test)]

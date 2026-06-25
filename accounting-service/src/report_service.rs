@@ -73,6 +73,15 @@ pub struct ChannelStat {
     pub expense: Vec<(CommodityId, Decimal)>,
 }
 
+/// 收支汇总
+#[derive(Debug, Clone)]
+pub struct Summary {
+    /// 收入（资产类分录正金额之和）
+    pub income: Decimal,
+    /// 支出（资产类分录负金额之和的绝对值）
+    pub expense: Decimal,
+}
+
 /// 报告服务
 pub struct ReportService {
     db: SqliteDatabase,
@@ -82,6 +91,23 @@ impl ReportService {
     /// 创建服务实例
     pub fn new(db: SqliteDatabase) -> Self {
         Self { db }
+    }
+
+    /// 收支汇总：查询指定日期范围内资产类分录的收入和支出
+    pub async fn summary(
+        &self,
+        from: chrono::NaiveDate,
+        to: chrono::NaiveDate,
+    ) -> Result<Summary, AccountingError> {
+        let result = self
+            .db
+            .posting_summary(Some(from), Some(to))
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        Ok(Summary {
+            income: result.income,
+            expense: result.expense,
+        })
     }
 
     /// 获取账户余额（含子账户聚合）

@@ -1,16 +1,10 @@
-import axios from 'axios'
+const BASE_URL = '/api'
 
-const api = axios.create({
-  baseURL: '/api',
-  timeout: 10000,
-})
-
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    console.error('API error:', error)
-    return Promise.reject(error)
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, init)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
   }
-)
-
-export default api
+  return res.json() as Promise<T>
+}

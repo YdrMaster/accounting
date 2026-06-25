@@ -10,7 +10,7 @@ use axum::{
     extract::{Query, State},
     routing::get,
 };
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use rust_i18n::t;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -58,6 +58,20 @@ pub struct StatsQuery {
     pub by: String,
     pub from: Option<String>,
     pub to: Option<String>,
+}
+
+/// 收支汇总查询参数
+#[derive(serde::Deserialize)]
+pub struct SummaryQuery {
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+/// 收支汇总响应
+#[derive(Serialize)]
+struct SummaryResponse {
+    income: String,
+    expense: String,
 }
 
 /// 获取资产负债表
@@ -216,10 +230,39 @@ fn into_entry((cid, amount): (accounting::id::CommodityId, rust_decimal::Decimal
     }
 }
 
+/// 收支汇总
+async fn summary(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SummaryQuery>,
+) -> Result<Json<SummaryResponse>, String> {
+    let db = state.db();
+
+    let today = chrono::Local::now().date_naive();
+    let from = match query.from {
+        Some(s) => NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+            .map_err(|e| format!("Invalid from date: {}", e))?,
+        None => NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today),
+    };
+    let to = match query.to {
+        Some(s) => NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+            .map_err(|e| format!("Invalid to date: {}", e))?,
+        None => today,
+    };
+
+    let service = ReportService::new(db.clone());
+    let result = service.summary(from, to).await.map_err(|e| e.to_string())?;
+
+    Ok(Json(SummaryResponse {
+        income: result.income.to_string(),
+        expense: result.expense.to_string(),
+    }))
+}
+
 /// 报表路由
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/reports/balance-sheet", get(balance_sheet))
         .route("/api/reports/income-statement", get(income_statement))
         .route("/api/reports/stats", get(stats))
+        .route("/api/reports/summary", get(summary))
 }

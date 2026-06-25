@@ -313,6 +313,74 @@ pub async fn posting_sum_by_channel(
         .collect())
 }
 
+/// 收支汇总结果
+pub struct PostingSummary {
+    /// 收入（资产类分录正金额之和）
+    pub income: Decimal,
+    /// 支出（资产类分录负金额之和的绝对值）
+    pub expense: Decimal,
+}
+
+pub async fn posting_summary(
+    conn: &mut SqliteConnection,
+    start: Option<chrono::NaiveDate>,
+    end: Option<chrono::NaiveDate>,
+) -> Result<PostingSummary, DbError> {
+    let precisions = load_precisions(conn).await?;
+
+    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+        "SELECT p.commodity_id, SUM(p.amount)
+         FROM postings p
+         JOIN accounts a ON p.account_id = a.id
+         JOIN account_ancestors aa ON a.id = aa.account_id
+         JOIN accounts ra ON aa.ancestor_id = ra.id AND aa.depth = (
+             SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id
+         )
+         JOIN transactions t ON p.transaction_id = t.id
+         WHERE ra.name IN ('Assets', 'Asset', '资产') ",
+    );
+
+    if start.is_some() || end.is_some() {
+        builder.push("AND 1=1 ");
+    }
+
+    if let Some(start) = start {
+        builder.push("AND t.date_time >= ");
+        builder.push_bind(datetime_utils::start_of_day(start).to_string());
+        builder.push(" ");
+    }
+    if let Some(end) = end {
+        builder.push("AND t.date_time <= ");
+        builder.push_bind(datetime_utils::end_of_day(end).to_string());
+        builder.push(" ");
+    }
+
+    builder.push(" GROUP BY p.commodity_id");
+
+    let rows: Vec<(i64, i64)> = builder
+        .build_query_as()
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    let mut income = Decimal::ZERO;
+    let mut expense = Decimal::ZERO;
+    for (commodity_id, amount) in rows {
+        let precision = precisions
+            .get(&CommodityId(commodity_id))
+            .copied()
+            .unwrap_or(2);
+        let d = from_db_amount(amount, precision);
+        if d > Decimal::ZERO {
+            income += d;
+        } else {
+            expense += d.abs();
+        }
+    }
+
+    Ok(PostingSummary { income, expense })
+}
+
 fn apply_posting_filter(
     builder: &mut QueryBuilder<sqlx::Sqlite>,
     filter: &TransactionFilter,

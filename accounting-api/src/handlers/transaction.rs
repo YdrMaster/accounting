@@ -27,13 +27,13 @@ use std::sync::Arc;
 pub struct TxQuery {
     pub from: Option<String>,
     pub to: Option<String>,
-    #[serde(deserialize_with = "deserialize_vec_from_single_or_list")]
+    #[serde(default, deserialize_with = "deserialize_vec_from_single_or_list")]
     pub account: Vec<i64>,
-    #[serde(deserialize_with = "deserialize_vec_from_single_or_list")]
+    #[serde(default, deserialize_with = "deserialize_vec_from_single_or_list")]
     pub member: Vec<i64>,
     #[serde(default)]
     pub tag: Vec<String>,
-    #[serde(deserialize_with = "deserialize_vec_from_single_or_list")]
+    #[serde(default, deserialize_with = "deserialize_vec_from_single_or_list")]
     pub channel: Vec<i64>,
     pub keyword: Option<String>,
     pub reimbursable: Option<bool>,
@@ -115,7 +115,13 @@ async fn list_transactions(
         filter.has_reimbursable = Some(reimbursable);
     }
 
-    let (account_paths, commodities) = {
+    let service = TransactionService::new(db.clone());
+    let transactions = service
+        .list(filter, query.limit, query.offset)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let (account_paths, commodities, members, account_types, tag_map) = {
         let accounts: std::collections::HashMap<
             accounting::id::AccountId,
             accounting::account::Account,
@@ -137,14 +143,22 @@ async fn list_transactions(
             .into_iter()
             .map(|c| (c.id.0, c.symbol))
             .collect();
-        (account_paths, commodities)
+        let members: std::collections::HashMap<i64, String> = db
+            .member_list()
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|m| (m.id.0, m.name))
+            .collect();
+        let account_types = build_account_type_map(&accounts);
+        let tx_ids: Vec<accounting::id::TransactionId> =
+            transactions.iter().map(|(tx, _, _)| tx.id).collect();
+        let tag_map = db
+            .tag_names_by_transactions(&tx_ids)
+            .await
+            .map_err(|e| e.to_string())?;
+        (account_paths, commodities, members, account_types, tag_map)
     };
-
-    let service = TransactionService::new(db.clone());
-    let transactions = service
-        .list(filter, query.limit, query.offset)
-        .await
-        .map_err(|e| e.to_string())?;
 
     let dtos: Vec<TransactionDto> = transactions
         .into_iter()
@@ -160,6 +174,8 @@ async fn list_transactions(
                 _ => "normal".to_string(),
             },
             member_id: tx.member_id.map(|id| id.0),
+            member_name: tx.member_id.and_then(|id| members.get(&id.0).cloned()),
+            tags: tag_map.get(&tx.id).cloned().unwrap_or_default(),
             channel_paths: channel_paths
                 .into_iter()
                 .map(|n| ChannelPathNodeDto {
@@ -174,6 +190,10 @@ async fn list_transactions(
                     id: p.id.0,
                     transaction_id: p.transaction_id.0,
                     account: account_paths
+                        .get(&p.account_id.0)
+                        .cloned()
+                        .unwrap_or_default(),
+                    account_type: account_types
                         .get(&p.account_id.0)
                         .cloned()
                         .unwrap_or_default(),
@@ -318,6 +338,7 @@ async fn get_transaction(
         .values()
         .map(|a| (a.id.0, a.display_path(&accounts)))
         .collect();
+    let account_types = build_account_type_map(&accounts);
 
     let commodities: std::collections::HashMap<i64, String> = db
         .commodity_list()
@@ -327,12 +348,29 @@ async fn get_transaction(
         .map(|c| (c.id.0, c.symbol))
         .collect();
 
+    let members: std::collections::HashMap<i64, String> = db
+        .member_list()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|m| (m.id.0, m.name))
+        .collect();
+
+    let tag_map = db
+        .tag_names_by_transactions(&[tx.id])
+        .await
+        .map_err(|e| e.to_string())?;
+
     let posting_dtos: Vec<PostingDto> = postings
         .into_iter()
         .map(|p| PostingDto {
             id: p.id.0,
             transaction_id: p.transaction_id.0,
             account: account_paths
+                .get(&p.account_id.0)
+                .cloned()
+                .unwrap_or_default(),
+            account_type: account_types
                 .get(&p.account_id.0)
                 .cloned()
                 .unwrap_or_default(),
@@ -357,6 +395,8 @@ async fn get_transaction(
             _ => "normal".to_string(),
         },
         member_id: tx.member_id.map(|id| id.0),
+        member_name: tx.member_id.and_then(|id| members.get(&id.0).cloned()),
+        tags: tag_map.get(&tx.id).cloned().unwrap_or_default(),
         channel_paths: channel_paths
             .into_iter()
             .map(|n| ChannelPathNodeDto {
@@ -395,6 +435,7 @@ async fn get_posting(
         .values()
         .map(|a| (a.id.0, a.display_path(&accounts)))
         .collect();
+    let account_types = build_account_type_map(&accounts);
     let commodities: std::collections::HashMap<i64, String> = db
         .commodity_list()
         .await
@@ -407,6 +448,10 @@ async fn get_posting(
         id: posting.id.0,
         transaction_id: posting.transaction_id.0,
         account: account_paths
+            .get(&posting.account_id.0)
+            .cloned()
+            .unwrap_or_default(),
+        account_type: account_types
             .get(&posting.account_id.0)
             .cloned()
             .unwrap_or_default(),
@@ -547,6 +592,48 @@ async fn reconcile_channel_path(
         .await
         .map_err(|e| e.to_string())?;
     Ok("updated".to_string())
+}
+
+fn build_account_type_map(
+    accounts: &std::collections::HashMap<accounting::id::AccountId, accounting::account::Account>,
+) -> std::collections::HashMap<i64, String> {
+    use std::str::FromStr;
+    accounts
+        .keys()
+        .map(|id| {
+            let mut current = *id;
+            loop {
+                match accounts.get(&current) {
+                    Some(acc) => {
+                        if acc.parent_id.is_none() {
+                            let type_str =
+                                match accounting::account_type::AccountType::from_str(&acc.name) {
+                                    Ok(accounting::account_type::AccountType::Asset) => {
+                                        "asset".to_string()
+                                    }
+                                    Ok(accounting::account_type::AccountType::Equity) => {
+                                        "equity".to_string()
+                                    }
+                                    Ok(accounting::account_type::AccountType::Income) => {
+                                        "income".to_string()
+                                    }
+                                    Ok(accounting::account_type::AccountType::Expense) => {
+                                        "expense".to_string()
+                                    }
+                                    Err(_) => String::new(),
+                                };
+                            break (id.0, type_str);
+                        }
+                        match acc.parent_id {
+                            Some(parent) => current = parent,
+                            None => break (id.0, String::new()),
+                        }
+                    }
+                    None => break (id.0, String::new()),
+                }
+            }
+        })
+        .collect()
 }
 
 /// 交易路由

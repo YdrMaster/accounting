@@ -1,38 +1,28 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api from '@/api/client'
+import { apiFetch } from '../api/client'
+import type { SummaryDto } from '../types/api'
 
 export const useReportStore = defineStore('report', () => {
-  const balanceSheet = ref<unknown>(null)
-  const incomeStatement = ref<unknown>(null)
-  const stats = ref<unknown>(null)
+  const summary = ref<SummaryDto | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
-  async function fetchBalanceSheet() {
+  async function fetchSummary(from?: string, to?: string) {
+    loading.value = true
+    error.value = null
     try {
-      const res = await api.get('/reports/balance-sheet')
-      balanceSheet.value = res.data
+      const params = new URLSearchParams()
+      if (from) params.set('from', from)
+      if (to) params.set('to', to)
+      const qs = params.toString() ? '?' + params.toString() : ''
+      summary.value = await apiFetch<SummaryDto>(`/reports/summary${qs}`)
     } catch (e) {
-      console.error('获取资产负债表失败', e)
+      error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      loading.value = false
     }
   }
 
-  async function fetchIncomeStatement() {
-    try {
-      const res = await api.get('/reports/income-statement')
-      incomeStatement.value = res.data
-    } catch (e) {
-      console.error('获取损益表失败', e)
-    }
-  }
-
-  async function fetchStats(by: string, from?: string, to?: string) {
-    try {
-      const res = await api.get('/reports/stats', { params: { by, from, to } })
-      stats.value = res.data
-    } catch (e) {
-      console.error('获取统计失败', e)
-    }
-  }
-
-  return { balanceSheet, incomeStatement, stats, fetchBalanceSheet, fetchIncomeStatement, fetchStats }
+  return { summary, loading, error, fetchSummary }
 })

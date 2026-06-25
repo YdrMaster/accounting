@@ -1,79 +1,25 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api from '@/api/client'
-
-export interface Posting {
-  id: number
-  transaction_id: number
-  account: string
-  commodity: string
-  amount: string
-  is_reimbursable: boolean
-  linked_posting_id?: number
-  reversal_total: string
-}
-
-export interface Transaction {
-  id: number
-  date_time: string
-  description: string
-  kind: string
-  member_id?: number
-  channel_id?: number
-  postings: Posting[]
-  tags?: string[]
-}
-
-export interface PostingInput {
-  account: string
-  commodity: string
-  amount: string
-  is_reimbursable?: boolean
-  linked_posting_id?: number
-}
-
-export interface CreateTransactionData {
-  date_time: string
-  description: string
-  kind: string
-  member_id?: number
-  channel_id?: number
-  postings: PostingInput[]
-  tags: string[]
-}
+import { apiFetch } from '../api/client'
+import type { TransactionDto } from '../types/api'
 
 export const useTransactionStore = defineStore('transaction', () => {
-  const transactions = ref<Transaction[]>([])
+  const transactions = ref<TransactionDto[]>([])
   const loading = ref(false)
+  const error = ref<string | null>(null)
 
-  async function fetchTransactions(params?: Record<string, unknown>) {
+  async function fetchTransactions(params?: Record<string, string>) {
     loading.value = true
+    error.value = null
     try {
-      const res = await api.get<Transaction[]>('/transactions', { params })
-      transactions.value = res.data
+      const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+      transactions.value = await apiFetch<TransactionDto[]>(`/transactions${qs}`)
     } catch (e) {
-      console.error('获取交易失败', e)
+      error.value = e instanceof Error ? e.message : String(e)
     } finally {
       loading.value = false
     }
   }
 
-  async function fetchPosting(id: number): Promise<Posting> {
-    const res = await api.get<Posting>(`/postings/${id}`)
-    return res.data
-  }
-
-  async function createTransaction(data: CreateTransactionData) {
-    await api.post('/transactions', data)
-  }
-
-  async function updateTransaction(id: number, data: CreateTransactionData) {
-    await api.put(`/transactions/${id}`, data)
-  }
-
-  async function deleteTransaction(id: number) {
-    await api.delete(`/transactions/${id}`)
-  }
-
-  return { transactions, loading, fetchTransactions, fetchPosting, createTransaction, updateTransaction, deleteTransaction }
+  return { transactions, loading, error, fetchTransactions }
 })

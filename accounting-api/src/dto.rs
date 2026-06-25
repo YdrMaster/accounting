@@ -96,6 +96,10 @@ pub struct TransactionDto {
     pub kind: String,
     /// 成员 ID。
     pub member_id: Option<i64>,
+    /// 成员名称。
+    pub member_name: Option<String>,
+    /// 标签名称列表。
+    pub tags: Vec<String>,
     /// 渠道链路节点列表。
     pub channel_paths: Vec<ChannelPathNodeDto>,
     /// 分录列表。
@@ -111,6 +115,8 @@ pub struct PostingDto {
     pub transaction_id: i64,
     /// 账户名称。
     pub account: String,
+    /// 账户类型。
+    pub account_type: String,
     /// 货币符号。
     pub commodity: String,
     /// 金额字符串。

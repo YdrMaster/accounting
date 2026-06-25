@@ -400,6 +400,15 @@ impl SqliteDatabase {
         crate::repo::tag::tag_delete(&mut conn, name).await
     }
 
+    pub async fn tag_names_by_transactions(
+        &self,
+        transaction_ids: &[accounting::id::TransactionId],
+    ) -> Result<std::collections::HashMap<accounting::id::TransactionId, Vec<String>>, DbError>
+    {
+        let mut conn = self.acquire().await?;
+        crate::repo::tag::tag_names_by_transactions(&mut conn, transaction_ids).await
+    }
+
     // === Attachment ===
 
     pub async fn attachment_create(
@@ -589,6 +598,15 @@ impl SqliteDatabase {
     > {
         let mut conn = self.acquire().await?;
         crate::repo::posting::posting_sum_by_channel(&mut conn, filter).await
+    }
+
+    pub async fn posting_summary(
+        &self,
+        start: Option<chrono::NaiveDate>,
+        end: Option<chrono::NaiveDate>,
+    ) -> Result<crate::repo::posting::PostingSummary, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::posting::posting_summary(&mut conn, start, end).await
     }
 
     // === Settings ===
