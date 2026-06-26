@@ -80,6 +80,33 @@ pub async fn channel_list(conn: &mut SqliteConnection) -> Result<Vec<Channel>, D
     Ok(rows.into_iter().map(|r| r.into_channel()).collect())
 }
 
+pub async fn channel_upsert_by_name(
+    conn: &mut SqliteConnection,
+    name: &str,
+    description: Option<&str>,
+    account_id: Option<AccountId>,
+) -> Result<ChannelId, DbError> {
+    if let Some(existing) = channel_get_by_name(conn, name).await? {
+        sqlx::query("UPDATE channels SET description = ?1, account_id = ?2 WHERE id = ?3")
+            .bind(description)
+            .bind(account_id.map(|id| id.0))
+            .bind(existing.id.0)
+            .execute(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+        Ok(existing.id)
+    } else {
+        let channel = Channel {
+            id: ChannelId(0),
+            name: name.to_string(),
+            description: description.map(|s| s.to_string()),
+            account_id,
+            is_system: false,
+        };
+        channel_create(conn, &channel).await
+    }
+}
+
 pub async fn channel_count_transactions_by_id(
     conn: &mut SqliteConnection,
     channel_id: ChannelId,

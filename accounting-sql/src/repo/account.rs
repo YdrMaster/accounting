@@ -158,6 +158,108 @@ pub async fn account_delete(conn: &mut SqliteConnection, id: AccountId) -> Resul
     Ok(())
 }
 
+pub async fn account_get_or_create_by_path(
+    conn: &mut SqliteConnection,
+    path: &str,
+) -> Result<AccountId, DbError> {
+    if let Some(account) = account_get_by_name(conn, path).await? {
+        return Ok(account.id);
+    }
+
+    let segments: Vec<&str> = path.split(':').collect();
+    if segments.is_empty() {
+        return Err(DbError::Database("empty account path".to_string()));
+    }
+
+    let mut parent_id: Option<AccountId> = None;
+    for segment in segments {
+        match account_get_by_parent_and_name(conn, parent_id, segment).await? {
+            Some(account) => {
+                parent_id = Some(account.id);
+            }
+            None => {
+                let account = Account {
+                    id: AccountId(0),
+                    name: segment.to_string(),
+                    parent_id,
+                    closed_at: None,
+                    is_system: false,
+                    billing_day: None,
+                    repayment_day: None,
+                };
+                let id = account_create_with_closure(conn, &account).await?;
+                parent_id = Some(id);
+            }
+        }
+    }
+
+    parent_id.ok_or_else(|| DbError::Database(format!("failed to create account path: {}", path)))
+}
+
+pub async fn account_update_by_path(
+    conn: &mut SqliteConnection,
+    path: &str,
+    closed_at: Option<NaiveDate>,
+    billing_day: Option<u8>,
+    repayment_day: Option<u8>,
+) -> Result<(), DbError> {
+    let account = account_get_by_name(conn, path)
+        .await?
+        .ok_or_else(|| DbError::Database(format!("account not found: {}", path)))?;
+
+    sqlx::query(
+        "UPDATE accounts SET closed_at = ?1, billing_day = ?2, repayment_day = ?3 WHERE id = ?4",
+    )
+    .bind(closed_at.map(|d| d.to_string()))
+    .bind(billing_day.map(|v| v as i32))
+    .bind(repayment_day.map(|v| v as i32))
+    .bind(account.id.0)
+    .execute(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+
+    Ok(())
+}
+
+pub async fn account_rebuild_ancestors(conn: &mut SqliteConnection) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM account_ancestors")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    let accounts = account_list(conn).await?;
+
+    for account in accounts {
+        sqlx::query(
+            "INSERT INTO account_ancestors (account_id, ancestor_id, depth) VALUES (?1, ?1, 0)",
+        )
+        .bind(account.id.0)
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+        let mut current = account.parent_id;
+        let mut depth = 1i32;
+        while let Some(parent_id) = current {
+            sqlx::query(
+                "INSERT INTO account_ancestors (account_id, ancestor_id, depth) VALUES (?1, ?2, ?3)",
+            )
+            .bind(account.id.0)
+            .bind(parent_id.0)
+            .bind(depth)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+
+            let parent = account_get(conn, parent_id).await?;
+            current = parent.and_then(|p| p.parent_id);
+            depth += 1;
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn account_create_with_closure(
     conn: &mut SqliteConnection,
     account: &Account,
@@ -223,6 +325,23 @@ pub async fn account_get_owners(
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(rows.into_iter().map(|(id,)| MemberId(id)).collect())
+}
+
+pub async fn account_list_owners(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<(AccountId, MemberId)>, DbError> {
+    let rows: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT ao.account_id, ao.member_id
+         FROM account_owners ao
+         ORDER BY ao.account_id, ao.member_id",
+    )
+    .fetch_all(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(rows
+        .into_iter()
+        .map(|(a, m)| (AccountId(a), MemberId(m)))
+        .collect())
 }
 
 pub async fn account_set_owners(

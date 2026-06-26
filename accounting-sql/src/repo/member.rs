@@ -51,6 +51,27 @@ pub async fn member_list(conn: &mut SqliteConnection) -> Result<Vec<Member>, DbE
     Ok(rows.into_iter().map(|r| r.into_member()).collect())
 }
 
+pub async fn member_get_or_create_by_name(
+    conn: &mut SqliteConnection,
+    name: &str,
+) -> Result<MemberId, DbError> {
+    let row: Option<MemberRow> = sqlx::query_as("SELECT id, name FROM members WHERE name = ?1")
+        .bind(name)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    if let Some(row) = row {
+        return Ok(row.into_member().id);
+    }
+
+    let member = Member {
+        id: MemberId(0),
+        name: name.to_string(),
+    };
+    member_create(conn, &member).await
+}
+
 pub async fn member_delete(conn: &mut SqliteConnection, id: MemberId) -> Result<(), DbError> {
     sqlx::query("DELETE FROM members WHERE id = ?1")
         .bind(id.0)

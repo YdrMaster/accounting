@@ -118,6 +118,40 @@ impl<'a> SqliteTransaction<'a> {
         crate::repo::account::account_find_root_id(&mut self.tx, account_id).await
     }
 
+    pub async fn account_get_or_create_by_path(
+        &mut self,
+        path: &str,
+    ) -> Result<accounting::id::AccountId, DbError> {
+        crate::repo::account::account_get_or_create_by_path(&mut self.tx, path).await
+    }
+
+    pub async fn account_update_by_path(
+        &mut self,
+        path: &str,
+        closed_at: Option<chrono::NaiveDate>,
+        billing_day: Option<u8>,
+        repayment_day: Option<u8>,
+    ) -> Result<(), DbError> {
+        crate::repo::account::account_update_by_path(
+            &mut self.tx,
+            path,
+            closed_at,
+            billing_day,
+            repayment_day,
+        )
+        .await
+    }
+
+    pub async fn account_list_owners(
+        &mut self,
+    ) -> Result<Vec<(accounting::id::AccountId, accounting::id::MemberId)>, DbError> {
+        crate::repo::account::account_list_owners(&mut self.tx).await
+    }
+
+    pub async fn account_rebuild_ancestors(&mut self) -> Result<(), DbError> {
+        crate::repo::account::account_rebuild_ancestors(&mut self.tx).await
+    }
+
     // === Commodity ===
 
     pub async fn commodity_get_by_symbol(
@@ -138,6 +172,16 @@ impl<'a> SqliteTransaction<'a> {
         commodity: &accounting::commodity::Commodity,
     ) -> Result<accounting::id::CommodityId, DbError> {
         crate::repo::commodity::commodity_create(&mut self.tx, commodity).await
+    }
+
+    pub async fn commodity_upsert_by_symbol(
+        &mut self,
+        symbol: &str,
+        name: &str,
+        precision: u8,
+    ) -> Result<accounting::id::CommodityId, DbError> {
+        crate::repo::commodity::commodity_upsert_by_symbol(&mut self.tx, symbol, name, precision)
+            .await
     }
 
     // === Member ===
@@ -162,6 +206,13 @@ impl<'a> SqliteTransaction<'a> {
 
     pub async fn member_delete(&mut self, id: accounting::id::MemberId) -> Result<(), DbError> {
         crate::repo::member::member_delete(&mut self.tx, id).await
+    }
+
+    pub async fn member_get_or_create_by_name(
+        &mut self,
+        name: &str,
+    ) -> Result<accounting::id::MemberId, DbError> {
+        crate::repo::member::member_get_or_create_by_name(&mut self.tx, name).await
     }
 
     // === Channel ===
@@ -211,6 +262,16 @@ impl<'a> SqliteTransaction<'a> {
         account_id: Option<accounting::id::AccountId>,
     ) -> Result<(), DbError> {
         crate::repo::channel::channel_update(&mut self.tx, id, account_id).await
+    }
+
+    pub async fn channel_upsert_by_name(
+        &mut self,
+        name: &str,
+        description: Option<&str>,
+        account_id: Option<accounting::id::AccountId>,
+    ) -> Result<accounting::id::ChannelId, DbError> {
+        crate::repo::channel::channel_upsert_by_name(&mut self.tx, name, description, account_id)
+            .await
     }
 
     // === ChannelPath ===
@@ -304,6 +365,14 @@ impl<'a> SqliteTransaction<'a> {
 
     pub async fn tag_delete(&mut self, name: &str) -> Result<(), DbError> {
         crate::repo::tag::tag_delete(&mut self.tx, name).await
+    }
+
+    pub async fn tag_upsert_by_name(
+        &mut self,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<accounting::id::TagId, DbError> {
+        crate::repo::tag::tag_upsert_by_name(&mut self.tx, name, description).await
     }
 
     // === Attachment ===
@@ -488,5 +557,45 @@ impl<'a> SqliteTransaction<'a> {
 
     pub async fn set_setting(&mut self, key: &str, value: &str) -> Result<(), DbError> {
         crate::repo::set_setting(&mut self.tx, key, value).await
+    }
+
+    // === Account Mapping ===
+
+    pub async fn account_mapping_upsert(
+        &mut self,
+        mapping: &accounting::account_mapping::AccountMapping,
+    ) -> Result<(), DbError> {
+        crate::repo::account_mapping::mapping_upsert(&mut self.tx, mapping).await
+    }
+
+    pub async fn account_mapping_list_all(
+        &mut self,
+    ) -> Result<Vec<accounting::account_mapping::AccountMapping>, DbError> {
+        crate::repo::account_mapping::mapping_list_all(&mut self.tx).await
+    }
+
+    // === Budget ===
+
+    pub async fn budget_upsert_by_name(
+        &mut self,
+        name: &str,
+        period: accounting::budget::BudgetPeriod,
+        commodity_id: accounting::id::CommodityId,
+        limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
+    ) -> Result<accounting::id::BudgetId, DbError> {
+        crate::repo::budget::budget_upsert_by_name(&mut self.tx, name, period, commodity_id, limits)
+            .await
+    }
+
+    pub async fn budget_list_all_with_limits(
+        &mut self,
+    ) -> Result<
+        Vec<(
+            accounting::budget::Budget,
+            Vec<accounting::budget::BudgetLimit>,
+        )>,
+        DbError,
+    > {
+        crate::repo::budget::budget_list_all_with_limits(&mut self.tx).await
     }
 }

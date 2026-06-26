@@ -1,6 +1,7 @@
 pub mod account;
 pub mod budget;
 pub mod commodity;
+pub mod config;
 pub mod import;
 pub mod mapping;
 pub mod member;
@@ -32,6 +33,9 @@ pub struct Cli {
 pub enum Commands {
     /// 初始化数据库
     Initialize,
+    /// 配置导入导出
+    #[command(subcommand)]
+    Config(config::ConfigCmd),
     /// 成员管理
     #[command(subcommand)]
     Member(member::MemberCmd),

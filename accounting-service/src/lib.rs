@@ -8,6 +8,8 @@ pub mod account_service;
 pub mod budget_service;
 /// 商品/货币服务
 pub mod commodity_service;
+/// 配置导入导出服务
+pub mod config;
 /// 导入服务
 pub mod import;
 /// 导入服务编排

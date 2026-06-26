@@ -75,6 +75,7 @@ async fn run_command(cli: Cli) -> Result<(), accounting::error::AccountingError>
 
     match cli.command {
         Commands::Initialize => unreachable!(),
+        Commands::Config(cmd) => cmd.run(db).await,
         Commands::Member(cmd) => cmd.run(db, cli.format).await,
         Commands::Account(cmd) => cmd.run(db, cli.format).await,
         Commands::Commodity(cmd) => cmd.run(db, cli.format).await,

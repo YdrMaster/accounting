@@ -67,6 +67,11 @@ impl std::error::Error for AccountingError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Locale is global state in rust_i18n; serialize locale-dependent tests
+    /// to avoid parallel interference.
+    static LOCALE_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_error_display() {
@@ -76,6 +81,7 @@ mod tests {
 
     #[test]
     fn test_error_display_en() {
+        let _guard = LOCALE_LOCK.lock().unwrap();
         rust_i18n::set_locale("en");
         let err = AccountingError::DbNotInitialized;
         assert!(err.to_string().contains("not found"));
@@ -83,6 +89,7 @@ mod tests {
 
     #[test]
     fn test_error_display_zh() {
+        let _guard = LOCALE_LOCK.lock().unwrap();
         rust_i18n::set_locale("zh-CN");
         let err = AccountingError::DbNotInitialized;
         assert!(err.to_string().contains("不存在"));

@@ -61,6 +61,32 @@ pub async fn commodity_create(
     Ok(CommodityId(id))
 }
 
+pub async fn commodity_upsert_by_symbol(
+    conn: &mut SqliteConnection,
+    symbol: &str,
+    name: &str,
+    precision: u8,
+) -> Result<CommodityId, DbError> {
+    if let Some(existing) = commodity_get_by_symbol(conn, symbol).await? {
+        sqlx::query("UPDATE commodities SET name = ?1, precision = ?2 WHERE id = ?3")
+            .bind(name)
+            .bind(precision as i32)
+            .bind(existing.id.0)
+            .execute(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+        Ok(existing.id)
+    } else {
+        let commodity = Commodity {
+            id: CommodityId(0),
+            symbol: symbol.to_string(),
+            name: name.to_string(),
+            precision,
+        };
+        commodity_create(conn, &commodity).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

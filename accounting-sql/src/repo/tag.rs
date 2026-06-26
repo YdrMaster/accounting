@@ -59,6 +59,30 @@ pub async fn tag_create(conn: &mut SqliteConnection, tag: &Tag) -> Result<TagId,
     Ok(TagId(id))
 }
 
+pub async fn tag_upsert_by_name(
+    conn: &mut SqliteConnection,
+    name: &str,
+    description: Option<&str>,
+) -> Result<TagId, DbError> {
+    if let Some(existing) = tag_get_by_name(conn, name).await? {
+        sqlx::query("UPDATE tags SET description = ?1 WHERE id = ?2")
+            .bind(description)
+            .bind(existing.id.0)
+            .execute(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+        Ok(existing.id)
+    } else {
+        let tag = Tag {
+            id: TagId(0),
+            name: name.to_string(),
+            description: description.map(|s| s.to_string()),
+            is_system: false,
+        };
+        tag_create(conn, &tag).await
+    }
+}
+
 pub async fn tag_delete(conn: &mut SqliteConnection, name: &str) -> Result<(), DbError> {
     // Check is_system before deleting
     let is_system: Option<i32> = sqlx::query_scalar("SELECT is_system FROM tags WHERE name = ?1")

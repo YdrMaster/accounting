@@ -44,6 +44,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tabled",
  "tokio",
 ]
@@ -58,6 +59,8 @@ dependencies = [
  "encoding_rs",
  "rust-i18n",
  "rust_decimal",
+ "serde",
+ "serde_yaml",
  "tokio",
 ]
 

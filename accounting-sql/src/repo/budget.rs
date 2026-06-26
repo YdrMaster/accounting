@@ -158,6 +158,38 @@ pub async fn budget_update(
     Ok(())
 }
 
+pub async fn budget_list_all_with_limits(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<(Budget, Vec<BudgetLimit>)>, DbError> {
+    let budgets = budget_list(conn).await?;
+    let mut result = Vec::new();
+    for budget in budgets {
+        let limits = budget_get_limits(conn, budget.id).await?;
+        result.push((budget, limits));
+    }
+    Ok(result)
+}
+
+pub async fn budget_upsert_by_name(
+    conn: &mut SqliteConnection,
+    name: &str,
+    period: BudgetPeriod,
+    commodity_id: CommodityId,
+    limits: &[(AccountId, Decimal)],
+) -> Result<BudgetId, DbError> {
+    let existing = budget_list(conn)
+        .await?
+        .into_iter()
+        .find(|b| b.name == name);
+
+    if let Some(budget) = existing {
+        budget_update(conn, budget.id, name, period, commodity_id, limits).await?;
+        Ok(budget.id)
+    } else {
+        budget_create(conn, name, period, commodity_id, limits).await
+    }
+}
+
 pub async fn budget_delete(conn: &mut SqliteConnection, id: BudgetId) -> Result<(), DbError> {
     let result = sqlx::query("DELETE FROM budgets WHERE id = ?1")
         .bind(id.0)
@@ -216,8 +248,6 @@ mod tests {
     use accounting::account::Account;
     use accounting::id::TagId;
     use accounting::posting::Posting;
-    use accounting::transaction::Transaction;
-    use accounting::transaction::TransactionKind;
     use chrono::NaiveDate;
     use sqlx::{Connection, SqliteConnection};
     use std::str::FromStr;

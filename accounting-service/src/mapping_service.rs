@@ -125,9 +125,7 @@ impl MappingService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use accounting::account::Account;
     use accounting::channel::Channel;
-    use accounting::id::AccountId;
     use accounting::member::Member;
     use accounting_sql::SqliteDatabase;
 

@@ -104,6 +104,19 @@ pub async fn mapping_delete(
     Ok(result.rows_affected() > 0)
 }
 
+/// 列出全部映射
+pub async fn mapping_list_all(conn: &mut SqliteConnection) -> Result<Vec<AccountMapping>, DbError> {
+    let rows: Vec<AccountMappingRow> = sqlx::query_as(
+        "SELECT member_id, channel_id, category, account_id
+         FROM account_mappings
+         ORDER BY member_id, channel_id, category",
+    )
+    .fetch_all(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(rows.into_iter().map(|r| r.into_model()).collect())
+}
+
 /// 统计引用某账户的映射数量
 pub async fn mapping_count_by_account(
     conn: &mut SqliteConnection,

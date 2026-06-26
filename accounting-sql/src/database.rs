@@ -194,6 +194,44 @@ impl SqliteDatabase {
         crate::repo::account::account_find_root_id(&mut conn, account_id).await
     }
 
+    pub async fn account_get_or_create_by_path(
+        &self,
+        path: &str,
+    ) -> Result<accounting::id::AccountId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_get_or_create_by_path(&mut conn, path).await
+    }
+
+    pub async fn account_update_by_path(
+        &self,
+        path: &str,
+        closed_at: Option<chrono::NaiveDate>,
+        billing_day: Option<u8>,
+        repayment_day: Option<u8>,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_update_by_path(
+            &mut conn,
+            path,
+            closed_at,
+            billing_day,
+            repayment_day,
+        )
+        .await
+    }
+
+    pub async fn account_list_owners(
+        &self,
+    ) -> Result<Vec<(accounting::id::AccountId, accounting::id::MemberId)>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_list_owners(&mut conn).await
+    }
+
+    pub async fn account_rebuild_ancestors(&self) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_rebuild_ancestors(&mut conn).await
+    }
+
     // === Commodity ===
 
     pub async fn commodity_get_by_symbol(
@@ -215,6 +253,16 @@ impl SqliteDatabase {
     ) -> Result<accounting::id::CommodityId, DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::commodity::commodity_create(&mut conn, commodity).await
+    }
+
+    pub async fn commodity_upsert_by_symbol(
+        &self,
+        symbol: &str,
+        name: &str,
+        precision: u8,
+    ) -> Result<accounting::id::CommodityId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::commodity::commodity_upsert_by_symbol(&mut conn, symbol, name, precision).await
     }
 
     // === Member ===
@@ -243,6 +291,14 @@ impl SqliteDatabase {
     pub async fn member_delete(&self, id: accounting::id::MemberId) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::member::member_delete(&mut conn, id).await
+    }
+
+    pub async fn member_get_or_create_by_name(
+        &self,
+        name: &str,
+    ) -> Result<accounting::id::MemberId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::member::member_get_or_create_by_name(&mut conn, name).await
     }
 
     // === Channel ===
@@ -299,6 +355,16 @@ impl SqliteDatabase {
     ) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::channel::channel_update(&mut conn, id, account_id).await
+    }
+
+    pub async fn channel_upsert_by_name(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        account_id: Option<accounting::id::AccountId>,
+    ) -> Result<accounting::id::ChannelId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel::channel_upsert_by_name(&mut conn, name, description, account_id).await
     }
 
     // === ChannelPath ===
@@ -398,6 +464,15 @@ impl SqliteDatabase {
     pub async fn tag_delete(&self, name: &str) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::tag::tag_delete(&mut conn, name).await
+    }
+
+    pub async fn tag_upsert_by_name(
+        &self,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<accounting::id::TagId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::tag::tag_upsert_by_name(&mut conn, name, description).await
     }
 
     pub async fn tag_names_by_transactions(
@@ -673,6 +748,31 @@ impl SqliteDatabase {
         crate::repo::budget::budget_get_limits(&mut conn, budget_id).await
     }
 
+    pub async fn budget_list_all_with_limits(
+        &self,
+    ) -> Result<
+        Vec<(
+            accounting::budget::Budget,
+            Vec<accounting::budget::BudgetLimit>,
+        )>,
+        DbError,
+    > {
+        let mut conn = self.acquire().await?;
+        crate::repo::budget::budget_list_all_with_limits(&mut conn).await
+    }
+
+    pub async fn budget_upsert_by_name(
+        &self,
+        name: &str,
+        period: accounting::budget::BudgetPeriod,
+        commodity_id: accounting::id::CommodityId,
+        limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
+    ) -> Result<accounting::id::BudgetId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::budget::budget_upsert_by_name(&mut conn, name, period, commodity_id, limits)
+            .await
+    }
+
     // === Account Mapping ===
 
     pub async fn account_mapping_upsert(
@@ -719,6 +819,13 @@ impl SqliteDatabase {
     ) -> Result<i64, DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::account_mapping::mapping_count_by_account(&mut conn, account_id).await
+    }
+
+    pub async fn account_mapping_list_all(
+        &self,
+    ) -> Result<Vec<accounting::account_mapping::AccountMapping>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account_mapping::mapping_list_all(&mut conn).await
     }
 
     // === Budget Statistics ===
