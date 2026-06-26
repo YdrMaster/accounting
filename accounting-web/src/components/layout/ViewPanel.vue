@@ -36,5 +36,11 @@ defineProps<{
   flex: 1;
   overflow-y: auto;
   padding: 1rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.panel-body::-webkit-scrollbar {
+  display: none;
 }
 </style>

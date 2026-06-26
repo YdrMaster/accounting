@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import Decimal from 'decimal.js'
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useReportStore } from '../stores/report'
 import { useTransactionStore } from '../stores/transaction'
 import type { TransactionDto } from '../types/api'
@@ -85,6 +85,12 @@ function isTransfer(tx: TransactionDto): boolean {
   return !tx.postings.some(p => p.account_type === 'income' || p.account_type === 'expense')
 }
 
+function isPureImport(tx: TransactionDto): boolean {
+  return !tx.postings.some(p =>
+    ['asset', 'income', 'expense'].includes(p.account_type),
+  )
+}
+
 function getIncomeExpenseAccounts(tx: TransactionDto): string[] {
   return tx.postings
     .filter(p => p.account_type === 'income' || p.account_type === 'expense')
@@ -112,6 +118,22 @@ function formatAmount(amt: Decimal): string {
 function isRefund(tx: TransactionDto): boolean {
   return tx.kind === 'refund'
 }
+
+const expandedIds = ref<Set<number>>(new Set())
+
+function toggleExpand(id: number): void {
+  const newSet = new Set(expandedIds.value)
+  if (newSet.has(id)) {
+    newSet.delete(id)
+  } else {
+    newSet.add(id)
+  }
+  expandedIds.value = newSet
+}
+
+function isExpanded(id: number): boolean {
+  return expandedIds.value.has(id)
+}
 </script>
 
 <template>
@@ -134,33 +156,55 @@ function isRefund(tx: TransactionDto): boolean {
         <span>{{ group.dateLabel }} {{ group.weekday }}</span>
         <span class="day-summary">收：¥{{ group.income }} 支：¥{{ group.expense }}</span>
       </div>
-      <div v-for="tx in group.transactions" :key="tx.id" class="tx-card">
+      <div
+        v-for="tx in group.transactions"
+        :key="tx.id"
+        class="tx-card"
+        @click="toggleExpand(tx.id)"
+      >
         <div class="tx-top">
-          <span v-if="isTransfer(tx)" class="transfer-label">转账</span>
-          <span v-else class="ie-accounts">{{ getIncomeExpenseAccounts(tx).join(' ') }}</span>
+          <span v-if="isTransfer(tx) && !isPureImport(tx)" class="transfer-label">转账</span>
+          <span v-else-if="!isPureImport(tx)" class="ie-accounts">{{
+            getIncomeExpenseAccounts(tx).join(' ')
+          }}</span>
+          <span v-if="tx.member_name" class="tx-member">{{ tx.member_name }}</span>
           <div v-if="tx.tags.length" class="tags">
             <span v-for="tag in tx.tags" :key="tag" class="tag">{{ tag }}</span>
           </div>
+          <span class="expand-indicator">{{ isExpanded(tx.id) ? '▲' : '▼' }}</span>
         </div>
         <div class="tx-middle">
-          <div class="tx-info">
-            <span class="tx-name" :class="{ refund: isRefund(tx) }">
-              {{ isRefund(tx) ? '退款 · ' : '' }}{{ tx.description || tx.member_name || '' }}
-            </span>
-            <span v-if="tx.member_name && tx.description" class="tx-member">{{
-              tx.member_name
-            }}</span>
-          </div>
+          <span class="tx-name" :class="{ refund: isRefund(tx) }">
+            {{ isRefund(tx) ? '退款 · ' : '' }}{{ tx.description || '' }}
+          </span>
           <div
+            v-if="!isPureImport(tx)"
             class="tx-amount"
             :class="{ refund: isRefund(tx), positive: computeAmount(tx).gt(0) }"
           >
             <span v-if="computeAmount(tx).gt(0)">+</span>¥{{ formatAmount(computeAmount(tx)) }}
           </div>
         </div>
-        <div class="tx-bottom">
+        <div v-if="!isPureImport(tx)" class="tx-bottom">
           <span class="asset-accounts">{{ getAssetAccounts(tx).join(' ') }}</span>
         </div>
+        <Transition name="expand">
+          <div v-if="isExpanded(tx.id)" class="tx-entries">
+            <div v-for="posting in tx.postings" :key="posting.id" class="entry-row">
+              <span class="entry-account">{{ shortAccountName(posting.account) }}</span>
+              <span class="entry-commodity">{{ posting.commodity }}</span>
+              <span
+                class="entry-amount"
+                :class="{
+                  positive: new Decimal(posting.amount).gt(0),
+                  negative: new Decimal(posting.amount).lt(0),
+                }"
+              >
+                <span v-if="new Decimal(posting.amount).gt(0)">+</span>{{ formatAmount(new Decimal(posting.amount)) }}
+              </span>
+            </div>
+          </div>
+        </Transition>
       </div>
     </div>
   </div>
@@ -171,6 +215,12 @@ function isRefund(tx: TransactionDto): boolean {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.transaction::-webkit-scrollbar {
+  display: none;
 }
 
 .hero {
@@ -209,6 +259,9 @@ function isRefund(tx: TransactionDto): boolean {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  background: var(--card-bg-alt, #252525);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
 }
 
 .day-header {
@@ -217,7 +270,7 @@ function isRefund(tx: TransactionDto): boolean {
   color: var(--text-heading);
   font-weight: 500;
   font-size: 0.8125rem;
-  padding: 0.25rem 0;
+  padding: 0.25rem 0.25rem;
 }
 
 .day-summary {
@@ -227,11 +280,16 @@ function isRefund(tx: TransactionDto): boolean {
 }
 
 .tx-card {
-  padding: 0.75rem 0;
+  padding: 0.75rem 0.5rem;
   border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
+  cursor: pointer;
+}
+
+.tx-card:last-child {
+  border-bottom: none;
 }
 
 .tx-top {
@@ -255,6 +313,11 @@ function isRefund(tx: TransactionDto): boolean {
   border-radius: 0.25rem;
 }
 
+.tx-member {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
 .tags {
   display: flex;
   gap: 0.25rem;
@@ -276,29 +339,18 @@ function isRefund(tx: TransactionDto): boolean {
   gap: 0.75rem;
 }
 
-.tx-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
 .tx-name {
+  flex: 1;
   color: var(--text-heading);
   font-size: 0.875rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .tx-name.refund {
   color: #999;
-}
-
-.tx-member {
-  color: var(--text-muted);
-  font-size: 0.75rem;
 }
 
 .tx-amount {
@@ -326,5 +378,73 @@ function isRefund(tx: TransactionDto): boolean {
   color: var(--text-muted);
   font-size: 0.75rem;
   text-align: right;
+}
+
+.expand-indicator {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.tx-entries {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--card-bg, #1e1e1e);
+  border-radius: 0.5rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.25rem 0.75rem;
+  overflow: hidden;
+}
+
+.entry-row {
+  display: contents;
+}
+
+.entry-account {
+  color: var(--text-heading);
+  font-weight: 500;
+  font-size: 0.75rem;
+  text-align: left;
+}
+
+.entry-commodity {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.entry-amount {
+  color: #3498db;
+  font-weight: 500;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.entry-amount.positive {
+  color: #27ae60;
+}
+
+.entry-amount.negative {
+  color: #e74c3c;
+}
+
+.expand-enter-active,
+.expand-leave-active {
+  transition:
+    max-height 0.3s ease-in-out,
+    opacity 0.3s ease-in-out;
+  max-height: 500px;
+  opacity: 1;
+  overflow: hidden;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
 }
 </style>
