@@ -1,4 +1,5 @@
 use accounting::id::{ChannelId, CommodityId, MemberId};
+use accounting::posting_role::PostingRole;
 use accounting::transaction::TransactionKind;
 use chrono::NaiveDateTime;
 use rust_decimal::Decimal;
@@ -24,8 +25,8 @@ pub struct ImportContext {
     pub member_id: MemberId,
     pub channel_id: ChannelId,
     pub commodity_id: CommodityId,
-    /// 导入根账户名称（如 "Import" 或 "导入"）
-    pub import_root: String,
+    /// 渠道名称（如 "支付宝"）
+    pub channel_name: String,
 }
 
 /// 适配器输出的标准账目条目
@@ -43,11 +44,13 @@ pub struct BillEntry {
 /// 账目条目中的单个分录
 #[derive(Debug, Clone)]
 pub struct BillPosting {
-    /// 账户路径（如 "Import:支付宝:餐饮美食"）
-    pub account_path: String,
+    /// 角色（收支侧 or 资产侧）
+    pub role: PostingRole,
+    /// 分类名称（如 "餐饮美食"、"蚂蚁宝藏信用卡"）
+    pub category: String,
     /// 商品符号（如 "CNY"）
     pub commodity_symbol: String,
-    /// 金额（支出为负，收入为正）
+    /// 金额（收支侧：支出为正、收入为负；资产侧：与收支侧相反）
     pub amount: Decimal,
     /// 是否可报销
     pub is_reimbursable: bool,

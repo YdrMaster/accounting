@@ -1,5 +1,7 @@
 /// Account Repository
 pub mod account;
+/// Account Mapping Repository
+pub mod account_mapping;
 /// Attachment Repository
 pub mod attachment;
 /// Budget Repository

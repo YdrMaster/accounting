@@ -673,6 +673,54 @@ impl SqliteDatabase {
         crate::repo::budget::budget_get_limits(&mut conn, budget_id).await
     }
 
+    // === Account Mapping ===
+
+    pub async fn account_mapping_upsert(
+        &self,
+        mapping: &accounting::account_mapping::AccountMapping,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account_mapping::mapping_upsert(&mut conn, mapping).await
+    }
+
+    pub async fn account_mapping_find(
+        &self,
+        member_id: accounting::id::MemberId,
+        channel_id: accounting::id::ChannelId,
+        category: &str,
+    ) -> Result<Option<accounting::account_mapping::AccountMapping>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account_mapping::mapping_find(&mut conn, member_id, channel_id, category).await
+    }
+
+    pub async fn account_mapping_list(
+        &self,
+        member_id: accounting::id::MemberId,
+        channel_id: accounting::id::ChannelId,
+    ) -> Result<Vec<accounting::account_mapping::AccountMapping>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account_mapping::mapping_list(&mut conn, member_id, channel_id).await
+    }
+
+    pub async fn account_mapping_delete(
+        &self,
+        member_id: accounting::id::MemberId,
+        channel_id: accounting::id::ChannelId,
+        category: &str,
+    ) -> Result<bool, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account_mapping::mapping_delete(&mut conn, member_id, channel_id, category)
+            .await
+    }
+
+    pub async fn account_mapping_count_by_account(
+        &self,
+        account_id: accounting::id::AccountId,
+    ) -> Result<i64, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account_mapping::mapping_count_by_account(&mut conn, account_id).await
+    }
+
     // === Budget Statistics ===
 
     pub async fn sum_by_account_with_descendants(

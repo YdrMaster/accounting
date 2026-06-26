@@ -3,11 +3,20 @@ use crate::import::{AdaptError, BillEntry, ImportContext, builtin_adapters, find
 use crate::transaction_service::TransactionService;
 use accounting::channel_path::ChannelPathNode;
 use accounting::error::AccountingError;
-use accounting::id::{ChannelId, CommodityId, MemberId, PostingId, TagId, TransactionId};
+use accounting::id::{
+    AccountId, ChannelId, CommodityId, MemberId, PostingId, TagId, TransactionId,
+};
 use accounting::posting::Posting;
+use accounting::posting_role::PostingRole;
 use accounting::transaction::Transaction;
 use accounting_sql::SqliteDatabase;
 use rust_decimal::Decimal;
+
+/// 映射查找键：(member_id, channel_id)
+type MappingKey = (MemberId, ChannelId);
+
+/// 导入上下文：(channel_name, import_root)
+type ImportCtx = (String, String);
 
 /// 导入结果
 pub struct ImportResult {
@@ -40,13 +49,13 @@ impl ImportService {
             AccountingError::InvalidTransaction(format!("不支持的来源: {source}"))
         })?;
 
-        // 2. 解析 source 为 ChannelId
+        // 2. 解析 source 为 ChannelId 和渠道名称
         let channel = self
             .db
             .channel_get_by_name(source)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        let channel_id = channel.map(|c| c.id).ok_or_else(|| {
+        let (channel_id, channel_name) = channel.map(|c| (c.id, c.name)).ok_or_else(|| {
             AccountingError::AccountNotFound(format!("渠道 '{source}' 不存在，请先创建对应渠道"))
         })?;
 
@@ -71,15 +80,15 @@ impl ImportService {
             member_id,
             channel_id,
             commodity_id,
-            import_root,
+            channel_name: channel_name.clone(),
         };
 
-        // 6. 调用适配器解析
+        // 7. 调用适配器解析
         let iter = adapter
             .parse(data, &ctx)
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        // 7. 迭代 BillEntry 逐条处理
+        // 8. 迭代 BillEntry 逐条处理
         let account_service = AccountService::new(self.db.clone());
         let tx_service = TransactionService::new(self.db.clone());
 
@@ -103,8 +112,8 @@ impl ImportService {
             match self
                 .submit_entry(
                     &entry,
-                    member_id,
-                    channel_id,
+                    (member_id, channel_id),
+                    &(channel_name.clone(), import_root.clone()),
                     commodity_id,
                     pending_tag_id,
                     &account_service,
@@ -139,13 +148,14 @@ impl ImportService {
     async fn submit_entry(
         &self,
         entry: &BillEntry,
-        member_id: MemberId,
-        channel_id: ChannelId,
+        mapping_key: MappingKey,
+        import_ctx: &ImportCtx,
         default_commodity_id: CommodityId,
         pending_tag_id: Option<TagId>,
         account_service: &AccountService,
         tx_service: &TransactionService,
     ) -> Result<TransactionId, AccountingError> {
+        let (member_id, channel_id) = mapping_key;
         let commodity = self
             .db
             .commodity_get_by_symbol("CNY")
@@ -153,10 +163,18 @@ impl ImportService {
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         let commodity_id = commodity.map(|c| c.id).unwrap_or(default_commodity_id);
 
-        // 对每个 BillPosting.account_path 调用 ensure_cascading 创建/查找账户
+        // 对每个 BillPosting 查映射表或走 Import fallback
         let mut postings = Vec::new();
         for bp in &entry.postings {
-            let account_id = account_service.ensure_cascading(&bp.account_path).await?;
+            let account_id = self
+                .resolve_account_id(
+                    mapping_key,
+                    import_ctx,
+                    bp.role,
+                    &bp.category,
+                    account_service,
+                )
+                .await?;
 
             postings.push(Posting {
                 id: PostingId(0),
@@ -211,6 +229,43 @@ impl ImportService {
         tx_service
             .submit(transaction, postings, tag_ids, channel_path_nodes)
             .await
+    }
+
+    /// 解析 BillPosting 对应的 AccountId
+    ///
+    /// 优先查询映射表，有映射则直接使用映射目标账户；
+    /// 无映射则构造 Import fallback 路径并 ensure_cascading。
+    async fn resolve_account_id(
+        &self,
+        mapping_key: MappingKey,
+        import_ctx: &ImportCtx,
+        role: PostingRole,
+        category: &str,
+        account_service: &AccountService,
+    ) -> Result<AccountId, AccountingError> {
+        let (member_id, channel_id) = mapping_key;
+        let (channel_name, import_root) = import_ctx;
+        let key = role.to_key(category);
+
+        // 1. 查映射表
+        if let Some(mapping) = self
+            .db
+            .account_mapping_find(member_id, channel_id, &key)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+        {
+            return Ok(mapping.account_id);
+        }
+
+        // 2. 无映射 → Import fallback
+        let path = format!(
+            "{}:{}:{}:{}",
+            import_root,
+            channel_name,
+            role.import_segment(),
+            category
+        );
+        account_service.ensure_cascading(&path).await
     }
 
     /// 解析 "待处理" 系统 Tag ID
@@ -321,7 +376,7 @@ mod tests {
             assert_eq!(tx.description, "美团外卖 - 美团外卖-午餐");
         }
 
-        // 验证 Import 子账户已创建
+        // 验证 Import 子账户已创建（新结构：含角色层级）
         let root = db
             .account_get_by_parent_and_name(None, "Import")
             .await
@@ -330,16 +385,93 @@ mod tests {
         assert!(root.is_system);
 
         let alipay = db
-            .account_get_by_parent_and_name(Some(root.id), "支付宝")
+            .account_get_by_parent_and_name(Some(root.id), "alipay")
             .await
             .unwrap();
-        assert!(alipay.is_some(), "Import:支付宝 子账户应已创建");
+        assert!(alipay.is_some(), "Import:alipay 子账户应已创建");
+        let alipay_id = alipay.as_ref().unwrap().id;
 
-        let other = db
-            .account_get_by_parent_and_name(Some(alipay.unwrap().id), "餐饮美食")
+        // 验证收支层级
+        let income_expense = db
+            .account_get_by_parent_and_name(Some(alipay_id), "收支")
             .await
             .unwrap();
-        assert!(other.is_some(), "Import:支付宝:餐饮美食 子账户应已创建");
+        assert!(
+            income_expense.is_some(),
+            "Import:alipay:收支 子账户应已创建"
+        );
+
+        let ie_account = income_expense.unwrap();
+        let dining = db
+            .account_get_by_parent_and_name(Some(ie_account.id), "餐饮美食")
+            .await
+            .unwrap();
+        assert!(
+            dining.is_some(),
+            "Import:alipay:收支:餐饮美食 子账户应已创建"
+        );
+
+        // 验证资产层级
+        let asset = db
+            .account_get_by_parent_and_name(Some(alipay_id), "资产")
+            .await
+            .unwrap();
+        assert!(asset.is_some(), "Import:alipay:资产 子账户应已创建");
+    }
+
+    #[tokio::test]
+    async fn test_import_with_mapping() {
+        let db = setup_db().await;
+
+        // 查找实际的渠道 ID
+        let channel = db.channel_get_by_name("alipay").await.unwrap().unwrap();
+
+        // 创建一个目标账户供映射
+        let expense_account = accounting::account::Account {
+            id: AccountId(0),
+            name: "Dining".to_string(),
+            parent_id: None,
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let expense_id = db
+            .account_create_with_closure(&expense_account)
+            .await
+            .unwrap();
+
+        // 创建映射
+        let mapping = accounting::account_mapping::AccountMapping {
+            member_id: MemberId(1),
+            channel_id: channel.id,
+            category: "收支:餐饮美食".to_string(),
+            account_id: expense_id,
+        };
+        db.account_mapping_upsert(&mapping).await.unwrap();
+
+        let service = ImportService::new(db.clone());
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2024-01-15 12:30:00,餐饮美食,美团外卖,mei***@tuan.com,美团外卖-午餐,支出,35.00,蚂蚁宝藏信用卡,交易成功,2024011522001470000001\t,MO20240101\t,,\n",
+        );
+
+        let result = service
+            .import(csv_data.as_bytes(), "alipay", MemberId(1))
+            .await
+            .unwrap();
+
+        assert_eq!(result.imported, 1);
+
+        // 验证收支侧使用了映射目标账户
+        let tx_id = result.transaction_ids[0];
+        let postings = db.posting_list_by_transaction(tx_id).await.unwrap();
+        let ie_posting = postings.iter().find(|p| p.account_id == expense_id);
+        assert!(
+            ie_posting.is_some(),
+            "收支侧应使用映射目标账户 Dining (id={})",
+            expense_id.0
+        );
     }
 
     #[tokio::test]

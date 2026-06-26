@@ -2,6 +2,7 @@ pub mod account;
 pub mod budget;
 pub mod commodity;
 pub mod import;
+pub mod mapping;
 pub mod member;
 pub mod report;
 pub mod tag;
@@ -51,6 +52,9 @@ pub enum Commands {
     Report(report::ReportCmd),
     /// 导入账单
     Import(import::ImportArgs),
+    /// 账户映射管理
+    #[command(subcommand)]
+    Mapping(mapping::MappingCmd),
     /// 预算管理
     #[command(subcommand)]
     Budget(budget::BudgetCmd),

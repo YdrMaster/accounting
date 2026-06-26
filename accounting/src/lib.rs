@@ -2,6 +2,8 @@
 
 /// 账户模型
 pub mod account;
+/// 账户映射模型
+pub mod account_mapping;
 /// 账户类型与分期方式
 pub mod account_type;
 /// 金额转换工具
@@ -30,6 +32,8 @@ pub mod installment;
 pub mod member;
 /// 分录模型
 pub mod posting;
+/// 分录角色（收支侧/资产侧）
+pub mod posting_role;
 pub use transaction::TransactionKind;
 /// 日期时间工具函数
 pub mod datetime_utils;

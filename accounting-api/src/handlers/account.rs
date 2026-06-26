@@ -201,6 +201,15 @@ async fn delete_account(
         return Err(t!("account_has_postings").to_string());
     }
 
+    // 检查是否被账户映射引用
+    let mapping_count = db
+        .account_mapping_count_by_account(AccountId(id))
+        .await
+        .map_err(|e| e.to_string())?;
+    if mapping_count > 0 {
+        return Err("该账户被账户映射引用，请先删除相关映射".to_string());
+    }
+
     db.account_delete(AccountId(id))
         .await
         .map_err(|e| e.to_string())?;

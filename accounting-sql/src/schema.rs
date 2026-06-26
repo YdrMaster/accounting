@@ -396,6 +396,28 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         WHERE budget_id = NEW.budget_id AND account_id = NEW.account_id;
     END;
     "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS account_mappings (
+        member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+        channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+        category TEXT NOT NULL,
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (member_id, channel_id, category)
+    );
+    "#,
+    "CREATE INDEX IF NOT EXISTS idx_account_mappings_account_id ON account_mappings(account_id);",
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_account_mappings_updated_at
+    AFTER UPDATE ON account_mappings
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE account_mappings SET updated_at = datetime('now')
+        WHERE member_id = NEW.member_id AND channel_id = NEW.channel_id AND category = NEW.category;
+    END;
+    "#,
 ];
 
 const SEED_ACCOUNTS_ROOT_EN: &str = r#"

@@ -1,4 +1,5 @@
 use super::{AdaptError, BillAdapter, BillEntry, BillPosting};
+use accounting::posting_role::PostingRole;
 use accounting::transaction::TransactionKind;
 use chrono::NaiveDateTime;
 use encoding_rs::GBK;
@@ -34,7 +35,7 @@ impl BillAdapter for AlipayAdapter {
         Ok(Box::new(AlipayIterator {
             lines: text.lines().map(|l| l.to_string()).collect(),
             pos: 0,
-            import_root: ctx.import_root.clone(),
+            channel_name: ctx.channel_name.clone(),
         }))
     }
 }
@@ -42,7 +43,7 @@ impl BillAdapter for AlipayAdapter {
 struct AlipayIterator {
     lines: Vec<String>,
     pos: usize,
-    import_root: String,
+    channel_name: String,
 }
 
 impl Iterator for AlipayIterator {
@@ -82,7 +83,7 @@ impl Iterator for AlipayIterator {
             let row_num = self.pos + 1;
             self.pos += 1;
 
-            return Some(parse_alipay_row(row_num, &fields, &self.import_root));
+            return Some(parse_alipay_row(row_num, &fields, &self.channel_name));
         }
 
         None
@@ -97,7 +98,7 @@ impl Iterator for AlipayIterator {
 fn parse_alipay_row(
     row: usize,
     fields: &[&str],
-    import_root: &str,
+    channel_name: &str,
 ) -> Result<BillEntry, AdaptError> {
     let field = |idx: usize, name: &str| -> Result<&str, AdaptError> {
         fields
@@ -113,7 +114,7 @@ fn parse_alipay_row(
     let date_str = field(0, "交易时间")?;
     let date_time = parse_datetime(row, date_str)?;
 
-    // 交易分类（索引 1）— 直接用作 Import 子账户名
+    // 交易分类（索引 1）— 收支侧分类
     let category = field(1, "交易分类")?;
 
     // 交易对方（索引 2）
@@ -131,6 +132,9 @@ fn parse_alipay_row(
         row,
         message: format!("金额解析失败 '{amount_str}'：{e}"),
     })?;
+
+    // 收/付款方式（索引 7）— 资产侧分类
+    let payment_method = field(7, "收/付款方式")?;
 
     // 交易状态（索引 8）
     let status = field(8, "交易状态")?;
@@ -150,19 +154,25 @@ fn parse_alipay_row(
         TransactionKind::Normal
     };
 
-    // 判断金额方向
-    let signed_amount = if kind == TransactionKind::Refund {
-        // 退款始终为正值（资金收回）
-        amount.abs()
+    // 判断金额方向（绝对值）
+    let abs_amount = amount.abs();
+
+    // 收支侧金额：支出为正（Expense 增加），收入/退款为负（Income 增加）
+    // 资产侧金额：与收支侧相反
+    let (income_expense_amount, asset_amount) = if kind == TransactionKind::Refund {
+        // 退款：收支侧为负（收入类账户增加），资产侧为正（资产增加）
+        (-abs_amount, abs_amount)
     } else if direction.contains("支") {
-        -amount.abs()
+        // 支出：收支侧为正（支出类账户增加），资产侧为负（资产减少）
+        (abs_amount, -abs_amount)
     } else if direction.contains("收") {
-        amount.abs()
+        // 收入：收支侧为负（收入类账户增加），资产侧为正（资产增加）
+        (-abs_amount, abs_amount)
     } else {
         // 不计收支（投资理财、转账、信用借贷等）
-        // 金额为正表示资金流出（买理财/还款），为负表示流入（赎回/借款）
-        // 统一取绝对值，方向由用户后续确认
-        -amount.abs()
+        // 按支出方向处理：收支侧为正，资产侧为负
+        // 方向由用户后续确认
+        (abs_amount, -abs_amount)
     };
 
     // 描述：组合对方和商品名
@@ -175,21 +185,25 @@ fn parse_alipay_row(
     };
 
     // 构建 BillPosting
-    let expense_path = format!("{import_root}:支付宝:{category}");
-    let asset_path = format!("{import_root}:支付宝");
     let commodity_symbol = "CNY".to_string();
 
     let postings = vec![
         BillPosting {
-            account_path: expense_path,
+            role: PostingRole::IncomeExpense,
+            category: category.to_string(),
             commodity_symbol: commodity_symbol.clone(),
-            amount: signed_amount,
+            amount: income_expense_amount,
             is_reimbursable: false,
         },
         BillPosting {
-            account_path: asset_path,
+            role: PostingRole::Asset,
+            category: if payment_method.is_empty() {
+                channel_name.to_string()
+            } else {
+                payment_method.to_string()
+            },
             commodity_symbol,
-            amount: -signed_amount,
+            amount: asset_amount,
             is_reimbursable: false,
         },
     ];
@@ -234,7 +248,7 @@ mod tests {
             member_id: MemberId(1),
             channel_id: ChannelId(1),
             commodity_id: CommodityId(1),
-            import_root: "Import".to_string(),
+            channel_name: "支付宝".to_string(),
         }
     }
 
@@ -249,7 +263,6 @@ mod tests {
         let adapter = AlipayAdapter;
         let ctx = test_context();
 
-        // 模拟真实支付宝导出格式（GBK 编码的 UTF-8 等价）
         let csv_data = concat!(
             "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
             "2026-06-25 12:24:45,餐饮美食,茶百道,sxz***@126.com,【茶百道】黄金百香芒芒,支出,4.80,蚂蚁宝藏信用卡,交易成功,2026062522001470791431356972\t,20260625016000001307976921929390\t,,\n",
@@ -264,23 +277,27 @@ mod tests {
         assert_eq!(entry1.description, "茶百道 - 【茶百道】黄金百香芒芒");
         assert_eq!(entry1.kind, TransactionKind::Normal);
         assert_eq!(entry1.postings.len(), 2);
+        // 收支侧：支出为正
+        assert_eq!(entry1.postings[0].role, PostingRole::IncomeExpense);
+        assert_eq!(entry1.postings[0].category, "餐饮美食");
         assert_eq!(
             entry1.postings[0].amount,
-            Decimal::from_str("-4.80").unwrap()
-        );
-        assert_eq!(entry1.postings[0].account_path, "Import:支付宝:餐饮美食");
-        assert_eq!(
-            entry1.postings[1].amount,
             Decimal::from_str("4.80").unwrap()
         );
-        assert_eq!(entry1.postings[1].account_path, "Import:支付宝");
+        // 资产侧：支出为负
+        assert_eq!(entry1.postings[1].role, PostingRole::Asset);
+        assert_eq!(entry1.postings[1].category, "蚂蚁宝藏信用卡");
+        assert_eq!(
+            entry1.postings[1].amount,
+            Decimal::from_str("-4.80").unwrap()
+        );
 
         let entry2 = iter.next().unwrap().unwrap();
         assert_eq!(
             entry2.description,
             "中国大地财产保险股份有限公司 - 2026.6月保费缴清"
         );
-        assert_eq!(entry2.postings[0].account_path, "Import:支付宝:保险");
+        assert_eq!(entry2.postings[0].category, "保险");
         assert!(iter.next().is_none());
     }
 
@@ -291,18 +308,25 @@ mod tests {
 
         let csv_data = concat!(
             "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
-            "2026-06-21 22:56:53,退款,恒源**店,365***@qq.com,退款-透明防摔手机壳,不计收支,36.75,招商银行信用卡,退款成功,2026061723001170791442209186_xxx\t,T200P3308367722981006462\t,,\n",
+            "2026-06-21 22:56:53,退款,恒源**店,365***@qq.com,退款-透明防摔手机壳,不计收支,36.75,招商银行信用卡,退款成功,2026061723001170791442209186_xxx\t,T200P330836772298100646\t,,\n",
         );
 
         let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
         let entry = iter.next().unwrap().unwrap();
         assert_eq!(entry.kind, TransactionKind::Refund);
-        // 退款金额为正值，支出侧为正（退款收回），资产侧为负
+        // 退款：收支侧为负（收入类账户增加），资产侧为正（资产增加）
+        assert_eq!(entry.postings[0].role, PostingRole::IncomeExpense);
+        assert_eq!(entry.postings[0].category, "退款");
         assert_eq!(
             entry.postings[0].amount,
+            Decimal::from_str("-36.75").unwrap()
+        );
+        assert_eq!(entry.postings[1].role, PostingRole::Asset);
+        assert_eq!(entry.postings[1].category, "招商银行信用卡");
+        assert_eq!(
+            entry.postings[1].amount,
             Decimal::from_str("36.75").unwrap()
         );
-        assert_eq!(entry.postings[0].account_path, "Import:支付宝:退款");
     }
 
     #[test]
@@ -325,7 +349,6 @@ mod tests {
         let adapter = AlipayAdapter;
         let ctx = test_context();
 
-        // 模拟真实支付宝导出文件的完整头部
         let csv_data = concat!(
             "------------------------------------------------------------------------------------\n",
             "导出信息：\n",
@@ -350,7 +373,8 @@ mod tests {
         let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
         let entry = iter.next().unwrap().unwrap();
         assert_eq!(entry.description, "茶百道 - 【茶百道】黄金百香芒芒");
-        assert_eq!(entry.postings[0].account_path, "Import:支付宝:餐饮美食");
+        assert_eq!(entry.postings[0].role, PostingRole::IncomeExpense);
+        assert_eq!(entry.postings[0].category, "餐饮美食");
         assert!(iter.next().is_none());
     }
 
@@ -359,7 +383,6 @@ mod tests {
         let adapter = AlipayAdapter;
         let ctx = test_context();
 
-        // 不计收支类型（投资理财、转账等）
         let csv_data = concat!(
             "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
             "2026-06-25 10:48:04,投资理财,蚂蚁财富,/,蚂蚁财富-鹏华丰禄债券-买入,不计收支,100.00,余额宝,付款成功,20260625901080012204790009159615\t,\t,,\n",
@@ -368,9 +391,17 @@ mod tests {
         let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
         let entry = iter.next().unwrap().unwrap();
         assert_eq!(entry.kind, TransactionKind::Normal);
-        assert_eq!(entry.postings[0].account_path, "Import:支付宝:投资理财");
+        assert_eq!(entry.postings[0].role, PostingRole::IncomeExpense);
+        assert_eq!(entry.postings[0].category, "投资理财");
+        // 不计收支按支出方向：收支侧为正，资产侧为负
         assert_eq!(
             entry.postings[0].amount,
+            Decimal::from_str("100.00").unwrap()
+        );
+        assert_eq!(entry.postings[1].role, PostingRole::Asset);
+        assert_eq!(entry.postings[1].category, "余额宝");
+        assert_eq!(
+            entry.postings[1].amount,
             Decimal::from_str("-100.00").unwrap()
         );
     }
@@ -388,7 +419,7 @@ mod tests {
             match entry {
                 Ok(e) => {
                     count += 1;
-                    categories.insert(e.postings[0].account_path.clone());
+                    categories.insert(e.postings[0].category.clone());
                 }
                 Err(e) => {
                     errors += 1;
@@ -404,7 +435,6 @@ mod tests {
             count > 0,
             "应至少导入一条记录，实际成功 {count}，跳过 {errors}"
         );
-        // 354 条记录中，交易关闭的会被跳过，预期成功 > 300
         assert!(count > 300, "预期成功 300+ 条，实际 {count}");
     }
 }

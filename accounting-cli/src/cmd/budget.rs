@@ -195,10 +195,7 @@ async fn list(db: &SqliteDatabase) -> Result<(), AccountingError> {
         return Ok(());
     }
 
-    println!(
-        "{:<5} {:<20} {:<20} Commodity",
-        "ID", "Name", "Period"
-    );
+    println!("{:<5} {:<20} {:<20} Commodity", "ID", "Name", "Period");
     for b in &budgets {
         println!(
             "{:<5} {:<20} {:<20} {}",

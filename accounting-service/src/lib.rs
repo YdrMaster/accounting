@@ -12,6 +12,8 @@ pub mod commodity_service;
 pub mod import;
 /// 导入服务编排
 pub mod import_service;
+/// 账户映射服务
+pub mod mapping_service;
 /// 成员服务
 pub mod member_service;
 /// 报表服务
