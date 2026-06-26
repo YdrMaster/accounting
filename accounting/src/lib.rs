@@ -10,6 +10,8 @@ pub mod amount;
 pub mod attachment;
 /// 余额计算
 pub mod balance;
+/// 预算模型
+pub mod budget;
 /// 支付渠道模型
 pub mod channel;
 /// 交易链路模型

@@ -439,6 +439,67 @@ fn apply_posting_filter(
     }
 }
 
+/// 按账户组汇总分录金额（含闭包表后代聚合，排除指定标签的交易，仅统计指定币种）
+///
+/// - 通过 account_ancestors 闭包表找到每个账户的所有后代
+/// - 排除带 exclude_tag_ids 中任一标签的交易
+/// - 仅统计 commodity_id 匹配的分录
+pub async fn sum_by_account_with_descendants(
+    conn: &mut SqliteConnection,
+    account_ids: &[AccountId],
+    start_date: chrono::NaiveDate,
+    end_date: chrono::NaiveDate,
+    exclude_tag_ids: &[TagId],
+    commodity_id: CommodityId,
+) -> Result<Vec<(AccountId, Decimal)>, DbError> {
+    if account_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let precision = get_precision(conn, commodity_id).await?;
+
+    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+        "SELECT anc.ancestor_id, SUM(p.amount) as total
+         FROM postings p
+         JOIN account_ancestors anc ON p.account_id = anc.account_id
+         JOIN transactions t ON p.transaction_id = t.id
+         WHERE anc.ancestor_id IN (",
+    );
+
+    let mut separated = builder.separated(", ");
+    for id in account_ids {
+        separated.push_bind(id.0);
+    }
+    builder.push(") AND t.date_time >= ");
+    builder.push_bind(datetime_utils::start_of_day(start_date).to_string());
+    builder.push(" AND t.date_time <= ");
+    builder.push_bind(datetime_utils::end_of_day(end_date).to_string());
+    builder.push(" AND p.commodity_id = ");
+    builder.push_bind(commodity_id.0);
+
+    if !exclude_tag_ids.is_empty() {
+        builder.push(" AND NOT EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id IN (");
+        let mut sep = builder.separated(", ");
+        for tid in exclude_tag_ids {
+            sep.push_bind(tid.0);
+        }
+        builder.push("))");
+    }
+
+    builder.push(" GROUP BY anc.ancestor_id");
+
+    let rows: Vec<(i64, i64)> = builder
+        .build_query_as()
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(account_id, amount)| (AccountId(account_id), from_db_amount(amount, precision)))
+        .collect())
+}
+
 async fn load_precisions(conn: &mut SqliteConnection) -> Result<HashMap<CommodityId, u8>, DbError> {
     let rows: Vec<(i64, i32)> = sqlx::query_as("SELECT id, precision FROM commodities")
         .fetch_all(conn)

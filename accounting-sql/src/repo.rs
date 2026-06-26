@@ -2,6 +2,8 @@
 pub mod account;
 /// Attachment Repository
 pub mod attachment;
+/// Budget Repository
+pub mod budget;
 /// Channel Repository
 pub mod channel;
 /// ChannelPath Repository

@@ -4,6 +4,8 @@ rust_i18n::i18n!("locales", fallback = "en");
 
 /// 账户服务
 pub mod account_service;
+/// 预算服务
+pub mod budget_service;
 /// 商品/货币服务
 pub mod commodity_service;
 /// 导入服务

@@ -621,6 +621,80 @@ impl SqliteDatabase {
         crate::repo::set_setting(&mut conn, key, value).await
     }
 
+    // === Budget ===
+
+    pub async fn budget_create(
+        &self,
+        name: &str,
+        period: accounting::budget::BudgetPeriod,
+        commodity_id: accounting::id::CommodityId,
+        limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
+    ) -> Result<accounting::id::BudgetId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::budget::budget_create(&mut conn, name, period, commodity_id, limits).await
+    }
+
+    pub async fn budget_get(
+        &self,
+        id: accounting::id::BudgetId,
+    ) -> Result<Option<accounting::budget::Budget>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::budget::budget_get(&mut conn, id).await
+    }
+
+    pub async fn budget_list(&self) -> Result<Vec<accounting::budget::Budget>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::budget::budget_list(&mut conn).await
+    }
+
+    pub async fn budget_update(
+        &self,
+        budget_id: accounting::id::BudgetId,
+        name: &str,
+        period: accounting::budget::BudgetPeriod,
+        commodity_id: accounting::id::CommodityId,
+        limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::budget::budget_update(&mut conn, budget_id, name, period, commodity_id, limits)
+            .await
+    }
+
+    pub async fn budget_delete(&self, id: accounting::id::BudgetId) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::budget::budget_delete(&mut conn, id).await
+    }
+
+    pub async fn budget_get_limits(
+        &self,
+        budget_id: accounting::id::BudgetId,
+    ) -> Result<Vec<accounting::budget::BudgetLimit>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::budget::budget_get_limits(&mut conn, budget_id).await
+    }
+
+    // === Budget Statistics ===
+
+    pub async fn sum_by_account_with_descendants(
+        &self,
+        account_ids: &[accounting::id::AccountId],
+        start_date: chrono::NaiveDate,
+        end_date: chrono::NaiveDate,
+        exclude_tag_ids: &[accounting::id::TagId],
+        commodity_id: accounting::id::CommodityId,
+    ) -> Result<Vec<(accounting::id::AccountId, rust_decimal::Decimal)>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::posting::sum_by_account_with_descendants(
+            &mut conn,
+            account_ids,
+            start_date,
+            end_date,
+            exclude_tag_ids,
+            commodity_id,
+        )
+        .await
+    }
+
     async fn acquire(&self) -> Result<sqlx::pool::PoolConnection<sqlx::Sqlite>, DbError> {
         self.pool
             .acquire()

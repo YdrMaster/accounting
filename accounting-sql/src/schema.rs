@@ -15,27 +15,31 @@ pub async fn initialize_schema(conn: &mut SqliteConnection) -> Result<(), DbErro
 
 /// 插入系统内置数据，支持语言选择
 pub async fn insert_seed_data(conn: &mut SqliteConnection, lang: &str) -> Result<(), DbError> {
-    let (accounts_root, accounts_child, tags_sql, channels_sql) = if lang.starts_with("zh") {
-        (
-            SEED_ACCOUNTS_ROOT_ZH,
-            SEED_ACCOUNTS_CHILD_ZH,
-            SEED_TAGS_ZH,
-            SEED_CHANNELS_ZH,
-        )
-    } else {
-        (
-            SEED_ACCOUNTS_ROOT_EN,
-            SEED_ACCOUNTS_CHILD_EN,
-            SEED_TAGS_EN,
-            SEED_CHANNELS_EN,
-        )
-    };
+    let (accounts_root, accounts_child, tags_sql, tags_exclude_sql, channels_sql) =
+        if lang.starts_with("zh") {
+            (
+                SEED_ACCOUNTS_ROOT_ZH,
+                SEED_ACCOUNTS_CHILD_ZH,
+                SEED_TAGS_ZH,
+                SEED_TAGS_EXCLUDE_ZH,
+                SEED_CHANNELS_ZH,
+            )
+        } else {
+            (
+                SEED_ACCOUNTS_ROOT_EN,
+                SEED_ACCOUNTS_CHILD_EN,
+                SEED_TAGS_EN,
+                SEED_TAGS_EXCLUDE_EN,
+                SEED_CHANNELS_EN,
+            )
+        };
 
     for sql in [
         SEED_COMMODITIES,
         accounts_root,
         accounts_child,
         tags_sql,
+        tags_exclude_sql,
         channels_sql,
         SEED_CLOSURE,
     ] {
@@ -352,6 +356,46 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         UPDATE settings SET updated_at = datetime('now') WHERE key = NEW.key;
     END;
     "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS budgets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        period INTEGER NOT NULL,
+        commodity_id INTEGER NOT NULL REFERENCES commodities(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS budget_limits (
+        budget_id INTEGER NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        amount INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (budget_id, account_id)
+    );
+    "#,
+    "CREATE INDEX IF NOT EXISTS idx_budget_limits_account ON budget_limits(account_id);",
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_budgets_updated_at
+    AFTER UPDATE ON budgets
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE budgets SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_budget_limits_updated_at
+    AFTER UPDATE ON budget_limits
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE budget_limits SET updated_at = datetime('now')
+        WHERE budget_id = NEW.budget_id AND account_id = NEW.account_id;
+    END;
+    "#,
 ];
 
 const SEED_ACCOUNTS_ROOT_EN: &str = r#"
@@ -406,6 +450,18 @@ const SEED_TAGS_ZH: &str = r#"
 INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
 ('还款', '分期/信用卡还款标记', 1),
 ('待处理', '导入交易待审查标记', 1);
+"#;
+
+const SEED_TAGS_EXCLUDE_EN: &str = r#"
+INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
+('exclude-from-income-statement', 'Excluded from income/expense statistics', 1),
+('exclude-from-budget', 'Excluded from budget statistics', 1);
+"#;
+
+const SEED_TAGS_EXCLUDE_ZH: &str = r#"
+INSERT OR IGNORE INTO tags (name, description, is_system) VALUES
+('不计收支', '不计入收支统计', 1),
+('不计预算', '不计入预算统计', 1);
 "#;
 
 const SEED_CHANNELS_EN: &str = r#"

@@ -1,4 +1,5 @@
 pub mod account;
+pub mod budget;
 pub mod commodity;
 pub mod import;
 pub mod member;
@@ -50,6 +51,9 @@ pub enum Commands {
     Report(report::ReportCmd),
     /// 导入账单
     Import(import::ImportArgs),
+    /// 预算管理
+    #[command(subcommand)]
+    Budget(budget::BudgetCmd),
 }
 
 // --- Tabled + Serialize wrapper types ---

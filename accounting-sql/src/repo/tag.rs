@@ -60,6 +60,23 @@ pub async fn tag_create(conn: &mut SqliteConnection, tag: &Tag) -> Result<TagId,
 }
 
 pub async fn tag_delete(conn: &mut SqliteConnection, name: &str) -> Result<(), DbError> {
+    // Check is_system before deleting
+    let is_system: Option<i32> = sqlx::query_scalar("SELECT is_system FROM tags WHERE name = ?1")
+        .bind(name)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    match is_system {
+        Some(v) if v != 0 => {
+            return Err(DbError::Database("系统内置标签不可删除".to_string()));
+        }
+        None => {
+            return Err(DbError::Database(format!("Tag not found: {}", name)));
+        }
+        _ => {}
+    }
+
     sqlx::query("DELETE FROM tags WHERE name = ?1")
         .bind(name)
         .execute(conn)
@@ -158,5 +175,22 @@ mod tests {
         tag_create(&mut conn, &tag).await.unwrap();
         tag_delete(&mut conn, "temp").await.unwrap();
         assert!(tag_get_by_name(&mut conn, "temp").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_system_tag_rejected() {
+        let mut conn = setup().await;
+        // "repayment" is a system tag from seed data
+        let result = tag_delete(&mut conn, "repayment").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("系统内置标签"));
+
+        // Tag should still exist
+        assert!(
+            tag_get_by_name(&mut conn, "repayment")
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 }
