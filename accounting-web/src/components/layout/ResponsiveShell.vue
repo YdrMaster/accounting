@@ -1,24 +1,26 @@
 <script setup lang="ts">
 import { computed, ref, type Component } from 'vue'
 import { paneNames, useResponsiveLayout } from '../../composables/useResponsiveLayout'
+import AccountsView from '../../views/AccountsView.vue'
 import AssetsView from '../../views/AssetsView.vue'
 import BudgetView from '../../views/BudgetView.vue'
 import CalendarView from '../../views/CalendarView.vue'
 import TransactionView from '../../views/TransactionView.vue'
+import PageSwitcher from './PageSwitcher.vue'
 import ViewPanel from './ViewPanel.vue'
-import WideHeader from './WideHeader.vue'
 
-const { width, columns, isMobile, startIndex, activeIndex, paneLabels } = useResponsiveLayout()
+const { width, columns, isMobile, startIndex, activeIndex, paneLabels, goTo } =
+  useResponsiveLayout()
 
 const componentMap: Record<string, Component> = {
-  calendar: CalendarView,
-  budget: BudgetView,
   transaction: TransactionView,
   assets: AssetsView,
+  accounts: AccountsView,
+  calendar: CalendarView,
+  budget: BudgetView,
 }
 
 const paneWidth = computed(() => width.value / columns.value)
-const showControls = computed(() => !isMobile.value && columns.value < paneNames.length)
 
 const orderedPanes = computed(() => {
   const len = paneNames.length
@@ -42,7 +44,7 @@ const trackOffset = computed(() => {
 
 const trackStyle = computed(() => ({
   transform: `translateX(${trackOffset.value}px)`,
-  transition: isTransitioning.value ? 'transform 0.8s ease' : 'none',
+  transition: isTransitioning.value ? 'transform 0.3s ease' : 'none',
 }))
 
 const paneStyle = computed(() => ({
@@ -77,8 +79,12 @@ function shiftRight() {
   moveTo(-2 * paneWidth.value, (startIndex.value + 1) % len)
 }
 
+function onSwitcherGoTo(index: number) {
+  goTo(index)
+}
+
 function onTouchStart(event: TouchEvent) {
-  if (isTransitioning.value) return
+  if (!isMobile.value || isTransitioning.value) return
   isDragging.value = true
   dragStartX = event.touches[0].clientX
   dragOffset.value = 0
@@ -102,31 +108,17 @@ function onTouchEnd() {
     moveTo(trackBase.value)
   }
 }
-
-function onMouseDown(event: MouseEvent) {
-  if (!isMobile.value || isTransitioning.value) return
-  isDragging.value = true
-  dragStartX = event.clientX
-  dragOffset.value = 0
-}
-
-function onMouseMove(event: MouseEvent) {
-  if (!isDragging.value) return
-  dragOffset.value = event.clientX - dragStartX
-}
-
-function onMouseUp() {
-  if (!isDragging.value) return
-  onTouchEnd()
-}
 </script>
 
 <template>
   <div class="shell">
-    <WideHeader
-      :left-disabled="false"
-      :right-disabled="false"
-      :show-controls="showControls"
+    <PageSwitcher
+      :labels="paneNames.map(n => paneLabels[n])"
+      :active-index="activeIndex"
+      :visible-count="columns"
+      :start-index="startIndex"
+      :is-mobile="isMobile"
+      @go-to="onSwitcherGoTo"
       @left="shiftLeft"
       @right="shiftRight"
     />
@@ -136,10 +128,6 @@ function onMouseUp() {
       @touchstart="onTouchStart"
       @touchmove="onTouchMove"
       @touchend="onTouchEnd"
-      @mousedown="onMouseDown"
-      @mousemove="onMouseMove"
-      @mouseup="onMouseUp"
-      @mouseleave="onMouseUp"
     >
       <div class="track" :style="trackStyle" @transitionend="onTransitionEnd">
         <div
@@ -153,14 +141,6 @@ function onMouseUp() {
           </ViewPanel>
         </div>
       </div>
-    </div>
-
-    <div v-if="isMobile" class="dot-indicator">
-      <span
-        v-for="(_, index) in paneNames"
-        :key="index"
-        :class="{ active: index === activeIndex }"
-      />
     </div>
   </div>
 </template>
@@ -199,24 +179,5 @@ function onMouseUp() {
 
 .pane:last-child {
   padding-right: 1rem;
-}
-
-.dot-indicator {
-  display: flex;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.75rem;
-}
-
-.dot-indicator span {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--border);
-  transition: background 0.2s;
-}
-
-.dot-indicator span.active {
-  background: var(--accent);
 }
 </style>

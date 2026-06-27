@@ -1,15 +1,16 @@
 import { useWindowSize } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
 
-export const paneNames = ['calendar', 'budget', 'transaction', 'assets'] as const
+export const paneNames = ['transaction', 'assets', 'accounts', 'calendar', 'budget'] as const
 
 export type PaneName = (typeof paneNames)[number]
 
 export const paneLabels: Record<PaneName, string> = {
-  calendar: '日历',
-  budget: '预算',
   transaction: '交易',
   assets: '资产',
+  accounts: '账户',
+  calendar: '日历',
+  budget: '预算',
 }
 
 export function useResponsiveLayout() {

@@ -121,6 +121,22 @@ pub async fn account_rename(
     Ok(())
 }
 
+pub async fn account_update_fields(
+    conn: &mut SqliteConnection,
+    id: AccountId,
+    billing_day: Option<u8>,
+    repayment_day: Option<u8>,
+) -> Result<(), DbError> {
+    sqlx::query("UPDATE accounts SET billing_day = ?1, repayment_day = ?2 WHERE id = ?3")
+        .bind(billing_day.map(|v| v as i32))
+        .bind(repayment_day.map(|v| v as i32))
+        .bind(id.0)
+        .execute(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(())
+}
+
 pub async fn account_close(conn: &mut SqliteConnection, id: AccountId) -> Result<(), DbError> {
     sqlx::query("UPDATE accounts SET closed_at = date('now') WHERE id = ?1")
         .bind(id.0)

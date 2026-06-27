@@ -258,3 +258,12 @@ pub struct RenameAccountRequest {
     /// 新名称（本级名称）。
     pub name: String,
 }
+
+/// 更新账户字段请求。
+#[derive(Deserialize)]
+pub struct UpdateAccountRequest {
+    /// 账单日。
+    pub billing_day: Option<u8>,
+    /// 还款日。
+    pub repayment_day: Option<u8>,
+}

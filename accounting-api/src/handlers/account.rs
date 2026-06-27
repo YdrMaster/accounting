@@ -1,6 +1,9 @@
 //! 账户 API handler
 
-use crate::dto::{AccountDto, CreateAccountRequest, RenameAccountRequest, SetAccountOwnersRequest};
+use crate::dto::{
+    AccountDto, CreateAccountRequest, RenameAccountRequest, SetAccountOwnersRequest,
+    UpdateAccountRequest,
+};
 use crate::handlers::member::AppState;
 use accounting::account::Account;
 use accounting::account_type::AccountType;
@@ -40,7 +43,7 @@ async fn list_accounts(
             .map_err(|e| e.to_string())?;
         let account_type = AccountType::from_str(&root_name)
             .map(|ty| format!("{:?}", ty))
-            .map_err(|e| e.to_string())?;
+            .unwrap_or_else(|_| "Import".to_string());
         dtos.push(AccountDto {
             id: a.id.0,
             name: a.name.clone(),
@@ -216,6 +219,19 @@ async fn delete_account(
     Ok("deleted".to_string())
 }
 
+/// 更新账户字段
+async fn update_account(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateAccountRequest>,
+) -> Result<String, String> {
+    let db = state.db();
+    db.account_update_fields(AccountId(id), req.billing_day, req.repayment_day)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok("updated".to_string())
+}
+
 /// 账户路由
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -223,6 +239,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/accounts/{id}/balance", get(get_balance))
         .route("/api/accounts/{id}/owner", put(set_owner))
         .route("/api/accounts/{id}/rename", put(rename_account))
+        .route("/api/accounts/{id}/fields", put(update_account))
         .route("/api/accounts/{id}/close", put(close_account))
         .route("/api/accounts/{id}/open", put(reopen_account))
         .route("/api/accounts/{id}", delete(delete_account))

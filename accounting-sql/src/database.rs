@@ -159,6 +159,16 @@ impl SqliteDatabase {
         crate::repo::account::account_rename(&mut conn, id, new_name).await
     }
 
+    pub async fn account_update_fields(
+        &self,
+        id: accounting::id::AccountId,
+        billing_day: Option<u8>,
+        repayment_day: Option<u8>,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_update_fields(&mut conn, id, billing_day, repayment_day).await
+    }
+
     pub async fn account_close(&self, id: accounting::id::AccountId) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::account::account_close(&mut conn, id).await

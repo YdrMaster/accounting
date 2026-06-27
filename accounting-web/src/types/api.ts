@@ -32,3 +32,20 @@ export interface SummaryDto {
   income: string
   expense: string
 }
+
+export interface MemberDto {
+  id: number
+  name: string
+}
+
+export interface AccountDto {
+  id: number
+  name: string
+  account_type: string
+  parent_id: number | null
+  closed_at: string | null
+  is_system: boolean
+  billing_day: number | null
+  repayment_day: number | null
+  owner_ids: number[]
+}

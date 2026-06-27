@@ -7,16 +7,25 @@ export const useReportStore = defineStore('report', () => {
   const summary = ref<SummaryDto | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const lastParams = ref<string | null>(null)
 
-  async function fetchSummary(from?: string, to?: string) {
+  async function fetchSummary(from?: string, to?: string, force = false) {
+    const params = new URLSearchParams()
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
+    const paramKey = params.toString()
+
+    // Skip fetch if we already have data with the same params
+    if (!force && summary.value !== null && lastParams.value === paramKey) {
+      return
+    }
+
     loading.value = true
     error.value = null
     try {
-      const params = new URLSearchParams()
-      if (from) params.set('from', from)
-      if (to) params.set('to', to)
-      const qs = params.toString() ? '?' + params.toString() : ''
+      const qs = paramKey ? '?' + paramKey : ''
       summary.value = await apiFetch<SummaryDto>(`/reports/summary${qs}`)
+      lastParams.value = paramKey
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
@@ -24,5 +33,10 @@ export const useReportStore = defineStore('report', () => {
     }
   }
 
-  return { summary, loading, error, fetchSummary }
+  function clearCache() {
+    summary.value = null
+    lastParams.value = null
+  }
+
+  return { summary, loading, error, fetchSummary, clearCache }
 })

@@ -9,6 +9,8 @@ pub enum AccountType {
     Income = 3,
     /// 支出类账户
     Expense = 4,
+    /// 导入类账户
+    Import = 5,
 }
 
 impl AccountType {
@@ -16,9 +18,10 @@ impl AccountType {
     pub fn close_conditions(self) -> String {
         match self {
             AccountType::Asset => rust_i18n::t!("close_condition_balance_zero").to_string(),
-            AccountType::Equity | AccountType::Income | AccountType::Expense => {
-                rust_i18n::t!("close_condition_unlimited").to_string()
-            }
+            AccountType::Equity
+            | AccountType::Income
+            | AccountType::Expense
+            | AccountType::Import => rust_i18n::t!("close_condition_unlimited").to_string(),
         }
     }
 
@@ -29,6 +32,7 @@ impl AccountType {
             AccountType::Equity => "account_type_equity",
             AccountType::Income => "account_type_income",
             AccountType::Expense => "account_type_expense",
+            AccountType::Import => "account_type_import",
         };
         rust_i18n::t!(key).to_string()
     }
@@ -43,6 +47,7 @@ impl std::str::FromStr for AccountType {
             "equity" | "权益" => Ok(Self::Equity),
             "income" | "收入" => Ok(Self::Income),
             "expense" | "expenses" | "支出" => Ok(Self::Expense),
+            "import" | "imports" | "导入" => Ok(Self::Import),
             _ => Err(format!("unknown account root name: {}", root_name)),
         }
     }
@@ -83,6 +88,10 @@ mod tests {
             AccountType::Expense.close_conditions(),
             rust_i18n::t!("close_condition_unlimited").to_string()
         );
+        assert_eq!(
+            AccountType::Import.close_conditions(),
+            rust_i18n::t!("close_condition_unlimited").to_string()
+        );
     }
 
     #[test]
@@ -103,6 +112,10 @@ mod tests {
             AccountType::Expense.display_name(),
             rust_i18n::t!("account_type_expense").to_string()
         );
+        assert_eq!(
+            AccountType::Import.display_name(),
+            rust_i18n::t!("account_type_import").to_string()
+        );
     }
 
     #[test]
@@ -116,12 +129,15 @@ mod tests {
         assert_eq!(AccountType::from_str("income"), Ok(AccountType::Income));
         assert_eq!(AccountType::from_str("expense"), Ok(AccountType::Expense));
         assert_eq!(AccountType::from_str("expenses"), Ok(AccountType::Expense));
+        assert_eq!(AccountType::from_str("import"), Ok(AccountType::Import));
+        assert_eq!(AccountType::from_str("imports"), Ok(AccountType::Import));
 
         // 中文
         assert_eq!(AccountType::from_str("资产"), Ok(AccountType::Asset));
         assert_eq!(AccountType::from_str("权益"), Ok(AccountType::Equity));
         assert_eq!(AccountType::from_str("收入"), Ok(AccountType::Income));
         assert_eq!(AccountType::from_str("支出"), Ok(AccountType::Expense));
+        assert_eq!(AccountType::from_str("导入"), Ok(AccountType::Import));
 
         // 大小写不敏感
         assert_eq!(AccountType::from_str("ASSET"), Ok(AccountType::Asset));
