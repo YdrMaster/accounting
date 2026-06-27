@@ -489,7 +489,7 @@ mod tests {
     #[tokio::test]
     async fn test_ensure_cascading_under_import_root() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
         let service = AccountService::new(db);
 
         // Import 根账户已通过 seed data 创建
@@ -529,7 +529,7 @@ mod tests {
     #[tokio::test]
     async fn test_ensure_cascading_idempotent() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
         let service = AccountService::new(db);
 
         let id1 = service
@@ -546,7 +546,7 @@ mod tests {
     #[tokio::test]
     async fn test_ensure_cascading_rejects_nonexistent_root() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
         let service = AccountService::new(db);
 
         let result = service.ensure_cascading("Nonexistent:子账户").await;
@@ -556,7 +556,7 @@ mod tests {
     #[tokio::test]
     async fn test_ensure_cascading_rejects_non_system_root() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
         let service = AccountService::new(db);
 
         // 先在 Assets 下创建普通子账户

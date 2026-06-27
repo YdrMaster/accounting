@@ -65,7 +65,7 @@ mod tests {
     #[tokio::test]
     async fn test_member_lifecycle() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
         let service = MemberService::new(db);
 
         let id = service.add("Alice".to_string()).await.unwrap();

@@ -131,7 +131,7 @@ mod tests {
 
     async fn setup_db() -> (SqliteDatabase, MemberId, ChannelId) {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
 
         // 创建成员
         let member = Member {

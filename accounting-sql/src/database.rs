@@ -10,6 +10,9 @@ pub struct SqliteDatabase {
     pool: SqlitePool,
 }
 
+/// 默认语言
+pub const DEFAULT_LANG: &str = "zh-CN";
+
 impl SqliteDatabase {
     /// 打开文件数据库并自动初始化 schema
     pub async fn open(path: &str) -> Result<Self, DbError> {
@@ -70,15 +73,25 @@ impl SqliteDatabase {
     }
 
     /// 初始化数据库种子数据
-    pub async fn initialize(&self, lang: &str) -> Result<(), DbError> {
+    ///
+    /// 若数据库已写入过种子数据（`settings.language` 已存在），则直接返回已保存的语言，
+    /// 避免再次运行时按另一种语言追加第二套默认账户。
+    ///
+    /// `lang` 为 `None` 时使用 [`DEFAULT_LANG`](DEFAULT_LANG)。
+    pub async fn initialize(&self, lang: Option<&str>) -> Result<String, DbError> {
         let mut conn = self
             .pool
             .acquire()
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
-        crate::schema::insert_seed_data(&mut conn, lang).await?;
-        crate::repo::set_setting(&mut conn, "language", lang).await?;
-        Ok(())
+        if let Some(saved) = crate::repo::get_setting(&mut conn, "language").await? {
+            Ok(saved)
+        } else {
+            let lang = lang.unwrap_or(DEFAULT_LANG);
+            crate::schema::insert_seed_data(&mut conn, lang).await?;
+            crate::repo::set_setting(&mut conn, "language", lang).await?;
+            Ok(lang.to_string())
+        }
     }
 
     // === Account ===
@@ -877,5 +890,25 @@ mod tests {
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(format!("{}-wal", path));
         let _ = std::fs::remove_file(format!("{}-shm", path));
+    }
+
+    #[tokio::test]
+    async fn test_initialize_is_idempotent_across_languages() {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+
+        db.initialize(Some("zh-CN")).await.unwrap();
+        // 模拟 API 服务在另一种语言下再次调用 initialize
+        db.initialize(Some("en")).await.unwrap();
+
+        let root_names: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM accounts WHERE parent_id IS NULL ORDER BY name")
+                .fetch_all(&db.pool)
+                .await
+                .unwrap();
+
+        assert_eq!(root_names, vec!["导入", "支出", "收入", "权益", "资产"]);
+
+        let lang = db.get_setting("language").await.unwrap();
+        assert_eq!(lang, Some("zh-CN".to_string()));
     }
 }

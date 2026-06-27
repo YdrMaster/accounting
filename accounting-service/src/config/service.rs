@@ -447,7 +447,7 @@ mod tests {
 
     async fn setup_db() -> SqliteDatabase {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("zh-CN").await.unwrap();
+        db.initialize(Some("zh-CN")).await.unwrap();
         db
     }
 

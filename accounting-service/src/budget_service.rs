@@ -268,7 +268,7 @@ mod tests {
 
     async fn setup() -> BudgetService {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
 
         // Create test expense accounts
         let expenses_id = db

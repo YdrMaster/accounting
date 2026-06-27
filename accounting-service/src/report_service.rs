@@ -401,7 +401,7 @@ mod tests {
 
     async fn setup_db() -> SqliteDatabase {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
         db
     }
 

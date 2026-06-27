@@ -57,7 +57,7 @@ mod tests {
     #[tokio::test]
     async fn test_tag_lifecycle() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
         let service = TagService::new(db);
 
         let id = service

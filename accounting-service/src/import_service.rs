@@ -328,7 +328,7 @@ mod tests {
 
     async fn setup_db() -> SqliteDatabase {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
 
         // 创建成员
         let member = accounting::member::Member {
@@ -494,7 +494,7 @@ mod tests {
     #[tokio::test]
     async fn test_import_channel_not_found() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize("en").await.unwrap();
+        db.initialize(Some("en")).await.unwrap();
         let service = ImportService::new(db);
 
         let result = service.import(b"test", "alipay", MemberId(1)).await;

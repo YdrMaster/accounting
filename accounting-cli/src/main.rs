@@ -9,13 +9,6 @@ use clap::Parser;
 use cmd::{Cli, Commands};
 use std::process;
 
-fn detect_system_language() -> String {
-    if let Ok(lang) = std::env::var("LANG") {
-        return lang.split('.').next().unwrap_or("en").to_string();
-    }
-    "en".to_string()
-}
-
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -41,13 +34,11 @@ async fn initialize(
     let db = accounting_sql::SqliteDatabase::open(db_path.to_str().unwrap())
         .await
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
-    let lang = cli_lang
-        .map(|s| s.to_string())
-        .unwrap_or_else(detect_system_language);
-    rust_i18n::set_locale(&lang);
-    db.initialize(&lang)
+    let lang = db
+        .initialize(cli_lang)
         .await
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
+    rust_i18n::set_locale(&lang);
     println!("{}", rust_i18n::t!("db_initialized"));
     Ok(())
 }
@@ -60,17 +51,14 @@ async fn run_command(cli: Cli) -> Result<(), accounting::error::AccountingError>
         .await
         .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
 
-    // 从数据库读取语言配置，优先级：--lang > 数据库配置 > 系统默认
-    let db_lang: Option<String> = db
+    // 从数据库读取语言配置，优先级：--lang > 数据库配置
+    let db_lang = db
         .get_setting("language")
         .await
-        .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
+        .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?
+        .ok_or(accounting::error::AccountingError::DbNotInitialized)?;
 
-    let lang = cli
-        .lang
-        .clone()
-        .or(db_lang)
-        .unwrap_or_else(detect_system_language);
+    let lang = cli.lang.clone().unwrap_or(db_lang);
     rust_i18n::set_locale(&lang);
 
     match cli.command {
