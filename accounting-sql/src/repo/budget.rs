@@ -1,5 +1,6 @@
 use accounting::amount;
-use accounting::budget::{Budget, BudgetLimit, BudgetPeriod};
+use accounting::budget::{Budget, BudgetLimit};
+use accounting::finance_period::FinancePeriod;
 use accounting::id::{AccountId, BudgetId, CommodityId};
 use rust_decimal::Decimal;
 use sqlx::{FromRow, SqliteConnection};
@@ -16,7 +17,7 @@ struct BudgetRow {
 
 impl BudgetRow {
     fn into_budget(self) -> Result<Budget, DbError> {
-        let period = BudgetPeriod::from_i64(self.period).ok_or_else(|| {
+        let period = FinancePeriod::from_i64(self.period).ok_or_else(|| {
             DbError::Database(format!("Invalid budget period value: {}", self.period))
         })?;
         Ok(Budget {
@@ -38,7 +39,7 @@ struct BudgetLimitRow {
 pub async fn budget_create(
     conn: &mut SqliteConnection,
     name: &str,
-    period: BudgetPeriod,
+    period: FinancePeriod,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
 ) -> Result<BudgetId, DbError> {
@@ -106,7 +107,7 @@ pub async fn budget_update(
     conn: &mut SqliteConnection,
     budget_id: BudgetId,
     name: &str,
-    period: BudgetPeriod,
+    period: FinancePeriod,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
 ) -> Result<(), DbError> {
@@ -173,7 +174,7 @@ pub async fn budget_list_all_with_limits(
 pub async fn budget_upsert_by_name(
     conn: &mut SqliteConnection,
     name: &str,
-    period: BudgetPeriod,
+    period: FinancePeriod,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
 ) -> Result<BudgetId, DbError> {
@@ -321,7 +322,7 @@ mod tests {
         let id = budget_create(
             &mut conn,
             "Monthly Life",
-            BudgetPeriod::Monthly,
+            FinancePeriod::Monthly,
             CommodityId(1),
             &[
                 (AccountId(1), Decimal::from_str("2000").unwrap()),
@@ -333,7 +334,7 @@ mod tests {
 
         let budget = budget_get(&mut conn, id).await.unwrap().unwrap();
         assert_eq!(budget.name, "Monthly Life");
-        assert_eq!(budget.period, BudgetPeriod::Monthly);
+        assert_eq!(budget.period, FinancePeriod::Monthly);
         assert_eq!(budget.commodity_id, CommodityId(1));
 
         let limits = budget_get_limits(&mut conn, id).await.unwrap();
@@ -346,7 +347,7 @@ mod tests {
         budget_create(
             &mut conn,
             "Budget A",
-            BudgetPeriod::Monthly,
+            FinancePeriod::Monthly,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
         )
@@ -355,7 +356,7 @@ mod tests {
         budget_create(
             &mut conn,
             "Budget B",
-            BudgetPeriod::Yearly,
+            FinancePeriod::Yearly,
             CommodityId(1),
             &[(AccountId(2), Decimal::from_str("20000").unwrap())],
         )
@@ -372,7 +373,7 @@ mod tests {
         let id = budget_create(
             &mut conn,
             "Old Name",
-            BudgetPeriod::Monthly,
+            FinancePeriod::Monthly,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
         )
@@ -383,7 +384,7 @@ mod tests {
             &mut conn,
             id,
             "New Name",
-            BudgetPeriod::Yearly,
+            FinancePeriod::Yearly,
             CommodityId(1),
             &[
                 (AccountId(1), Decimal::from_str("3000").unwrap()),
@@ -395,7 +396,7 @@ mod tests {
 
         let budget = budget_get(&mut conn, id).await.unwrap().unwrap();
         assert_eq!(budget.name, "New Name");
-        assert_eq!(budget.period, BudgetPeriod::Yearly);
+        assert_eq!(budget.period, FinancePeriod::Yearly);
 
         let limits = budget_get_limits(&mut conn, id).await.unwrap();
         assert_eq!(limits.len(), 2);
@@ -407,7 +408,7 @@ mod tests {
         let id = budget_create(
             &mut conn,
             "To Delete",
-            BudgetPeriod::Monthly,
+            FinancePeriod::Monthly,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
         )

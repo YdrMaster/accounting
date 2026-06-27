@@ -500,6 +500,104 @@ pub async fn sum_by_account_with_descendants(
         .collect())
 }
 
+/// 按账户组汇总分录金额（不含闭包表后代聚合，排除指定标签的交易，仅统计指定币种）
+///
+/// 与 `sum_by_account_with_descendants` 不同，此方法仅统计指定账户自身的分录，
+/// 不包含后代账户。用于资金流量表和预算执行表。
+pub async fn posting_sum_by_period(
+    conn: &mut SqliteConnection,
+    account_ids: &[AccountId],
+    start_date: chrono::NaiveDate,
+    end_date: chrono::NaiveDate,
+    exclude_tag_ids: &[TagId],
+    commodity_id: CommodityId,
+) -> Result<Vec<(AccountId, Decimal)>, DbError> {
+    if account_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let precision = get_precision(conn, commodity_id).await?;
+
+    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+        "SELECT p.account_id, SUM(p.amount) as total
+         FROM postings p
+         JOIN transactions t ON p.transaction_id = t.id
+         WHERE p.account_id IN (",
+    );
+
+    let mut separated = builder.separated(", ");
+    for id in account_ids {
+        separated.push_bind(id.0);
+    }
+    builder.push(") AND t.date_time >= ");
+    builder.push_bind(datetime_utils::start_of_day(start_date).to_string());
+    builder.push(" AND t.date_time <= ");
+    builder.push_bind(datetime_utils::end_of_day(end_date).to_string());
+    builder.push(" AND p.commodity_id = ");
+    builder.push_bind(commodity_id.0);
+
+    if !exclude_tag_ids.is_empty() {
+        builder.push(" AND NOT EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id IN (");
+        let mut sep = builder.separated(", ");
+        for tid in exclude_tag_ids {
+            sep.push_bind(tid.0);
+        }
+        builder.push("))");
+    }
+
+    builder.push(" GROUP BY p.account_id");
+
+    let rows: Vec<(i64, i64)> = builder
+        .build_query_as()
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(account_id, amount)| (AccountId(account_id), from_db_amount(amount, precision)))
+        .collect())
+}
+
+/// 统计所有资产类账户的余额（单条 SQL）
+///
+/// 返回 (account_id, commodity_id, balance) 列表，仅包含资产根账户下的账户。
+pub async fn posting_sum_all_assets(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<(AccountId, CommodityId, Decimal)>, DbError> {
+    let precisions = load_precisions(conn).await?;
+
+    let rows: Vec<(i64, i64, i64)> = sqlx::query_as(
+        "SELECT p.account_id, p.commodity_id, SUM(p.amount)
+         FROM postings p
+         JOIN accounts a ON p.account_id = a.id
+         JOIN account_ancestors aa ON a.id = aa.account_id
+         JOIN accounts root ON aa.ancestor_id = root.id
+           AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
+         WHERE root.name IN ('Assets', '资产')
+         GROUP BY p.account_id, p.commodity_id
+         HAVING SUM(p.amount) != 0",
+    )
+    .fetch_all(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(account_id, commodity_id, amount)| {
+            let precision = precisions
+                .get(&CommodityId(commodity_id))
+                .copied()
+                .unwrap_or(2);
+            (
+                AccountId(account_id),
+                CommodityId(commodity_id),
+                from_db_amount(amount, precision),
+            )
+        })
+        .collect())
+}
+
 async fn load_precisions(conn: &mut SqliteConnection) -> Result<HashMap<CommodityId, u8>, DbError> {
     let rows: Vec<(i64, i32)> = sqlx::query_as("SELECT id, precision FROM commodities")
         .fetch_all(conn)

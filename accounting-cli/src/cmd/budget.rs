@@ -1,5 +1,5 @@
-use accounting::budget::BudgetPeriod;
 use accounting::error::AccountingError;
+use accounting::finance_period::FinancePeriod;
 use accounting::id::{AccountId, CommodityId};
 use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
@@ -87,13 +87,13 @@ impl BudgetCmd {
     }
 }
 
-fn parse_period(s: &str) -> Result<BudgetPeriod, AccountingError> {
+fn parse_period(s: &str) -> Result<FinancePeriod, AccountingError> {
     match s.to_lowercase().as_str() {
-        "daily" => Ok(BudgetPeriod::Daily),
-        "weekly-sun" => Ok(BudgetPeriod::WeeklyFromSunday),
-        "weekly-mon" => Ok(BudgetPeriod::WeeklyFromMonday),
-        "monthly" => Ok(BudgetPeriod::Monthly),
-        "yearly" => Ok(BudgetPeriod::Yearly),
+        "daily" => Ok(FinancePeriod::Daily),
+        "weekly-sun" => Ok(FinancePeriod::WeeklyFromSunday),
+        "weekly-mon" => Ok(FinancePeriod::WeeklyFromMonday),
+        "monthly" => Ok(FinancePeriod::Monthly),
+        "yearly" => Ok(FinancePeriod::Yearly),
         _ => Err(AccountingError::InvalidDate(format!(
             "未知周期类型: {}，可选: daily, weekly-sun, weekly-mon, monthly, yearly",
             s
@@ -177,7 +177,7 @@ async fn create(db: &SqliteDatabase, args: &BudgetCreateArgs) -> Result<(), Acco
     let period = parse_period(&args.period)?;
     let limits = parse_limits(db, &args.limits).await?;
 
-    let service = accounting_service::budget_service::BudgetService::new(db.clone());
+    let service = accounting_service::report::budget::BudgetService::new(db.clone());
     let id = service
         .create_budget(&args.name, period, CommodityId(args.commodity), &limits)
         .await?;
@@ -187,7 +187,7 @@ async fn create(db: &SqliteDatabase, args: &BudgetCreateArgs) -> Result<(), Acco
 }
 
 async fn list(db: &SqliteDatabase) -> Result<(), AccountingError> {
-    let service = accounting_service::budget_service::BudgetService::new(db.clone());
+    let service = accounting_service::report::budget::BudgetService::new(db.clone());
     let budgets = service.list_budgets().await?;
 
     if budgets.is_empty() {
@@ -212,7 +212,7 @@ async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), Accounti
         None => chrono::Local::now().date_naive(),
     };
 
-    let service = accounting_service::budget_service::BudgetService::new(db.clone());
+    let service = accounting_service::report::budget::BudgetService::new(db.clone());
     let status = service
         .get_budget_status(accounting::id::BudgetId(args.budget_id), date)
         .await?;
@@ -264,7 +264,7 @@ async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), Accounti
 
 async fn update(db: &SqliteDatabase, args: &BudgetUpdateArgs) -> Result<(), AccountingError> {
     let detail = {
-        let service = accounting_service::budget_service::BudgetService::new(db.clone());
+        let service = accounting_service::report::budget::BudgetService::new(db.clone());
         service
             .get_budget_detail(accounting::id::BudgetId(args.budget_id))
             .await?
@@ -290,7 +290,7 @@ async fn update(db: &SqliteDatabase, args: &BudgetUpdateArgs) -> Result<(), Acco
         parse_limits(db, &args.limits).await?
     };
 
-    let service = accounting_service::budget_service::BudgetService::new(db.clone());
+    let service = accounting_service::report::budget::BudgetService::new(db.clone());
     service
         .update_budget(
             accounting::id::BudgetId(args.budget_id),
@@ -306,7 +306,7 @@ async fn update(db: &SqliteDatabase, args: &BudgetUpdateArgs) -> Result<(), Acco
 }
 
 async fn delete(db: &SqliteDatabase, args: &BudgetDeleteArgs) -> Result<(), AccountingError> {
-    let service = accounting_service::budget_service::BudgetService::new(db.clone());
+    let service = accounting_service::report::budget::BudgetService::new(db.clone());
     service
         .delete_budget(accounting::id::BudgetId(args.budget_id))
         .await?;

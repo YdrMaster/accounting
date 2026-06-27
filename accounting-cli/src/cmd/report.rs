@@ -1,61 +1,31 @@
-use crate::cmd::{BalanceRow, ReportBalanceRow, StatRow};
+use crate::cmd::ReportBalanceRow;
 use crate::output::{OutputFormat, print_line, print_vec};
 use accounting::error::AccountingError;
-use accounting::id::{AccountId, ChannelId, MemberId};
-use accounting::transaction_filter::TransactionFilter;
+use accounting::finance_period::FinancePeriod;
+use accounting::id::CommodityId;
 use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_i18n::t;
 
 #[derive(Subcommand)]
 pub enum ReportCmd {
-    /// 查询账户余额
-    Balance(ReportBalanceArgs),
     /// 资产负债表
     Bs,
-    /// 损益表
-    Is,
-    /// 按维度统计
-    Stat(ReportStatArgs),
+    /// 资金流量表
+    CashFlow(CashFlowArgs),
 }
 
 #[derive(Args)]
-pub struct ReportBalanceArgs {
-    pub account_id: i64,
-}
-
-#[derive(Args)]
-pub struct ReportStatArgs {
-    /// 按标签统计
-    #[arg(long, group = "dimension")]
-    pub by_tag: bool,
-    /// 按成员统计
-    #[arg(long, group = "dimension")]
-    pub by_member: bool,
-    /// 按渠道统计
-    #[arg(long, group = "dimension")]
-    pub by_channel: bool,
-    /// 起始日期
+pub struct CashFlowArgs {
+    /// 查询日期（默认今天）
     #[arg(long)]
-    pub from: Option<String>,
-    /// 结束日期
+    pub date: Option<String>,
+    /// 周期类型 (daily | weekly-sun | weekly-mon | monthly | yearly)
     #[arg(long)]
-    pub to: Option<String>,
-    /// 指定账户（可多次指定）
+    pub period: Option<String>,
+    /// 币种 ID
     #[arg(long)]
-    pub account: Vec<i64>,
-    /// 指定成员（可多次指定）
-    #[arg(long)]
-    pub member: Vec<i64>,
-    /// 指定标签名称（可多次指定）
-    #[arg(long)]
-    pub tag: Vec<String>,
-    /// 指定渠道（可多次指定）
-    #[arg(long)]
-    pub channel: Vec<i64>,
-    /// 关键词
-    #[arg(long)]
-    pub keyword: Option<String>,
+    pub commodity: Option<i64>,
 }
 
 impl ReportCmd {
@@ -65,26 +35,9 @@ impl ReportCmd {
         format: OutputFormat,
     ) -> Result<(), AccountingError> {
         match self {
-            ReportCmd::Balance(args) => {
-                // 查询指定账户余额并转换为表格行
-                let service = accounting_service::report_service::ReportService::new(db);
-                let balances = service.get_balance(AccountId(args.account_id)).await?;
-                let rows: Vec<BalanceRow> = balances
-                    .iter()
-                    .map(|(cid, amount)| BalanceRow {
-                        commodity_id: cid.0,
-                        amount: amount.to_string(),
-                    })
-                    .collect();
-                if rows.is_empty() {
-                    print_line(t!("balance_zero").as_ref(), format);
-                } else {
-                    print_vec(&rows, format);
-                }
-            }
             ReportCmd::Bs => {
-                // 生成资产负债表并按资产/权益分类输出
-                let service = accounting_service::report_service::ReportService::new(db);
+                let service =
+                    accounting_service::report::balance_sheet::BalanceSheetService::new(db);
                 let bs = service.balance_sheet().await?;
                 let mut rows = Vec::new();
                 for item in &bs.assets {
@@ -97,157 +50,47 @@ impl ReportCmd {
                         });
                     }
                 }
-                for item in &bs.equity {
-                    for (cid, amount) in &item.balances {
-                        rows.push(ReportBalanceRow {
-                            account_id: item.account.id.0,
-                            account_name: format!("[权益] {}", item.account.name),
-                            commodity_id: cid.0,
-                            amount: amount.to_string(),
-                        });
-                    }
-                }
                 if rows.is_empty() {
                     print_line(t!("no_data").as_ref(), format);
                 } else {
                     print_vec(&rows, format);
                 }
             }
-            ReportCmd::Is => {
-                // 生成损益表并按收入/费用分类输出
-                let service = accounting_service::report_service::ReportService::new(db);
-                let is = service.income_statement().await?;
-                let mut rows = Vec::new();
-                for item in &is.income {
-                    for (cid, amount) in &item.balances {
-                        rows.push(ReportBalanceRow {
-                            account_id: item.account.id.0,
-                            account_name: format!("[收入] {}", item.account.name),
-                            commodity_id: cid.0,
-                            amount: amount.to_string(),
-                        });
-                    }
-                }
-                for item in &is.expenses {
-                    for (cid, amount) in &item.balances {
-                        rows.push(ReportBalanceRow {
-                            account_id: item.account.id.0,
-                            account_name: format!("[费用] {}", item.account.name),
-                            commodity_id: cid.0,
-                            amount: amount.to_string(),
-                        });
-                    }
-                }
-                if rows.is_empty() {
-                    print_line(t!("no_data").as_ref(), format);
-                } else {
-                    print_vec(&rows, format);
-                }
-            }
-            ReportCmd::Stat(args) => {
-                if !args.by_tag && !args.by_member && !args.by_channel {
-                    return Err(AccountingError::Unknown(
-                        t!("report_no_group_by").to_string(),
-                    ));
-                }
+            ReportCmd::CashFlow(args) => {
+                let today = chrono::Local::now().date_naive();
+                let date = match &args.date {
+                    Some(d) => parse_date(d)?,
+                    None => today,
+                };
+                let period = match &args.period {
+                    Some(p) => parse_period(p)?,
+                    None => FinancePeriod::Monthly,
+                };
+                let commodity_id = CommodityId(args.commodity.unwrap_or(1));
 
-                let mut filter = TransactionFilter::default();
-                if let Some(ref from) = args.from {
-                    filter.start_date = Some(parse_date(from)?);
-                }
-                if let Some(ref to) = args.to {
-                    filter.end_date = Some(parse_date(to)?);
-                }
-                filter.account_ids = args.account.iter().map(|&id| AccountId(id)).collect();
-                filter.member_ids = args.member.iter().map(|&id| MemberId(id)).collect();
-                for tag_name in &args.tag {
-                    let tag = db
-                        .tag_get_by_name(tag_name)
-                        .await
-                        .map_err(|e| AccountingError::Unknown(e.to_string()))?
-                        .ok_or_else(|| {
-                            AccountingError::Unknown(format!(
-                                "{}",
-                                t!("tag_name_not_found", name = tag_name)
-                            ))
-                        })?;
-                    filter.tag_ids.push(tag.id);
-                }
-                filter.channel_ids = args.channel.iter().map(|&id| ChannelId(id)).collect();
-                if let Some(ref keyword) = args.keyword {
-                    filter.keyword = Some(keyword.clone());
-                }
+                let service = accounting_service::report::cash_flow::CashFlowService::new(db);
+                let report = service.cash_flow_report(date, period, commodity_id).await?;
 
-                let service = accounting_service::report_service::ReportService::new(db);
-                let mut rows = Vec::new();
-
-                if args.by_tag {
-                    let stats = service.stats_by_tag(&filter).await?;
-                    for stat in &stats {
-                        for (cid, amount) in &stat.income {
-                            rows.push(StatRow {
-                                dimension_name: stat.tag.name.clone(),
-                                stat_type: "收入".to_string(),
-                                commodity_id: cid.0,
-                                amount: amount.to_string(),
-                            });
-                        }
-                        for (cid, amount) in &stat.expense {
-                            rows.push(StatRow {
-                                dimension_name: stat.tag.name.clone(),
-                                stat_type: "支出".to_string(),
-                                commodity_id: cid.0,
-                                amount: amount.to_string(),
-                            });
-                        }
-                    }
-                } else if args.by_member {
-                    let stats = service.stats_by_member(&filter).await?;
-                    for stat in &stats {
-                        for (cid, amount) in &stat.income {
-                            rows.push(StatRow {
-                                dimension_name: stat.member.name.clone(),
-                                stat_type: "收入".to_string(),
-                                commodity_id: cid.0,
-                                amount: amount.to_string(),
-                            });
-                        }
-                        for (cid, amount) in &stat.expense {
-                            rows.push(StatRow {
-                                dimension_name: stat.member.name.clone(),
-                                stat_type: "支出".to_string(),
-                                commodity_id: cid.0,
-                                amount: amount.to_string(),
-                            });
-                        }
-                    }
-                } else if args.by_channel {
-                    let stats = service.stats_by_channel(&filter).await?;
-                    for stat in &stats {
-                        for (cid, amount) in &stat.income {
-                            rows.push(StatRow {
-                                dimension_name: stat.channel.name.clone(),
-                                stat_type: "收入".to_string(),
-                                commodity_id: cid.0,
-                                amount: amount.to_string(),
-                            });
-                        }
-                        for (cid, amount) in &stat.expense {
-                            rows.push(StatRow {
-                                dimension_name: stat.channel.name.clone(),
-                                stat_type: "支出".to_string(),
-                                commodity_id: cid.0,
-                                amount: amount.to_string(),
-                            });
-                        }
-                    }
+                println!(
+                    "资金流量表：{} ~ {}",
+                    report.period_start, report.period_end
+                );
+                println!();
+                println!(
+                    "{:<30} {:>12} {:>12} {:>12}",
+                    "Account", "Inflow", "Outflow", "Net"
+                );
+                for item in &report.items {
+                    println!(
+                        "{:<30} {:>12} {:>12} {:>12}",
+                        item.account.name, item.inflow, item.outflow, item.net
+                    );
                 }
-
-                if rows.is_empty() {
-                    print_line(t!("no_data").as_ref(), format);
-                } else {
-                    print_vec(&rows, format);
-                }
+                println!("{}", "-".repeat(70));
+                println!(
+                    "{:<30} {:>12} {:>12} {:>12}",
+                    "Total", report.total.inflow, report.total.outflow, report.total.net
+                );
             }
         }
         Ok(())
@@ -258,4 +101,18 @@ fn parse_date(s: &str) -> Result<chrono::NaiveDate, AccountingError> {
     chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| {
         AccountingError::InvalidDate(format!("{}", t!("invalid_date_only_format", value = s)))
     })
+}
+
+fn parse_period(s: &str) -> Result<FinancePeriod, AccountingError> {
+    match s.to_lowercase().as_str() {
+        "daily" => Ok(FinancePeriod::Daily),
+        "weekly-sun" => Ok(FinancePeriod::WeeklyFromSunday),
+        "weekly-mon" => Ok(FinancePeriod::WeeklyFromMonday),
+        "monthly" => Ok(FinancePeriod::Monthly),
+        "yearly" => Ok(FinancePeriod::Yearly),
+        _ => Err(AccountingError::InvalidDate(format!(
+            "未知周期类型: {}，可选: daily, weekly-sun, weekly-mon, monthly, yearly",
+            s
+        ))),
+    }
 }

@@ -724,7 +724,7 @@ impl SqliteDatabase {
     pub async fn budget_create(
         &self,
         name: &str,
-        period: accounting::budget::BudgetPeriod,
+        period: accounting::finance_period::FinancePeriod,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
     ) -> Result<accounting::id::BudgetId, DbError> {
@@ -749,7 +749,7 @@ impl SqliteDatabase {
         &self,
         budget_id: accounting::id::BudgetId,
         name: &str,
-        period: accounting::budget::BudgetPeriod,
+        period: accounting::finance_period::FinancePeriod,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
     ) -> Result<(), DbError> {
@@ -787,7 +787,7 @@ impl SqliteDatabase {
     pub async fn budget_upsert_by_name(
         &self,
         name: &str,
-        period: accounting::budget::BudgetPeriod,
+        period: accounting::finance_period::FinancePeriod,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
     ) -> Result<accounting::id::BudgetId, DbError> {
@@ -871,6 +871,40 @@ impl SqliteDatabase {
             commodity_id,
         )
         .await
+    }
+
+    pub async fn posting_sum_by_period(
+        &self,
+        account_ids: &[accounting::id::AccountId],
+        start_date: chrono::NaiveDate,
+        end_date: chrono::NaiveDate,
+        exclude_tag_ids: &[accounting::id::TagId],
+        commodity_id: accounting::id::CommodityId,
+    ) -> Result<Vec<(accounting::id::AccountId, rust_decimal::Decimal)>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::posting::posting_sum_by_period(
+            &mut conn,
+            account_ids,
+            start_date,
+            end_date,
+            exclude_tag_ids,
+            commodity_id,
+        )
+        .await
+    }
+
+    pub async fn posting_sum_all_assets(
+        &self,
+    ) -> Result<
+        Vec<(
+            accounting::id::AccountId,
+            accounting::id::CommodityId,
+            rust_decimal::Decimal,
+        )>,
+        DbError,
+    > {
+        let mut conn = self.acquire().await?;
+        crate::repo::posting::posting_sum_all_assets(&mut conn).await
     }
 
     async fn acquire(&self) -> Result<sqlx::pool::PoolConnection<sqlx::Sqlite>, DbError> {

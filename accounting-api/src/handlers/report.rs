@@ -2,16 +2,17 @@
 
 use crate::handlers::member::AppState;
 use accounting::account::Account;
-use accounting::id::AccountId;
-use accounting::transaction_filter::TransactionFilter;
-use accounting_service::report_service::ReportService;
+use accounting::finance_period::FinancePeriod;
+use accounting::id::{AccountId, CommodityId};
+use accounting_service::report::balance_sheet::BalanceSheetService;
+use accounting_service::report::cash_flow::CashFlowService;
 use axum::{
     Json, Router,
     extract::{Query, State},
     routing::get,
 };
-use chrono::{Datelike, NaiveDate};
-use rust_i18n::t;
+use chrono::NaiveDate;
+use rust_decimal::Decimal;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -20,7 +21,6 @@ use std::sync::Arc;
 #[derive(Serialize)]
 struct BalanceSheetResponse {
     assets: Vec<AccountBalanceItem>,
-    equity: Vec<AccountBalanceItem>,
 }
 
 /// 账户余额项
@@ -37,41 +37,36 @@ struct BalanceEntry {
     amount: String,
 }
 
-/// 损益表响应
-#[derive(Serialize)]
-struct IncomeStatementResponse {
-    income: Vec<AccountBalanceItem>,
-    expenses: Vec<AccountBalanceItem>,
-}
-
-/// 统计项响应
-#[derive(Serialize)]
-struct StatItem {
-    name: String,
-    income: Vec<BalanceEntry>,
-    expense: Vec<BalanceEntry>,
-}
-
-/// 统计查询参数
+/// 资金流量表查询参数
 #[derive(serde::Deserialize)]
-pub struct StatsQuery {
-    pub by: String,
-    pub from: Option<String>,
-    pub to: Option<String>,
+pub struct CashFlowQuery {
+    pub date: Option<String>,
+    pub period: Option<String>,
+    pub commodity: Option<i64>,
 }
 
-/// 收支汇总查询参数
-#[derive(serde::Deserialize)]
-pub struct SummaryQuery {
-    pub from: Option<String>,
-    pub to: Option<String>,
-}
-
-/// 收支汇总响应
+/// 资金流量表响应
 #[derive(Serialize)]
-struct SummaryResponse {
-    income: String,
-    expense: String,
+struct CashFlowResponse {
+    period_start: String,
+    period_end: String,
+    items: Vec<CashFlowItem>,
+    total: CashFlowTotal,
+}
+
+#[derive(Serialize)]
+struct CashFlowItem {
+    account: String,
+    inflow: String,
+    outflow: String,
+    net: String,
+}
+
+#[derive(Serialize)]
+struct CashFlowTotal {
+    inflow: String,
+    outflow: String,
+    net: String,
 }
 
 /// 获取资产负债表
@@ -93,7 +88,7 @@ async fn balance_sheet(
             .collect()
     };
 
-    let service = ReportService::new(db.clone());
+    let service = BalanceSheetService::new(db.clone());
     let sheet = service.balance_sheet().await.map_err(|e| e.to_string())?;
 
     Ok(Json(BalanceSheetResponse {
@@ -102,19 +97,60 @@ async fn balance_sheet(
             .into_iter()
             .map(|ab| into_item(&account_paths, ab))
             .collect(),
-        equity: sheet
-            .equity
-            .into_iter()
-            .map(|ab| into_item(&account_paths, ab))
-            .collect(),
     }))
 }
 
-/// 获取损益表
-async fn income_statement(
+fn into_item(
+    account_paths: &HashMap<i64, String>,
+    ab: accounting_service::report::balance_sheet::AccountBalance,
+) -> AccountBalanceItem {
+    AccountBalanceItem {
+        account: account_paths
+            .get(&ab.account.id.0)
+            .cloned()
+            .unwrap_or_else(|| ab.account.name.clone()),
+        balances: ab.balances.into_iter().map(into_entry).collect(),
+    }
+}
+
+fn into_entry((cid, amount): (CommodityId, Decimal)) -> BalanceEntry {
+    BalanceEntry {
+        commodity_id: cid.0,
+        amount: amount.to_string(),
+    }
+}
+
+fn parse_period(s: &str) -> Result<FinancePeriod, String> {
+    match s.to_lowercase().as_str() {
+        "daily" => Ok(FinancePeriod::Daily),
+        "weekly-sun" => Ok(FinancePeriod::WeeklyFromSunday),
+        "weekly-mon" => Ok(FinancePeriod::WeeklyFromMonday),
+        "monthly" => Ok(FinancePeriod::Monthly),
+        "yearly" => Ok(FinancePeriod::Yearly),
+        _ => Err(format!("未知周期类型: {}", s)),
+    }
+}
+
+/// 获取资金流量表
+async fn cash_flow(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<IncomeStatementResponse>, String> {
+    Query(query): Query<CashFlowQuery>,
+) -> Result<Json<CashFlowResponse>, String> {
     let db = state.db();
+
+    let today = chrono::Local::now().date_naive();
+    let date = match query.date {
+        Some(d) => {
+            NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(|e| format!("Invalid date: {}", e))?
+        }
+        None => today,
+    };
+    let period = match query.period {
+        Some(p) => parse_period(&p)?,
+        None => FinancePeriod::Monthly,
+    };
+    let commodity_id = CommodityId(query.commodity.unwrap_or(1));
+
     let account_paths: HashMap<i64, String> = {
         let accounts: HashMap<AccountId, Account> = db
             .account_list()
@@ -129,132 +165,33 @@ async fn income_statement(
             .collect()
     };
 
-    let service = ReportService::new(db.clone());
-    let stmt = service
-        .income_statement()
+    let service = CashFlowService::new(db.clone());
+    let report = service
+        .cash_flow_report(date, period, commodity_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(Json(IncomeStatementResponse {
-        income: stmt
-            .income
+    Ok(Json(CashFlowResponse {
+        period_start: report.period_start.to_string(),
+        period_end: report.period_end.to_string(),
+        items: report
+            .items
             .into_iter()
-            .map(|ab| into_item(&account_paths, ab))
-            .collect(),
-        expenses: stmt
-            .expenses
-            .into_iter()
-            .map(|ab| into_item(&account_paths, ab))
-            .collect(),
-    }))
-}
-
-/// 按维度统计
-async fn stats(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<StatsQuery>,
-) -> Result<Json<Vec<StatItem>>, String> {
-    let db = state.db();
-
-    let mut filter = TransactionFilter::default();
-    if let Some(from) = query.from {
-        let date = NaiveDate::parse_from_str(&from, "%Y-%m-%d")
-            .map_err(|e| format!("Invalid from date: {}", e))?;
-        filter.start_date = Some(date);
-    }
-    if let Some(to) = query.to {
-        let date = NaiveDate::parse_from_str(&to, "%Y-%m-%d")
-            .map_err(|e| format!("Invalid to date: {}", e))?;
-        filter.end_date = Some(date);
-    }
-
-    let service = ReportService::new(db.clone());
-
-    let items = match query.by.as_str() {
-        "tag" => service
-            .stats_by_tag(&filter)
-            .await
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|s| StatItem {
-                name: s.tag.name,
-                income: s.income.into_iter().map(into_entry).collect(),
-                expense: s.expense.into_iter().map(into_entry).collect(),
+            .map(|item| CashFlowItem {
+                account: account_paths
+                    .get(&item.account.id.0)
+                    .cloned()
+                    .unwrap_or_else(|| item.account.name.clone()),
+                inflow: item.inflow.to_string(),
+                outflow: item.outflow.to_string(),
+                net: item.net.to_string(),
             })
             .collect(),
-        "member" => service
-            .stats_by_member(&filter)
-            .await
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|s| StatItem {
-                name: s.member.name,
-                income: s.income.into_iter().map(into_entry).collect(),
-                expense: s.expense.into_iter().map(into_entry).collect(),
-            })
-            .collect(),
-        "channel" => service
-            .stats_by_channel(&filter)
-            .await
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|s| StatItem {
-                name: s.channel.name,
-                income: s.income.into_iter().map(into_entry).collect(),
-                expense: s.expense.into_iter().map(into_entry).collect(),
-            })
-            .collect(),
-        other => return Err(t!("unsupported_stat_dimension", dimension = other).to_string()),
-    };
-
-    Ok(Json(items))
-}
-
-fn into_item(
-    account_paths: &HashMap<i64, String>,
-    ab: accounting_service::report_service::AccountBalance,
-) -> AccountBalanceItem {
-    AccountBalanceItem {
-        account: account_paths
-            .get(&ab.account.id.0)
-            .cloned()
-            .unwrap_or_else(|| ab.account.name.clone()),
-        balances: ab.balances.into_iter().map(into_entry).collect(),
-    }
-}
-
-fn into_entry((cid, amount): (accounting::id::CommodityId, rust_decimal::Decimal)) -> BalanceEntry {
-    BalanceEntry {
-        commodity_id: cid.0,
-        amount: amount.to_string(),
-    }
-}
-
-/// 收支汇总
-async fn summary(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<SummaryQuery>,
-) -> Result<Json<SummaryResponse>, String> {
-    let db = state.db();
-
-    let today = chrono::Local::now().date_naive();
-    let from = match query.from {
-        Some(s) => NaiveDate::parse_from_str(&s, "%Y-%m-%d")
-            .map_err(|e| format!("Invalid from date: {}", e))?,
-        None => NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today),
-    };
-    let to = match query.to {
-        Some(s) => NaiveDate::parse_from_str(&s, "%Y-%m-%d")
-            .map_err(|e| format!("Invalid to date: {}", e))?,
-        None => today,
-    };
-
-    let service = ReportService::new(db.clone());
-    let result = service.summary(from, to).await.map_err(|e| e.to_string())?;
-
-    Ok(Json(SummaryResponse {
-        income: result.income.to_string(),
-        expense: result.expense.to_string(),
+        total: CashFlowTotal {
+            inflow: report.total.inflow.to_string(),
+            outflow: report.total.outflow.to_string(),
+            net: report.total.net.to_string(),
+        },
     }))
 }
 
@@ -262,7 +199,5 @@ async fn summary(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/reports/balance-sheet", get(balance_sheet))
-        .route("/api/reports/income-statement", get(income_statement))
-        .route("/api/reports/stats", get(stats))
-        .route("/api/reports/summary", get(summary))
+        .route("/api/reports/cash-flow", get(cash_flow))
 }

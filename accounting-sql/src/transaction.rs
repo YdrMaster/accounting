@@ -579,7 +579,7 @@ impl<'a> SqliteTransaction<'a> {
     pub async fn budget_upsert_by_name(
         &mut self,
         name: &str,
-        period: accounting::budget::BudgetPeriod,
+        period: accounting::finance_period::FinancePeriod,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
     ) -> Result<accounting::id::BudgetId, DbError> {

@@ -1,5 +1,5 @@
-use accounting::budget::BudgetPeriod;
 use accounting::error::AccountingError;
+use accounting::finance_period::FinancePeriod;
 use accounting::id::{AccountId, ChannelId, CommodityId, MemberId};
 use accounting_sql::SqliteDatabase;
 use rust_decimal::Decimal;
@@ -422,13 +422,13 @@ impl ConfigService {
     }
 }
 
-fn parse_budget_period(s: &str) -> Result<BudgetPeriod, AccountingError> {
+fn parse_budget_period(s: &str) -> Result<FinancePeriod, AccountingError> {
     match s {
-        "Daily" => Ok(BudgetPeriod::Daily),
-        "WeeklyFromSunday" => Ok(BudgetPeriod::WeeklyFromSunday),
-        "WeeklyFromMonday" => Ok(BudgetPeriod::WeeklyFromMonday),
-        "Monthly" => Ok(BudgetPeriod::Monthly),
-        "Yearly" => Ok(BudgetPeriod::Yearly),
+        "Daily" => Ok(FinancePeriod::Daily),
+        "WeeklyFromSunday" => Ok(FinancePeriod::WeeklyFromSunday),
+        "WeeklyFromMonday" => Ok(FinancePeriod::WeeklyFromMonday),
+        "Monthly" => Ok(FinancePeriod::Monthly),
+        "Yearly" => Ok(FinancePeriod::Yearly),
         _ => Err(AccountingError::InvalidTransaction(format!(
             "未知的预算周期: {}",
             s
@@ -440,7 +440,7 @@ fn parse_budget_period(s: &str) -> Result<BudgetPeriod, AccountingError> {
 mod tests {
     use super::*;
     use crate::config::dto::YamlBudget;
-    use accounting::budget::BudgetPeriod;
+    use accounting::finance_period::FinancePeriod;
     use accounting::id::CommodityId;
     use rust_decimal::Decimal;
     use std::collections::BTreeMap;
@@ -495,7 +495,7 @@ mod tests {
 
         db.budget_upsert_by_name(
             "月度预算",
-            BudgetPeriod::Monthly,
+            FinancePeriod::Monthly,
             CommodityId(1),
             &[(account_id, Decimal::from_str("3000.00").unwrap())],
         )

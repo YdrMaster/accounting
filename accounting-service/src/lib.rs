@@ -4,8 +4,6 @@ rust_i18n::i18n!("locales", fallback = "en");
 
 /// 账户服务
 pub mod account_service;
-/// 预算服务
-pub mod budget_service;
 /// 商品/货币服务
 pub mod commodity_service;
 /// 配置导入导出服务
@@ -18,8 +16,8 @@ pub mod import_service;
 pub mod mapping_service;
 /// 成员服务
 pub mod member_service;
-/// 报表服务
-pub mod report_service;
+/// 报表模块
+pub mod report;
 /// 标签服务
 pub mod tag_service;
 /// 交易服务

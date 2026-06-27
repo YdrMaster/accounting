@@ -6,19 +6,19 @@
 
 ## Requirements
 
-### Requirement: BudgetPeriod 枚举定义预算周期类型
-系统 SHALL 定义 `BudgetPeriod` 枚举，包含 5 个变体：`Daily`(1)、`WeeklyFromSunday`(2)、`WeeklyFromMonday`(3)、`Monthly`(4)、`Yearly`(5)。周起始日直接编码在枚举变体中，无额外字段。
+### Requirement: FinancePeriod 枚举定义预算周期类型
+系统 SHALL 定义 `FinancePeriod` 枚举，包含 5 个变体：`Daily`(1)、`WeeklyFromSunday`(2)、`WeeklyFromMonday`(3)、`Monthly`(4)、`Yearly`(5)。周起始日直接编码在枚举变体中，无额外字段。
 
 #### Scenario: 枚举值与整数互转
-- **WHEN** 将 `BudgetPeriod::Monthly` 转为整数
+- **WHEN** 将 `FinancePeriod::Monthly` 转为整数
 - **THEN** 结果为 4
 
 #### Scenario: 从整数创建枚举
-- **WHEN** 从整数 3 创建 BudgetPeriod
+- **WHEN** 从整数 3 创建 FinancePeriod
 - **THEN** 结果为 `WeeklyFromMonday`
 
 ### Requirement: 周期计算器计算日期范围
-BudgetPeriod SHALL 提供 `period_range(date: NaiveDate) -> (NaiveDate, NaiveDate)` 方法，给定日期返回其所在预算周期的起止日期。
+FinancePeriod SHALL 提供 `period_range(date: NaiveDate) -> (NaiveDate, NaiveDate)` 方法，给定日期返回其所在预算周期的起止日期。
 
 #### Scenario: Daily 周期
 - **WHEN** 对日期 2026-06-26 调用 Daily.period_range()
@@ -41,7 +41,7 @@ BudgetPeriod SHALL 提供 `period_range(date: NaiveDate) -> (NaiveDate, NaiveDat
 - **THEN** 返回 (2026-01-01, 2026-12-31)
 
 ### Requirement: Budget 预算表数据结构
-系统 SHALL 定义 `Budget` 结构体，包含字段：`id: BudgetId`、`name: String`、`period: BudgetPeriod`、`commodity_id: CommodityId`。
+系统 SHALL 定义 `Budget` 结构体，包含字段：`id: BudgetId`、`name: String`、`period: FinancePeriod`、`commodity_id: CommodityId`。
 
 #### Scenario: 创建预算表实例
 - **WHEN** 用 id=1, name="月度生活", period=Monthly, commodity_id=1 创建 Budget
