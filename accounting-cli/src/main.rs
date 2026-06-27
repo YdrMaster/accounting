@@ -73,5 +73,6 @@ async fn run_command(cli: Cli) -> Result<(), accounting::error::AccountingError>
         Commands::Import(cmd) => cmd.run(db, cli.format).await,
         Commands::Mapping(cmd) => cmd.run(db, cli.format).await,
         Commands::Budget(cmd) => cmd.run(&db, &cli.format).await,
+        Commands::Beancount(cmd) => cmd.run(db, cli.format).await,
     }
 }

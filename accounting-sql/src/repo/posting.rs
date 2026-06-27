@@ -26,8 +26,8 @@ pub async fn posting_insert(
 
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO postings
-         (transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, is_reimbursable, linked_posting_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id",
+         (transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, is_reimbursable, linked_posting_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id",
     )
     .bind(posting.transaction_id.0)
     .bind(posting.account_id.0)
@@ -35,7 +35,6 @@ pub async fn posting_insert(
     .bind(amount_i64)
     .bind(cost_i64)
     .bind(posting.cost_commodity_id.map(|id| id.0))
-    .bind(&posting.description)
     .bind(posting.is_reimbursable as i32)
     .bind(posting.linked_posting_id.map(|id| id.0))
     .fetch_one(conn)
@@ -49,7 +48,7 @@ pub async fn posting_get(
     id: PostingId,
 ) -> Result<Option<Posting>, DbError> {
     let row: Option<PostingRawRow> = sqlx::query_as(
-        "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, is_reimbursable, linked_posting_id, reversal_total
+        "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, is_reimbursable, linked_posting_id, reversal_total
          FROM postings WHERE id = ?1",
     )
     .bind(id.0)
@@ -69,7 +68,7 @@ pub async fn posting_list_by_transaction(
 ) -> Result<Vec<Posting>, DbError> {
     let precisions = load_precisions(conn).await?;
     let rows: Vec<PostingRawRow> = sqlx::query_as(
-        "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, is_reimbursable, linked_posting_id, reversal_total
+        "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, is_reimbursable, linked_posting_id, reversal_total
          FROM postings WHERE transaction_id = ?1",
     )
     .bind(transaction_id.0)
@@ -88,7 +87,7 @@ pub async fn posting_list_by_account(
 ) -> Result<Vec<Posting>, DbError> {
     let precisions = load_precisions(conn).await?;
     let rows: Vec<PostingRawRow> = sqlx::query_as(
-        "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, description, is_reimbursable, linked_posting_id, reversal_total
+        "SELECT id, transaction_id, account_id, commodity_id, amount, cost, cost_commodity_id, is_reimbursable, linked_posting_id, reversal_total
          FROM postings WHERE account_id = ?1 ORDER BY transaction_id",
     )
     .bind(account_id.0)
@@ -630,7 +629,6 @@ struct PostingRawRow {
     amount: i64,
     cost: Option<i64>,
     cost_commodity_id: Option<i64>,
-    description: Option<String>,
     is_reimbursable: i32,
     linked_posting_id: Option<i64>,
     reversal_total: i64,
@@ -670,7 +668,6 @@ impl PostingRawRow {
             amount: from_db_amount(self.amount, precision),
             cost: self.cost.map(|c| from_db_amount(c, cost_precision)),
             cost_commodity_id: self.cost_commodity_id.map(CommodityId),
-            description: self.description,
             is_reimbursable: self.is_reimbursable != 0,
             linked_posting_id: self.linked_posting_id.map(PostingId),
             reversal_total: from_db_amount(self.reversal_total, precision),
@@ -773,7 +770,6 @@ mod tests {
             amount: Decimal::from_str(amount).unwrap(),
             cost: None,
             cost_commodity_id: None,
-            description: None,
             is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,

@@ -174,7 +174,6 @@ mod tests {
             amount: Decimal::from_str(amount).unwrap(),
             cost: cost.map(|c| Decimal::from_str(c).unwrap()),
             cost_commodity_id: cost_commodity.map(CommodityId),
-            description: None,
             is_reimbursable: false,
             linked_posting_id: linked_posting_id.map(PostingId),
             reversal_total: Decimal::ZERO,

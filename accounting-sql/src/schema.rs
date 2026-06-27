@@ -164,7 +164,6 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         amount INTEGER NOT NULL,
         cost INTEGER,
         cost_commodity_id INTEGER REFERENCES commodities(id),
-        description TEXT,
         is_reimbursable INTEGER NOT NULL DEFAULT 0,
         linked_posting_id INTEGER REFERENCES postings(id),
         reversal_total INTEGER NOT NULL DEFAULT 0,

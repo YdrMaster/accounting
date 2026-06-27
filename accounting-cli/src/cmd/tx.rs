@@ -445,7 +445,6 @@ async fn parse_postings(
             amount,
             cost,
             cost_commodity_id,
-            description: None,
             is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,

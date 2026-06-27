@@ -5,6 +5,7 @@ members = [
     "accounting-service",
     "accounting-cli",
     "accounting-api",
+    "accounting-beancount",
 ]
 resolver = "3"
 

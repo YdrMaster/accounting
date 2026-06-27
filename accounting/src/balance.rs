@@ -39,7 +39,6 @@ mod tests {
             amount: Decimal::from_str(amount).unwrap(),
             cost: None,
             cost_commodity_id: None,
-            description: None,
             is_reimbursable: false,
             linked_posting_id: None,
             reversal_total: Decimal::ZERO,

@@ -1,4 +1,5 @@
 pub mod account;
+pub mod beancount;
 pub mod budget;
 pub mod commodity;
 pub mod config;
@@ -62,6 +63,9 @@ pub enum Commands {
     /// 预算管理
     #[command(subcommand)]
     Budget(budget::BudgetCmd),
+    /// Beancount 导入导出
+    #[command(subcommand)]
+    Beancount(beancount::BeancountCmd),
 }
 
 // --- Tabled + Serialize wrapper types ---
@@ -183,7 +187,6 @@ pub struct PostingRow {
     pub amount: String,
     pub cost: String,
     pub cost_commodity_id: String,
-    pub description: String,
 }
 
 impl From<&accounting::posting::Posting> for PostingRow {
@@ -199,7 +202,6 @@ impl From<&accounting::posting::Posting> for PostingRow {
                 .cost_commodity_id
                 .map(|id| id.0.to_string())
                 .unwrap_or_default(),
-            description: p.description.clone().unwrap_or_default(),
         }
     }
 }

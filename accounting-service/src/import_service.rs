@@ -184,7 +184,6 @@ impl ImportService {
                 amount: bp.amount,
                 cost: None,
                 cost_commodity_id: None,
-                description: None,
                 is_reimbursable: bp.is_reimbursable,
                 linked_posting_id: None,
                 reversal_total: Decimal::ZERO,

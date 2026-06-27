@@ -18,8 +18,6 @@ pub struct Posting {
     pub cost: Option<Decimal>,
     /// cost 对应的商品 ID
     pub cost_commodity_id: Option<CommodityId>,
-    /// 分录描述
-    pub description: Option<String>,
     /// 可报销标记（仅 Expense 类账户可设置）
     pub is_reimbursable: bool,
     /// 关联原分录 ID（非空表示该分录是冲减分录）
