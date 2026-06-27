@@ -23,8 +23,9 @@ pub enum BudgetPeriod {
 impl BudgetPeriod {
     /// 给定日期，返回当前周期的起止日期范围
     ///
-    /// # 示例
-    /// ```ignore
+    /// ## 示例
+    ///
+    /// ```plaintext
     /// Daily,  2026-06-26  → (2026-06-26, 2026-06-26)
     /// WeeklyFromMonday, 2026-06-26(周五) → (2026-06-22, 2026-06-28)
     /// WeeklyFromSunday, 2026-06-26(周五) → (2026-06-21, 2026-06-27)
