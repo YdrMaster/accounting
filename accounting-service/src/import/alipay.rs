@@ -187,26 +187,36 @@ fn parse_alipay_row(
     // 构建 BillPosting
     let commodity_symbol = "CNY".to_string();
 
-    let postings = vec![
-        BillPosting {
-            role: PostingRole::IncomeExpense,
-            category: category.to_string(),
-            commodity_symbol: commodity_symbol.clone(),
-            amount: income_expense_amount,
-            is_reimbursable: false,
-        },
-        BillPosting {
+    // 收/付款方式按 & 拆分；& 分隔的多个资产/优惠方式应分别生成 Asset Posting，
+    // 第一个部分承担全部资产侧金额，其余部分金额为 0，以便分别映射到不同账户。
+    let asset_categories: Vec<String> = if payment_method.is_empty() {
+        vec![channel_name.to_string()]
+    } else {
+        payment_method
+            .split('&')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect()
+    };
+
+    let mut postings = vec![BillPosting {
+        role: PostingRole::IncomeExpense,
+        category: category.to_string(),
+        commodity_symbol: commodity_symbol.clone(),
+        amount: income_expense_amount,
+        is_reimbursable: false,
+    }];
+
+    for (idx, asset_category) in asset_categories.iter().enumerate() {
+        postings.push(BillPosting {
             role: PostingRole::Asset,
-            category: if payment_method.is_empty() {
-                channel_name.to_string()
-            } else {
-                payment_method.to_string()
-            },
-            commodity_symbol,
-            amount: asset_amount,
+            category: asset_category.clone(),
+            commodity_symbol: commodity_symbol.clone(),
+            amount: if idx == 0 { asset_amount } else { Decimal::ZERO },
             is_reimbursable: false,
-        },
-    ];
+        });
+    }
 
     Ok(BillEntry {
         date_time,
@@ -404,6 +414,123 @@ mod tests {
             entry.postings[1].amount,
             Decimal::from_str("-100.00").unwrap()
         );
+    }
+
+    #[test]
+    fn test_parse_ampersand_two_parts() {
+        let adapter = AlipayAdapter;
+        let ctx = test_context();
+
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2026-06-25 12:24:45,餐饮美食,茶百道,sxz***@126.com,【茶百道】黄金百香芒芒,支出,4.80,蚂蚁宝藏信用卡(江苏银行)&超划算,交易成功,2026062522001470791431356972\t,20260625016000001307976921929390\t,,\n",
+        );
+
+        let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
+        let entry = iter.next().unwrap().unwrap();
+        assert_eq!(entry.postings.len(), 3);
+
+        assert_eq!(entry.postings[0].role, PostingRole::IncomeExpense);
+        assert_eq!(entry.postings[0].category, "餐饮美食");
+        assert_eq!(entry.postings[0].amount, Decimal::from_str("4.80").unwrap());
+
+        assert_eq!(entry.postings[1].role, PostingRole::Asset);
+        assert_eq!(entry.postings[1].category, "蚂蚁宝藏信用卡(江苏银行)");
+        assert_eq!(entry.postings[1].amount, Decimal::from_str("-4.80").unwrap());
+
+        assert_eq!(entry.postings[2].role, PostingRole::Asset);
+        assert_eq!(entry.postings[2].category, "超划算");
+        assert_eq!(entry.postings[2].amount, Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_parse_ampersand_three_parts() {
+        let adapter = AlipayAdapter;
+        let ctx = test_context();
+
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2026-06-01 12:40:34,餐饮美食,trade_counterparty_280,account_test_280@example.com,product_description_280,支出,4.30,蚂蚁宝藏信用卡(江苏银行)&茶咖自由卡&超划算,交易成功,20260601016000001307952421233276\t,20260601016000001307952421233276\t,,\n",
+        );
+
+        let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
+        let entry = iter.next().unwrap().unwrap();
+        assert_eq!(entry.postings.len(), 4);
+
+        assert_eq!(entry.postings[1].category, "蚂蚁宝藏信用卡(江苏银行)");
+        assert_eq!(entry.postings[1].amount, Decimal::from_str("-4.30").unwrap());
+
+        assert_eq!(entry.postings[2].category, "茶咖自由卡");
+        assert_eq!(entry.postings[2].amount, Decimal::ZERO);
+
+        assert_eq!(entry.postings[3].category, "超划算");
+        assert_eq!(entry.postings[3].amount, Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_parse_ampersand_refund() {
+        let adapter = AlipayAdapter;
+        let ctx = test_context();
+
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2026-06-10 07:49:12,退款,trade_counterparty_206,account_test_206@example.com,product_description_206,不计收支,3158.00,招商银行信用卡分期&招商银行满减,退款成功,2026060923001170791454840356_3306763275401006462\t,T200P3306763275401006462\t,,\n",
+        );
+
+        let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
+        let entry = iter.next().unwrap().unwrap();
+        assert_eq!(entry.kind, TransactionKind::Refund);
+        assert_eq!(entry.postings.len(), 3);
+
+        assert_eq!(entry.postings[0].role, PostingRole::IncomeExpense);
+        assert_eq!(entry.postings[0].category, "退款");
+        assert_eq!(entry.postings[0].amount, Decimal::from_str("-3158.00").unwrap());
+
+        assert_eq!(entry.postings[1].role, PostingRole::Asset);
+        assert_eq!(entry.postings[1].category, "招商银行信用卡分期");
+        assert_eq!(entry.postings[1].amount, Decimal::from_str("3158.00").unwrap());
+
+        assert_eq!(entry.postings[2].role, PostingRole::Asset);
+        assert_eq!(entry.postings[2].category, "招商银行满减");
+        assert_eq!(entry.postings[2].amount, Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_parse_empty_payment_method_fallback() {
+        let adapter = AlipayAdapter;
+        let ctx = test_context();
+
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2026-06-25 12:24:45,餐饮美食,茶百道,sxz***@126.com,【茶百道】黄金百香芒芒,支出,10.00,,交易成功,2026062522001470791431356972\t,20260625016000001307976921929390\t,,\n",
+        );
+
+        let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
+        let entry = iter.next().unwrap().unwrap();
+        assert_eq!(entry.postings.len(), 2);
+
+        assert_eq!(entry.postings[1].role, PostingRole::Asset);
+        assert_eq!(entry.postings[1].category, "支付宝");
+        assert_eq!(entry.postings[1].amount, Decimal::from_str("-10.00").unwrap());
+    }
+
+    #[test]
+    fn test_parse_no_ampersand_unchanged() {
+        let adapter = AlipayAdapter;
+        let ctx = test_context();
+
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2026-06-25 12:24:45,餐饮美食,茶百道,sxz***@126.com,【茶百道】黄金百香芒芒,支出,5.00,蚂蚁宝藏信用卡,交易成功,2026062522001470791431356972\t,20260625016000001307976921929390\t,,\n",
+        );
+
+        let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
+        let entry = iter.next().unwrap().unwrap();
+        assert_eq!(entry.postings.len(), 2);
+
+        assert_eq!(entry.postings[1].role, PostingRole::Asset);
+        assert_eq!(entry.postings[1].category, "蚂蚁宝藏信用卡");
+        assert_eq!(entry.postings[1].amount, Decimal::from_str("-5.00").unwrap());
     }
 
     #[test]
