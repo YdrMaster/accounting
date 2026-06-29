@@ -25,10 +25,20 @@ impl ChannelRow {
     }
 }
 
+fn validate_channel_name(name: &str) -> Result<(), DbError> {
+    if name.contains("->") || name.contains("&") {
+        return Err(DbError::Database(
+            "渠道名称不能包含 -> 或 &".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn channel_create(
     conn: &mut SqliteConnection,
     channel: &Channel,
 ) -> Result<ChannelId, DbError> {
+    validate_channel_name(&channel.name)?;
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO channels (name, description, account_id, is_system) VALUES (?1, ?2, ?3, ?4) RETURNING id",
     )
@@ -86,6 +96,7 @@ pub async fn channel_upsert_by_name(
     description: Option<&str>,
     account_id: Option<AccountId>,
 ) -> Result<ChannelId, DbError> {
+    validate_channel_name(name)?;
     if let Some(existing) = channel_get_by_name(conn, name).await? {
         sqlx::query("UPDATE channels SET description = ?1, account_id = ?2 WHERE id = ?3")
             .bind(description)
@@ -313,5 +324,43 @@ mod tests {
         let id = channel_create(&mut conn, &channel).await.unwrap();
         channel_force_delete_by_id(&mut conn, id).await.unwrap();
         assert!(channel_get(&mut conn, id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_channel_name_with_arrow_rejected() {
+        let mut conn = setup().await;
+        let channel = Channel {
+            id: ChannelId(0),
+            name: "A->B".to_string(),
+            description: None,
+            account_id: None,
+            is_system: false,
+        };
+        let result = channel_create(&mut conn, &channel).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("不能包含"));
+    }
+
+    #[tokio::test]
+    async fn test_channel_name_with_ampersand_rejected() {
+        let mut conn = setup().await;
+        let channel = Channel {
+            id: ChannelId(0),
+            name: "A&B".to_string(),
+            description: None,
+            account_id: None,
+            is_system: false,
+        };
+        let result = channel_create(&mut conn, &channel).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("不能包含"));
+    }
+
+    #[tokio::test]
+    async fn test_upsert_channel_name_with_arrow_rejected() {
+        let mut conn = setup().await;
+        let result = channel_upsert_by_name(&mut conn, "A->B", None, None).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("不能包含"));
     }
 }

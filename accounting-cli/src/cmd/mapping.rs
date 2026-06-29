@@ -1,6 +1,6 @@
+use crate::cmd::resolver::{resolve_channel, resolve_member};
 use crate::output::OutputFormat;
 use accounting::error::AccountingError;
-use accounting::id::{ChannelId, MemberId};
 use accounting_service::mapping_service::MappingService;
 use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
@@ -20,9 +20,9 @@ pub enum MappingCmd {
 
 #[derive(Args)]
 pub struct MappingSetArgs {
-    /// 成员 ID
+    /// 成员名称
     #[arg(long)]
-    pub member: i64,
+    pub member: String,
     /// 渠道名称
     #[arg(long)]
     pub channel: String,
@@ -36,9 +36,9 @@ pub struct MappingSetArgs {
 
 #[derive(Args)]
 pub struct MappingListArgs {
-    /// 成员 ID
+    /// 成员名称
     #[arg(long)]
-    pub member: i64,
+    pub member: String,
     /// 渠道名称
     #[arg(long)]
     pub channel: String,
@@ -46,9 +46,9 @@ pub struct MappingListArgs {
 
 #[derive(Args)]
 pub struct MappingDeleteArgs {
-    /// 成员 ID
+    /// 成员名称
     #[arg(long)]
-    pub member: i64,
+    pub member: String,
     /// 渠道名称
     #[arg(long)]
     pub channel: String,
@@ -77,16 +77,12 @@ impl MappingSetArgs {
         db: SqliteDatabase,
         _format: OutputFormat,
     ) -> Result<(), AccountingError> {
-        let channel_id = resolve_channel_id(&db, &self.channel).await?;
+        let member_id = resolve_member(&db, &self.member).await?;
+        let channel_id = resolve_channel(&db, &self.channel).await?;
         let service = MappingService::new(db);
 
         service
-            .set(
-                MemberId(self.member),
-                channel_id,
-                &self.category,
-                &self.account,
-            )
+            .set(member_id, channel_id, &self.category, &self.account)
             .await?;
 
         println!(
@@ -103,9 +99,10 @@ impl MappingListArgs {
         db: SqliteDatabase,
         format: OutputFormat,
     ) -> Result<(), AccountingError> {
-        let channel_id = resolve_channel_id(&db, &self.channel).await?;
+        let member_id = resolve_member(&db, &self.member).await?;
+        let channel_id = resolve_channel(&db, &self.channel).await?;
         let service = MappingService::new(db);
-        let list = service.list(MemberId(self.member), channel_id).await?;
+        let list = service.list(member_id, channel_id).await?;
 
         match format {
             OutputFormat::Table => {
@@ -133,11 +130,12 @@ impl MappingDeleteArgs {
         db: SqliteDatabase,
         _format: OutputFormat,
     ) -> Result<(), AccountingError> {
-        let channel_id = resolve_channel_id(&db, &self.channel).await?;
+        let member_id = resolve_member(&db, &self.member).await?;
+        let channel_id = resolve_channel(&db, &self.channel).await?;
         let service = MappingService::new(db);
 
         service
-            .delete(MemberId(self.member), channel_id, &self.category)
+            .delete(member_id, channel_id, &self.category)
             .await?;
 
         println!(
@@ -146,17 +144,6 @@ impl MappingDeleteArgs {
         );
         Ok(())
     }
-}
-
-/// 解析渠道名称为 ChannelId
-async fn resolve_channel_id(db: &SqliteDatabase, name: &str) -> Result<ChannelId, AccountingError> {
-    db.channel_get_by_name(name)
-        .await
-        .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
-        .map(|c| c.id)
-        .ok_or_else(|| {
-            AccountingError::AccountNotFound(format!("渠道 '{name}' 不存在，请先创建对应渠道"))
-        })
 }
 
 /// 映射表格行

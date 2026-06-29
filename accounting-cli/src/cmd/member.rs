@@ -1,6 +1,6 @@
 use crate::cmd::MemberRow;
+use crate::cmd::resolver::resolve_member;
 use crate::output::{OutputFormat, print_line, print_vec};
-use accounting::id::MemberId;
 use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_i18n::t;
@@ -30,7 +30,7 @@ pub struct MemberAddArgs {
 
 #[derive(Args)]
 pub struct MemberDeleteArgs {
-    pub id: i64,
+    pub name: String,
 }
 
 impl MemberCmd {
@@ -52,9 +52,10 @@ impl MemberCmd {
                 print_line(&format!("{}", t!("member_created", id = id.0)), format);
             }
             MemberCmd::Delete(args) => {
+                let id = resolve_member(&db, &args.name).await?;
                 let service = accounting_service::member_service::MemberService::new(db);
-                service.delete(MemberId(args.id)).await?;
-                print_line(&format!("{}", t!("member_deleted", id = args.id)), format);
+                service.delete(id).await?;
+                print_line(&format!("{}", t!("member_deleted", name = args.name)), format);
             }
         }
         Ok(())

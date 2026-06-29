@@ -1,7 +1,7 @@
+use crate::cmd::resolver::resolve_account;
 use crate::cmd::{AccountRow, BalanceRow};
 use crate::output::{OutputFormat, print, print_line, print_vec};
 use accounting::account_type::AccountType;
-use accounting::id::AccountId;
 use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_i18n::t;
@@ -25,9 +25,9 @@ pub enum AccountCmd {
 
 #[derive(Args)]
 pub struct AccountListArgs {
-    /// 根账户 ID，仅列出该根账户子树下的账户
+    /// 根账户路径（如 Assets、支出），仅列出该根账户子树下的账户
     #[arg(long)]
-    pub r#type: Option<i64>,
+    pub r#type: Option<String>,
     #[arg(long)]
     pub limit: Option<i64>,
     #[arg(long)]
@@ -36,11 +36,8 @@ pub struct AccountListArgs {
 
 #[derive(Args)]
 pub struct AccountAddArgs {
-    /// 账户名（本级名称），根账户需能用前缀推导类型（如 Assets、支出）
-    pub name: String,
-    /// 父账户 ID（创建子账户时必填）
-    #[arg(long)]
-    pub parent_id: Option<i64>,
+    /// 账户完整路径（如 Assets:Cash、支出:餐饮），中间父级自动级联创建
+    pub path: String,
     #[arg(long)]
     pub billing_day: Option<u8>,
     #[arg(long)]
@@ -49,22 +46,22 @@ pub struct AccountAddArgs {
 
 #[derive(Args)]
 pub struct AccountShowArgs {
-    pub id: i64,
+    pub path: String,
 }
 
 #[derive(Args)]
 pub struct AccountCloseArgs {
-    pub id: i64,
+    pub path: String,
 }
 
 #[derive(Args)]
 pub struct AccountReopenArgs {
-    pub id: i64,
+    pub path: String,
 }
 
 #[derive(Args)]
 pub struct AccountBalanceArgs {
-    pub id: i64,
+    pub path: String,
 }
 
 impl AccountCmd {
@@ -76,7 +73,10 @@ impl AccountCmd {
         match self {
             AccountCmd::List(args) => {
                 let service = accounting_service::account_service::AccountService::new(db.clone());
-                let root_id = args.r#type.map(AccountId);
+                let root_id = match args.r#type {
+                    Some(ref path) => Some(resolve_account(&db, path).await?),
+                    None => None,
+                };
                 let accounts = service.list(root_id, args.limit, args.offset).await?;
                 let mut rows: Vec<AccountRow> = Vec::new();
                 for a in &accounts {
@@ -93,21 +93,20 @@ impl AccountCmd {
             }
             AccountCmd::Add(args) => {
                 let service = accounting_service::account_service::AccountService::new(db);
-                let account = accounting::account::Account {
-                    id: AccountId(0),
-                    name: args.name,
-                    parent_id: args.parent_id.map(AccountId),
-                    closed_at: None,
-                    is_system: false,
-                    billing_day: args.billing_day,
-                    repayment_day: args.repayment_day,
-                };
-                let id = service.create(account).await?;
+                let id = service
+                    .create_cascading(
+                        &args.path,
+                        args.billing_day,
+                        args.repayment_day,
+                        &[],
+                    )
+                    .await?;
                 print_line(&format!("{}", t!("account_created", id = id.0)), format);
             }
             AccountCmd::Show(args) => {
                 let service = accounting_service::account_service::AccountService::new(db.clone());
-                let account = service.get(AccountId(args.id)).await?;
+                let account_id = resolve_account(&db, &args.path).await?;
+                let account = service.get(account_id).await?;
                 match account {
                     Some(a) => {
                         let account_type = db
@@ -121,24 +120,27 @@ impl AccountCmd {
                         print(&row, format);
                     }
                     None => print_line(
-                        &format!("{}", t!("account_not_found", id = args.id)),
+                        &format!("{}", t!("account_not_found", name = args.path)),
                         format,
                     ),
                 }
             }
             AccountCmd::Close(args) => {
+                let account_id = resolve_account(&db, &args.path).await?;
                 let service = accounting_service::account_service::AccountService::new(db);
-                service.close(AccountId(args.id)).await?;
-                print_line(&format!("{}", t!("account_closed", id = args.id)), format);
+                service.close(account_id).await?;
+                print_line(&format!("{}", t!("account_closed", name = args.path)), format);
             }
             AccountCmd::Reopen(args) => {
+                let account_id = resolve_account(&db, &args.path).await?;
                 let service = accounting_service::account_service::AccountService::new(db);
-                service.reopen(AccountId(args.id)).await?;
-                print_line(&format!("{}", t!("account_reopened", id = args.id)), format);
+                service.reopen(account_id).await?;
+                print_line(&format!("{}", t!("account_reopened", name = args.path)), format);
             }
             AccountCmd::Balance(args) => {
+                let account_id = resolve_account(&db, &args.path).await?;
                 let service = accounting_service::account_service::AccountService::new(db);
-                let balances = service.balance(AccountId(args.id)).await?;
+                let balances = service.balance(account_id).await?;
                 let rows: Vec<BalanceRow> = balances
                     .iter()
                     .map(|(cid, amount)| BalanceRow {

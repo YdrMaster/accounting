@@ -1,12 +1,12 @@
+use crate::cmd::resolver::{resolve_account, resolve_budget, resolve_commodity};
+use crate::output::OutputFormat;
 use accounting::error::AccountingError;
 use accounting::finance_period::FinancePeriod;
-use accounting::id::{AccountId, CommodityId};
+use accounting::id::AccountId;
 use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_decimal::Decimal;
 use std::str::FromStr;
-
-use crate::output::OutputFormat;
 
 #[derive(Subcommand)]
 pub enum BudgetCmd {
@@ -30,9 +30,9 @@ pub struct BudgetCreateArgs {
     /// 周期类型 (daily | weekly-sun | weekly-mon | monthly | yearly)
     #[arg(long)]
     pub period: String,
-    /// 币种 ID
+    /// 币种符号
     #[arg(long)]
-    pub commodity: i64,
+    pub commodity: String,
     /// 限额映射 (账户路径:金额)，可多次指定
     #[arg(long = "limit")]
     pub limits: Vec<String>,
@@ -40,8 +40,8 @@ pub struct BudgetCreateArgs {
 
 #[derive(Args)]
 pub struct BudgetShowArgs {
-    /// 预算表 ID
-    pub budget_id: i64,
+    /// 预算表名称
+    pub name: String,
     /// 查询日期（默认今天）
     #[arg(long)]
     pub date: Option<String>,
@@ -49,17 +49,17 @@ pub struct BudgetShowArgs {
 
 #[derive(Args)]
 pub struct BudgetUpdateArgs {
-    /// 预算表 ID
-    pub budget_id: i64,
+    /// 预算表名称
+    pub name: String,
     /// 新名称
     #[arg(long)]
-    pub name: Option<String>,
+    pub new_name: Option<String>,
     /// 新周期类型
     #[arg(long)]
     pub period: Option<String>,
-    /// 新币种 ID
+    /// 新币种符号
     #[arg(long)]
-    pub commodity: Option<i64>,
+    pub commodity: Option<String>,
     /// 替换限额映射（指定后将替换所有限额）
     #[arg(long = "limit")]
     pub limits: Vec<String>,
@@ -67,8 +67,8 @@ pub struct BudgetUpdateArgs {
 
 #[derive(Args)]
 pub struct BudgetDeleteArgs {
-    /// 预算表 ID
-    pub budget_id: i64,
+    /// 预算表名称
+    pub name: String,
 }
 
 impl BudgetCmd {
@@ -101,56 +101,6 @@ fn parse_period(s: &str) -> Result<FinancePeriod, AccountingError> {
     }
 }
 
-async fn resolve_account_path(
-    db: &SqliteDatabase,
-    path: &str,
-) -> Result<AccountId, AccountingError> {
-    let parts: Vec<&str> = path.split(':').collect();
-    let accounts = db
-        .account_list()
-        .await
-        .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-
-    // Navigate hierarchy
-    let mut current_id = None;
-    for (i, part) in parts.iter().enumerate() {
-        let parent_id = current_id;
-        let found = accounts
-            .iter()
-            .find(|a| a.name == *part && a.parent_id == parent_id && a.closed_at.is_none());
-
-        match found {
-            Some(a) => {
-                current_id = Some(a.id);
-            }
-            None => {
-                if i == 0 {
-                    // Try matching by name regardless of parent for root
-                    let found = accounts.iter().find(|a| {
-                        a.name == *part && a.parent_id.is_none() && a.closed_at.is_none()
-                    });
-                    match found {
-                        Some(a) => current_id = Some(a.id),
-                        None => {
-                            return Err(AccountingError::AccountNotFound(format!(
-                                "账户路径不存在: {}",
-                                path
-                            )));
-                        }
-                    }
-                } else {
-                    return Err(AccountingError::AccountNotFound(format!(
-                        "账户路径不存在: {}",
-                        path
-                    )));
-                }
-            }
-        }
-    }
-
-    current_id.ok_or_else(|| AccountingError::AccountNotFound(format!("账户路径不存在: {}", path)))
-}
-
 async fn parse_limits(
     db: &SqliteDatabase,
     limit_strs: &[String],
@@ -167,7 +117,7 @@ async fn parse_limits(
         }
         let amount = Decimal::from_str(parts[0])
             .map_err(|_| AccountingError::InvalidDate(format!("金额格式错误: {}", parts[0])))?;
-        let account_id = resolve_account_path(db, parts[1]).await?;
+        let account_id = resolve_account(db, parts[1]).await?;
         limits.push((account_id, amount));
     }
     Ok(limits)
@@ -176,10 +126,11 @@ async fn parse_limits(
 async fn create(db: &SqliteDatabase, args: &BudgetCreateArgs) -> Result<(), AccountingError> {
     let period = parse_period(&args.period)?;
     let limits = parse_limits(db, &args.limits).await?;
+    let commodity_id = resolve_commodity(db, &args.commodity).await?;
 
     let service = accounting_service::report::budget::BudgetService::new(db.clone());
     let id = service
-        .create_budget(&args.name, period, CommodityId(args.commodity), &limits)
+        .create_budget(&args.name, period, commodity_id, &limits)
         .await?;
 
     println!("预算表已创建，ID: {}", id.0);
@@ -212,10 +163,9 @@ async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), Accounti
         None => chrono::Local::now().date_naive(),
     };
 
+    let budget_id = resolve_budget(db, &args.name).await?;
     let service = accounting_service::report::budget::BudgetService::new(db.clone());
-    let status = service
-        .get_budget_status(accounting::id::BudgetId(args.budget_id), date)
-        .await?;
+    let status = service.get_budget_status(budget_id, date).await?;
 
     println!("预算表：{}", status.budget.name);
     println!(
@@ -263,22 +213,19 @@ async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), Accounti
 }
 
 async fn update(db: &SqliteDatabase, args: &BudgetUpdateArgs) -> Result<(), AccountingError> {
-    let detail = {
-        let service = accounting_service::report::budget::BudgetService::new(db.clone());
-        service
-            .get_budget_detail(accounting::id::BudgetId(args.budget_id))
-            .await?
-    };
+    let budget_id = resolve_budget(db, &args.name).await?;
+    let service = accounting_service::report::budget::BudgetService::new(db.clone());
+    let detail = service.get_budget_detail(budget_id).await?;
 
-    let name = args.name.as_deref().unwrap_or(&detail.budget.name);
+    let name = args.new_name.as_deref().unwrap_or(&detail.budget.name);
     let period = match &args.period {
         Some(p) => parse_period(p)?,
         None => detail.budget.period,
     };
-    let commodity_id = args
-        .commodity
-        .map(CommodityId)
-        .unwrap_or(detail.budget.commodity_id);
+    let commodity_id = match args.commodity {
+        Some(ref symbol) => resolve_commodity(db, symbol).await?,
+        None => detail.budget.commodity_id,
+    };
 
     let limits = if args.limits.is_empty() {
         detail
@@ -290,15 +237,8 @@ async fn update(db: &SqliteDatabase, args: &BudgetUpdateArgs) -> Result<(), Acco
         parse_limits(db, &args.limits).await?
     };
 
-    let service = accounting_service::report::budget::BudgetService::new(db.clone());
     service
-        .update_budget(
-            accounting::id::BudgetId(args.budget_id),
-            name,
-            period,
-            commodity_id,
-            &limits,
-        )
+        .update_budget(budget_id, name, period, commodity_id, &limits)
         .await?;
 
     println!("预算表已更新");
@@ -306,10 +246,9 @@ async fn update(db: &SqliteDatabase, args: &BudgetUpdateArgs) -> Result<(), Acco
 }
 
 async fn delete(db: &SqliteDatabase, args: &BudgetDeleteArgs) -> Result<(), AccountingError> {
+    let budget_id = resolve_budget(db, &args.name).await?;
     let service = accounting_service::report::budget::BudgetService::new(db.clone());
-    service
-        .delete_budget(accounting::id::BudgetId(args.budget_id))
-        .await?;
+    service.delete_budget(budget_id).await?;
 
     println!("预算表已删除");
     Ok(())

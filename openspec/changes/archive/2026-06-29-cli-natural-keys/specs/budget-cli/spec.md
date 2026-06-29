@@ -1,10 +1,8 @@
 # budget-cli
 
-## Purpose
-
 定义预算系统的命令行接口，包括预算表的创建、列出、查看、更新和删除命令，以及相关参数格式规范。
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: budget create 命令
 CLI SHALL 提供 `budget create` 子命令，接受 `--name`（预算表名称）、`--period`（周期类型）、`--commodity`（币种符号）和多个 `--limit`（账户路径:金额）参数。

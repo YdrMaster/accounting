@@ -324,6 +324,14 @@ impl SqliteDatabase {
         crate::repo::member::member_get_or_create_by_name(&mut conn, name).await
     }
 
+    pub async fn member_get_by_name(
+        &self,
+        name: &str,
+    ) -> Result<Option<accounting::member::Member>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::member::member_get_by_name(&mut conn, name).await
+    }
+
     // === Channel ===
 
     pub async fn channel_create(
@@ -794,6 +802,14 @@ impl SqliteDatabase {
         let mut conn = self.acquire().await?;
         crate::repo::budget::budget_upsert_by_name(&mut conn, name, period, commodity_id, limits)
             .await
+    }
+
+    pub async fn budget_get_by_name(
+        &self,
+        name: &str,
+    ) -> Result<Option<accounting::budget::Budget>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::budget::budget_get_by_name(&mut conn, name).await
     }
 
     // === Account Mapping ===

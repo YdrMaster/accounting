@@ -7,6 +7,7 @@ pub mod import;
 pub mod mapping;
 pub mod member;
 pub mod report;
+pub mod resolver;
 pub mod tag;
 pub mod tx;
 

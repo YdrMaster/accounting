@@ -133,7 +133,7 @@ enum Commands {
 ```
 member list [--limit <N>] [--offset <N>]
 member add <NAME>
-member delete <ID>
+member delete <NAME>
 ```
 
 ```rust
@@ -159,19 +159,19 @@ struct MemberAddArgs {
 
 #[derive(Args)]
 struct MemberDeleteArgs {
-    id: i64,
+    name: String,
 }
 ```
 
 ### 5.2 account
 
 ```
-account list [--type <TYPE>] [--limit <N>] [--offset <N>]
-account add <FULL_NAME> --type <TYPE> [--parent <ID>] [--billing-day <D>] [--repayment-day <D>]
-account show <ID>
-account close <ID>
-account reopen <ID>
-account balance <ID>
+account list [--type <ROOT_PATH>] [--limit <N>] [--offset <N>]
+account add <PATH> [--billing-day <D>] [--repayment-day <D>]
+account show <PATH>
+account close <PATH>
+account reopen <PATH>
+account balance <PATH>
 ```
 
 ```rust
@@ -187,8 +187,8 @@ enum AccountCmd {
 
 #[derive(Args)]
 struct AccountListArgs {
-    #[arg(long, value_enum)]
-    r#type: Option<AccountTypeArg>,
+    #[arg(long)]
+    r#type: Option<String>,
     #[arg(long)]
     limit: Option<i64>,
     #[arg(long)]
@@ -197,11 +197,7 @@ struct AccountListArgs {
 
 #[derive(Args)]
 struct AccountAddArgs {
-    full_name: String,
-    #[arg(long, value_enum)]
-    r#type: AccountTypeArg,
-    #[arg(long)]
-    parent: Option<i64>,
+    path: String,
     #[arg(long)]
     billing_day: Option<u8>,
     #[arg(long)]
@@ -209,20 +205,19 @@ struct AccountAddArgs {
 }
 
 #[derive(Args)]
-struct AccountShowArgs { id: i64 }
+struct AccountShowArgs { path: String }
 
 #[derive(Args)]
-struct AccountCloseArgs { id: i64 }
+struct AccountCloseArgs { path: String }
 
 #[derive(Args)]
-struct AccountReopenArgs { id: i64 }
+struct AccountReopenArgs { path: String }
 
 #[derive(Args)]
-struct AccountBalanceArgs { id: i64 }
+struct AccountBalanceArgs { path: String }
 ```
 
-> `AccountTypeArg` 是 `clap::ValueEnum`，映射到 `accounting::account_type::AccountType`：
-> `asset`, `liability`, `equity`, `income`, `expense`。
+> `--type` 接受根账户路径（如 `Assets`、`Expenses`、`资产`、`支出`），用于筛选该根账户子树下的账户。
 
 ### 5.3 commodity
 
@@ -254,11 +249,11 @@ struct CommodityAddArgs {
 tx add --date <DATE> --description <DESC>
   --posting <ACCOUNT>:<COMMODITY>:<AMOUNT>[:<COST_COMMODITY>:<COST>]
   [--posting <ACCOUNT>:<COMMODITY>:<AMOUNT> ...]
-  [--tag <TAG>] [--member <ID>] [--channel <ID>]
+  [--tag <TAG>] [--member <NAME>] [--channel <PATH>]
 
 tx list
   [--from <DATE>] [--to <DATE>]
-  [--account <ID>] [--member <ID>] [--tag <TAG>] [--keyword <TEXT>]
+  [--account <PATH>] [--member <NAME>] [--channel <NAME>] [--tag <TAG>] [--keyword <TEXT>]
   [--limit <N>] [--offset <N>]
 
 tx show <ID>
@@ -287,9 +282,9 @@ struct TxAddArgs {
     #[arg(long, value_delimiter = ',')]
     tag: Vec<String>,
     #[arg(long)]
-    member: Option<i64>,
+    member: Option<String>,
     #[arg(long)]
-    channel: Option<i64>,
+    channel: Option<String>,
 }
 
 #[derive(Args)]
@@ -299,11 +294,13 @@ struct TxListArgs {
     #[arg(long)]
     to: Option<String>,
     #[arg(long)]
-    account: Option<i64>,
+    account: Vec<String>,
     #[arg(long)]
-    member: Option<i64>,
+    member: Vec<String>,
     #[arg(long)]
-    tag: Option<String>,
+    channel: Vec<String>,
+    #[arg(long)]
+    tag: Vec<String>,
     #[arg(long)]
     keyword: Option<String>,
     #[arg(long)]
@@ -330,14 +327,16 @@ struct TxUpdateArgs {
     #[arg(long, value_delimiter = ',')]
     tag: Vec<String>,
     #[arg(long)]
-    member: Option<i64>,
+    member: Option<String>,
     #[arg(long)]
-    channel: Option<i64>,
+    channel: Option<String>,
 }
 ```
 
 > `--posting` 格式：`account_full_name:commodity_symbol:amount` 或 `account_full_name:commodity_symbol:amount:cost_commodity:cost`。
-> 多个 posting 用分号 `;` 分隔，如 `--posting "Assets:Cash:CNY:-100;Expenses:Food:CNY:100"`。
+> 多个 posting 可用分号 `;` 分隔，也可重复使用 `--posting`，如 `--posting "Assets:Cash:CNY:-100" --posting "Expenses:Food:CNY:100"`。
+>
+> `--channel` 格式：`channel1->channel2->channel3&channel4`，`->` 表示链路下一级，`&` 仅允许在最后一级使用。
 
 ### 5.5 tag
 
@@ -369,22 +368,25 @@ struct TagDeleteArgs {
 ### 5.6 report
 
 ```
-report balance <ACCOUNT_ID>
+report cashflow [--date <DATE>] [--period <PERIOD>] [--commodity <SYMBOL>]
 report bs                    # 资产负债表
-report is                    # 损益表
 ```
 
 ```rust
 #[derive(Subcommand)]
 enum ReportCmd {
-    Balance(ReportBalanceArgs),
     Bs,
-    Is,
+    CashFlow(CashFlowArgs),
 }
 
 #[derive(Args)]
-struct ReportBalanceArgs {
-    account_id: i64,
+struct CashFlowArgs {
+    #[arg(long)]
+    date: Option<String>,
+    #[arg(long)]
+    period: Option<String>,
+    #[arg(long)]
+    commodity: Option<String>,
 }
 ```
 

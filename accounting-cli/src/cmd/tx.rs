@@ -1,8 +1,9 @@
+use crate::cmd::resolver::{resolve_account, resolve_channel, resolve_member};
 use crate::cmd::{PostingRow, TransactionRow};
 use crate::output::{OutputFormat, print as output_print, print_line, print_vec};
 use accounting::channel_path::ChannelPathNode;
 use accounting::error::AccountingError;
-use accounting::id::{AccountId, ChannelId, MemberId, PostingId, TagId, TransactionId};
+use accounting::id::{ChannelId, PostingId, TagId, TransactionId};
 use accounting::posting::Posting;
 use accounting::transaction::Transaction;
 use accounting::transaction_filter::TransactionFilter;
@@ -10,6 +11,7 @@ use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_decimal::Decimal;
 use rust_i18n::t;
+use std::collections::HashMap;
 use std::str::FromStr;
 
 #[derive(Subcommand)]
@@ -39,10 +41,10 @@ pub struct TxAddArgs {
     #[arg(long, value_delimiter = ',')]
     pub tag: Vec<String>,
     #[arg(long)]
-    pub member: Option<i64>,
-    /// 渠道 ID，可多次指定（有序，从 position 0 开始）；同位置多渠道用 "pos:channelId" 语法
+    pub member: Option<String>,
+    /// 渠道链路，如 "淘宝->支付宝->花呗&建行卡"
     #[arg(long)]
-    pub channel: Vec<String>,
+    pub channel: Option<String>,
 }
 
 #[derive(Args)]
@@ -52,13 +54,13 @@ pub struct TxListArgs {
     #[arg(long)]
     pub to: Option<String>,
     #[arg(long)]
-    pub account: Vec<i64>,
+    pub account: Vec<String>,
     #[arg(long)]
-    pub member: Vec<i64>,
+    pub member: Vec<String>,
     #[arg(long)]
     pub tag: Vec<String>,
     #[arg(long)]
-    pub channel: Vec<i64>,
+    pub channel: Vec<String>,
     #[arg(long)]
     pub keyword: Option<String>,
     #[arg(long)]
@@ -89,10 +91,10 @@ pub struct TxUpdateArgs {
     #[arg(long, value_delimiter = ',')]
     pub tag: Vec<String>,
     #[arg(long)]
-    pub member: Option<i64>,
-    /// 渠道 ID，可多次指定（有序，从 position 0 开始）；同位置多渠道用 "pos:channelId" 语法
+    pub member: Option<String>,
+    /// 渠道链路，如 "淘宝->支付宝->花呗&建行卡"
     #[arg(long)]
-    pub channel: Vec<String>,
+    pub channel: Option<String>,
 }
 
 #[derive(Args)]
@@ -125,8 +127,9 @@ impl TxCmd {
                 let limit = args.limit;
                 let offset = args.offset;
                 let filter = build_filter(&args, &db).await?;
-                let service = accounting_service::transaction_service::TransactionService::new(db);
+                let service = accounting_service::transaction_service::TransactionService::new(db.clone());
                 let results = service.list(filter, limit, offset).await?;
+                let channel_names = channel_name_map(&db).await?;
                 let rows: Vec<TransactionRow> = results
                     .iter()
                     .map(|(t, _, channel_paths)| {
@@ -135,7 +138,10 @@ impl TxCmd {
                             .iter()
                             .map(|n| ChannelPathRow {
                                 position: n.position,
-                                channel_id: n.channel_id.0,
+                                channel: channel_names
+                                    .get(&n.channel_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| n.channel_id.0.to_string()),
                                 reconciled: n.reconciled,
                             })
                             .collect();
@@ -146,16 +152,20 @@ impl TxCmd {
             }
             TxCmd::Show(args) => {
                 // 查询单笔交易详情并打印交易与分录及链路
-                let service = accounting_service::transaction_service::TransactionService::new(db);
+                let service = accounting_service::transaction_service::TransactionService::new(db.clone());
                 let result = service.get(TransactionId(args.id)).await?;
                 match result {
                     Some((tx, postings, channel_paths)) => {
+                        let channel_names = channel_name_map(&db).await?;
                         let mut tx_row: TransactionRow = (&tx).into();
                         tx_row.channel_paths = channel_paths
                             .iter()
                             .map(|n| ChannelPathRow {
                                 position: n.position,
-                                channel_id: n.channel_id.0,
+                                channel: channel_names
+                                    .get(&n.channel_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| n.channel_id.0.to_string()),
                                 reconciled: n.reconciled,
                             })
                             .collect();
@@ -166,7 +176,10 @@ impl TxCmd {
                                     .iter()
                                     .map(|n| ChannelPathRow {
                                         position: n.position,
-                                        channel_id: n.channel_id.0,
+                                        channel: channel_names
+                                            .get(&n.channel_id)
+                                            .cloned()
+                                            .unwrap_or_else(|| n.channel_id.0.to_string()),
                                         reconciled: n.reconciled,
                                     })
                                     .collect::<Vec<_>>(),
@@ -223,7 +236,7 @@ impl TxCmd {
 #[derive(tabled::Tabled, serde::Serialize)]
 pub struct ChannelPathRow {
     pub position: i32,
-    pub channel_id: i64,
+    pub channel: String,
     pub reconciled: bool,
 }
 
@@ -234,13 +247,17 @@ async fn parse_tx_args(
     let date_time = parse_date_time(&args.date)?;
     let postings = parse_postings(&args.posting, db).await?;
     let tag_ids = resolve_tags(&args.tag, db).await?;
-    let channel_path_nodes = parse_channel_paths(&args.channel)?;
+    let channel_path_nodes = parse_channel_paths(args.channel.as_deref(), db).await?;
+    let member_id = match args.member {
+        Some(name) => Some(resolve_member(db, &name).await?),
+        None => None,
+    };
     let tx = Transaction {
         id: TransactionId(0),
         date_time,
         description: args.description,
         kind: accounting::transaction::TransactionKind::Normal,
-        member_id: args.member.map(MemberId),
+        member_id,
     };
     Ok((tx, postings, tag_ids, channel_path_nodes))
 }
@@ -252,76 +269,85 @@ async fn parse_tx_args_for_update(
     let date_time = parse_date_time(&args.date)?;
     let postings = parse_postings(&args.posting, db).await?;
     let tag_ids = resolve_tags(&args.tag, db).await?;
-    let channel_path_nodes = parse_channel_paths(&args.channel)?;
+    let channel_path_nodes = parse_channel_paths(args.channel.as_deref(), db).await?;
+    let member_id = match args.member {
+        Some(ref name) => Some(resolve_member(db, name).await?),
+        None => None,
+    };
     let tx = Transaction {
         id: TransactionId(0),
         date_time,
         description: args.description.clone(),
         kind: accounting::transaction::TransactionKind::Normal,
-        member_id: args.member.map(MemberId),
+        member_id,
     };
     Ok((tx, postings, tag_ids, channel_path_nodes))
 }
 
-/// 解析渠道参数列表。
+/// 解析渠道链路表达式。
 ///
-/// 支持两种语法:
-/// - 直接传渠道 ID: `--channel 1 --channel 2` → position 依次为 0, 1
-/// - 指定位置: `--channel "0:1" --channel "1:2" --channel "2:3"` → position 显式指定
-fn parse_channel_paths(channels: &[String]) -> Result<Vec<ChannelPathNode>, AccountingError> {
-    if channels.is_empty() {
-        return Ok(Vec::new());
+/// 语法：`渠道1 -> 渠道2 -> 渠道3&渠道4`
+/// - `->` 表示链的下一级，前后可有空格
+/// - `&` 仅允许在最后一级使用，表示末级多个并行渠道
+async fn parse_channel_paths(
+    expr: Option<&str>,
+    db: &SqliteDatabase,
+) -> Result<Vec<ChannelPathNode>, AccountingError> {
+    let expr = match expr {
+        Some(e) if !e.trim().is_empty() => e.trim(),
+        _ => return Ok(Vec::new()),
+    };
+
+    let segments: Vec<&str> = expr.split("->").map(|s| s.trim()).collect();
+    if segments.iter().any(|s| s.is_empty()) {
+        return Err(AccountingError::InvalidTransaction(
+            "渠道路径包含空节点".to_string(),
+        ));
     }
 
-    // 检测是否使用了 "pos:channelId" 语法
-    let uses_explicit_position = channels.iter().any(|c| c.contains(':'));
+    let last_idx = segments.len() - 1;
+    let mut nodes = Vec::new();
 
-    if uses_explicit_position {
-        let mut nodes = Vec::new();
-        for ch in channels {
-            let parts: Vec<&str> = ch.splitn(2, ':').collect();
-            if parts.len() != 2 {
-                return Err(AccountingError::InvalidTransaction(format!(
-                    "Invalid channel path format: {}, expected 'position:channelId'",
-                    ch
-                )));
+    for (i, seg) in segments.iter().enumerate() {
+        let is_last = i == last_idx;
+        let names: Vec<&str> = if is_last {
+            seg.split('&').map(|s| s.trim()).collect()
+        } else {
+            if seg.contains('&') {
+                return Err(AccountingError::InvalidTransaction(
+                    "& 只能在链路最后一级使用".to_string(),
+                ));
             }
-            let position: i32 = parts[0].parse().map_err(|_| {
-                AccountingError::InvalidTransaction(format!(
-                    "Invalid position in channel path: {}",
-                    parts[0]
-                ))
-            })?;
-            let channel_id: i64 = parts[1].parse().map_err(|_| {
-                AccountingError::InvalidTransaction(format!(
-                    "Invalid channelId in channel path: {}",
-                    parts[1]
-                ))
-            })?;
+            vec![*seg]
+        };
+
+        if names.iter().any(|n| n.is_empty()) {
+            return Err(AccountingError::InvalidTransaction(
+                "渠道名称不能为空".to_string(),
+            ));
+        }
+
+        for name in names {
+            let channel_id = resolve_channel(db, name).await?;
             nodes.push(ChannelPathNode {
-                position,
-                channel_id: ChannelId(channel_id),
+                position: i as i32,
+                channel_id,
                 reconciled: false,
             });
         }
-        Ok(nodes)
-    } else {
-        // 顺序分配 position
-        Ok(channels
-            .iter()
-            .enumerate()
-            .map(|(i, ch)| {
-                let channel_id: i64 = ch
-                    .parse()
-                    .unwrap_or_else(|_| panic!("Invalid channelId: {}", ch));
-                ChannelPathNode {
-                    position: i as i32,
-                    channel_id: ChannelId(channel_id),
-                    reconciled: false,
-                }
-            })
-            .collect())
     }
+
+    Ok(nodes)
+}
+
+async fn channel_name_map(
+    db: &SqliteDatabase,
+) -> Result<HashMap<ChannelId, String>, AccountingError> {
+    let channels = db
+        .channel_list()
+        .await
+        .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+    Ok(channels.into_iter().map(|c| (c.id, c.name)).collect())
 }
 
 fn parse_date_time(s: &str) -> Result<chrono::NaiveDateTime, AccountingError> {
@@ -484,9 +510,15 @@ async fn build_filter(
     if let Some(ref to) = args.to {
         filter.end_date = Some(parse_date_time(to)?.date());
     }
-    filter.account_ids = args.account.iter().map(|&id| AccountId(id)).collect();
-    filter.member_ids = args.member.iter().map(|&id| MemberId(id)).collect();
-    filter.channel_ids = args.channel.iter().map(|&id| ChannelId(id)).collect();
+    for account_path in &args.account {
+        filter.account_ids.push(resolve_account(db, account_path).await?);
+    }
+    for member_name in &args.member {
+        filter.member_ids.push(resolve_member(db, member_name).await?);
+    }
+    for channel_name in &args.channel {
+        filter.channel_ids.push(resolve_channel(db, channel_name).await?);
+    }
     for tag_name in &args.tag {
         let tag = db
             .tag_get_by_name(tag_name)

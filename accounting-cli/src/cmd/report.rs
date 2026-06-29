@@ -1,8 +1,8 @@
+use crate::cmd::resolver::resolve_commodity;
 use crate::cmd::ReportBalanceRow;
 use crate::output::{OutputFormat, print_line, print_vec};
 use accounting::error::AccountingError;
 use accounting::finance_period::FinancePeriod;
-use accounting::id::CommodityId;
 use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_i18n::t;
@@ -23,9 +23,9 @@ pub struct CashFlowArgs {
     /// 周期类型 (daily | weekly-sun | weekly-mon | monthly | yearly)
     #[arg(long)]
     pub period: Option<String>,
-    /// 币种 ID
+    /// 币种符号
     #[arg(long)]
-    pub commodity: Option<i64>,
+    pub commodity: Option<String>,
 }
 
 impl ReportCmd {
@@ -66,7 +66,10 @@ impl ReportCmd {
                     Some(p) => parse_period(p)?,
                     None => FinancePeriod::Monthly,
                 };
-                let commodity_id = CommodityId(args.commodity.unwrap_or(1));
+                let commodity_id = match args.commodity {
+                    Some(ref symbol) => resolve_commodity(&db, symbol).await?,
+                    None => resolve_commodity(&db, "CNY").await?,
+                };
 
                 let service = accounting_service::report::cash_flow::CashFlowService::new(db);
                 let report = service.cash_flow_report(date, period, commodity_id).await?;

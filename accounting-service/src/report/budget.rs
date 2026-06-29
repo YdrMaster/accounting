@@ -127,6 +127,14 @@ impl BudgetService {
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
 
+    /// 按名称查找预算表
+    pub async fn get_by_name(&self, name: &str) -> Result<Option<Budget>, AccountingError> {
+        self.db
+            .budget_get_by_name(name)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))
+    }
+
     /// 获取预算表详情（含限额列表）
     pub async fn get_budget_detail(
         &self,

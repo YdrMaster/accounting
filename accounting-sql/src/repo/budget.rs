@@ -103,6 +103,22 @@ pub async fn budget_list(conn: &mut SqliteConnection) -> Result<Vec<Budget>, DbE
         .collect::<Result<Vec<_>, _>>()
 }
 
+pub async fn budget_get_by_name(
+    conn: &mut SqliteConnection,
+    name: &str,
+) -> Result<Option<Budget>, DbError> {
+    let row: Option<BudgetRow> =
+        sqlx::query_as("SELECT id, name, period, commodity_id FROM budgets WHERE name = ?1")
+            .bind(name)
+            .fetch_optional(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    match row {
+        Some(r) => Ok(Some(r.into_budget()?)),
+        None => Ok(None),
+    }
+}
+
 pub async fn budget_update(
     conn: &mut SqliteConnection,
     budget_id: BudgetId,

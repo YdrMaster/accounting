@@ -1,6 +1,6 @@
+use crate::cmd::resolver::resolve_member;
 use crate::output::OutputFormat;
 use accounting::error::AccountingError;
-use accounting::id::MemberId;
 use accounting_service::import_service::ImportService;
 use accounting_sql::SqliteDatabase;
 use clap::Args;
@@ -15,9 +15,9 @@ pub struct ImportArgs {
     /// 账单来源（如 alipay）
     #[arg(long)]
     pub source: String,
-    /// 成员 ID
+    /// 成员名称
     #[arg(long)]
-    pub member: i64,
+    pub member: String,
 }
 
 impl ImportArgs {
@@ -31,9 +31,10 @@ impl ImportArgs {
             AccountingError::DatabaseError(format!("读取文件 '{}' 失败：{e}", self.file.display()))
         })?;
 
+        let member_id = resolve_member(&db, &self.member).await?;
         let service = ImportService::new(db);
         let result = service
-            .import(&data, &self.source, MemberId(self.member))
+            .import(&data, &self.source, member_id)
             .await?;
 
         // 输出摘要

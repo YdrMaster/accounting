@@ -55,6 +55,14 @@ impl MemberService {
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
+
+    /// 按名称查找成员
+    pub async fn get_by_name(&self, name: &str) -> Result<Option<Member>, AccountingError> {
+        self.db
+            .member_get_by_name(name)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))
+    }
 }
 
 #[cfg(test)]

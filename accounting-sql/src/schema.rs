@@ -10,6 +10,52 @@ pub async fn initialize_schema(conn: &mut SqliteConnection) -> Result<(), DbErro
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
     }
+    create_unique_indexes(conn).await?;
+    Ok(())
+}
+
+/// 为自然键创建唯一索引，并检测已有数据中的重复名称。
+///
+/// 对旧数据库，表结构可能已存在但没有 UNIQUE 约束；本函数通过
+/// `CREATE UNIQUE INDEX IF NOT EXISTS` 补齐，若存在重复则返回可读错误。
+async fn create_unique_indexes(conn: &mut SqliteConnection) -> Result<(), DbError> {
+    let duplicate_members: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT name, COUNT(*) as c FROM members GROUP BY name HAVING c > 1",
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+    if !duplicate_members.is_empty() {
+        let names: Vec<String> = duplicate_members.into_iter().map(|(n, _)| n).collect();
+        return Err(DbError::Database(format!(
+            "无法启用 members.name 唯一约束：存在重复名称 {:?}",
+            names
+        )));
+    }
+
+    let duplicate_budgets: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT name, COUNT(*) as c FROM budgets GROUP BY name HAVING c > 1",
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+    if !duplicate_budgets.is_empty() {
+        let names: Vec<String> = duplicate_budgets.into_iter().map(|(n, _)| n).collect();
+        return Err(DbError::Database(format!(
+            "无法启用 budgets.name 唯一约束：存在重复名称 {:?}",
+            names
+        )));
+    }
+
+    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_members_name ON members(name)")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_name ON budgets(name)")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
     Ok(())
 }
 
@@ -99,7 +145,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     r#"
     CREATE TABLE IF NOT EXISTS members (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
+        name TEXT NOT NULL UNIQUE,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -358,7 +404,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     r#"
     CREATE TABLE IF NOT EXISTS budgets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
+        name TEXT NOT NULL UNIQUE,
         period INTEGER NOT NULL,
         commodity_id INTEGER NOT NULL REFERENCES commodities(id),
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
