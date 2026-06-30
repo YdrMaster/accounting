@@ -86,9 +86,7 @@ function isTransfer(tx: TransactionDto): boolean {
 }
 
 function isPureImport(tx: TransactionDto): boolean {
-  return !tx.postings.some(p =>
-    ['asset', 'income', 'expense'].includes(p.account_type),
-  )
+  return tx.postings.length > 0 && tx.postings.every(p => p.account.includes(':Import:'))
 }
 
 function getIncomeExpenseAccounts(tx: TransactionDto): string[] {

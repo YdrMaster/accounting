@@ -64,7 +64,7 @@ mod tests {
             .unwrap();
 
         // 创建账户
-        let assets_id = db.account_get_by_name("资产").await.unwrap().unwrap().id;
+        let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
         let bank_id = db
             .account_create_with_closure(&Account {
                 id: AccountId(0),
@@ -78,7 +78,12 @@ mod tests {
             .await
             .unwrap();
 
-        let expense_id = db.account_get_by_name("支出").await.unwrap().unwrap().id;
+        let expense_id = db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
         let food_id = db
             .account_create_with_closure(&Account {
                 id: AccountId(0),
@@ -182,7 +187,7 @@ mod tests {
 
         // 验证导入统计
         assert_eq!(import_result.commodities, 2); // CNY + USD
-        assert!(import_result.accounts >= 7); // 5 根账户 + 工商银行 + 餐饮
+        assert!(import_result.accounts >= 6); // 4 根账户 + 工商银行 + 餐饮
         assert_eq!(import_result.members, 1);
         assert_eq!(import_result.channels, 2); // 支付宝 (seed) + 微信
         assert_eq!(import_result.transactions, 1);

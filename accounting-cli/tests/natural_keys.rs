@@ -159,7 +159,7 @@ fn test_mapping_natural_keys() {
             "--channel",
             "支付宝",
             "--category",
-            "收支:餐饮美食",
+            "Expenses:餐饮美食",
             "--account",
             "Expenses:Food",
         ],
@@ -177,7 +177,7 @@ fn test_mapping_natural_keys() {
             "支付宝",
         ],
     );
-    assert!(out.contains("收支:餐饮美食"));
+    assert!(out.contains("Expenses:餐饮美食"));
 
     let out = run(
         &db,
@@ -189,7 +189,7 @@ fn test_mapping_natural_keys() {
             "--channel",
             "支付宝",
             "--category",
-            "收支:餐饮美食",
+            "Expenses:餐饮美食",
         ],
     );
     assert!(out.contains("映射已删除"));

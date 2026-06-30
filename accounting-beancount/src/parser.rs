@@ -712,7 +712,6 @@ fn infer_account_type(path: &str) -> String {
         "equity" | "权益" => "Equity".to_string(),
         "income" | "收入" => "Income".to_string(),
         "expenses" | "支出" => "Expense".to_string(),
-        "import" | "导入" => "Import".to_string(),
         _ => "Asset".to_string(),
     }
 }

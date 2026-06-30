@@ -160,13 +160,13 @@ mod tests {
 
         // Expenses 账户在种子数据中存在
         service
-            .set(member_id, channel_id, "收支:餐饮美食", "Expenses")
+            .set(member_id, channel_id, "Expenses:餐饮美食", "Expenses")
             .await
             .unwrap();
 
         let list = service.list(member_id, channel_id).await.unwrap();
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].category, "收支:餐饮美食");
+        assert_eq!(list[0].category, "Expenses:餐饮美食");
     }
 
     #[tokio::test]
@@ -175,7 +175,12 @@ mod tests {
         let service = MappingService::new(db.clone());
 
         let result = service
-            .set(member_id, channel_id, "收支:餐饮美食", "NonExistent:Path")
+            .set(
+                member_id,
+                channel_id,
+                "Expenses:餐饮美食",
+                "NonExistent:Path",
+            )
             .await;
         assert!(result.is_err());
     }
@@ -187,7 +192,7 @@ mod tests {
 
         // Expenses:Fees 在种子数据中存在
         service
-            .set(member_id, channel_id, "收支:手续费", "Expenses:Fees")
+            .set(member_id, channel_id, "Expenses:手续费", "Expenses:Fees")
             .await
             .unwrap();
 
@@ -201,12 +206,12 @@ mod tests {
         let service = MappingService::new(db.clone());
 
         service
-            .set(member_id, channel_id, "收支:餐饮美食", "Expenses")
+            .set(member_id, channel_id, "Expenses:餐饮美食", "Expenses")
             .await
             .unwrap();
 
         service
-            .delete(member_id, channel_id, "收支:餐饮美食")
+            .delete(member_id, channel_id, "Expenses:餐饮美食")
             .await
             .unwrap();
 
@@ -219,7 +224,9 @@ mod tests {
         let (db, member_id, channel_id) = setup_db().await;
         let service = MappingService::new(db.clone());
 
-        let result = service.delete(member_id, channel_id, "收支:不存在").await;
+        let result = service
+            .delete(member_id, channel_id, "Expenses:不存在")
+            .await;
         assert!(result.is_err());
     }
 
@@ -229,12 +236,12 @@ mod tests {
         let service = MappingService::new(db.clone());
 
         service
-            .set(member_id, channel_id, "收支:餐饮美食", "Expenses")
+            .set(member_id, channel_id, "Expenses:餐饮美食", "Expenses")
             .await
             .unwrap();
 
         service
-            .set(member_id, channel_id, "收支:餐饮美食", "Expenses:Fees")
+            .set(member_id, channel_id, "Expenses:餐饮美食", "Expenses:Fees")
             .await
             .unwrap();
 

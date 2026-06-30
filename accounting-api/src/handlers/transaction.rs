@@ -618,9 +618,6 @@ fn build_account_type_map(
                                     Ok(accounting::account_type::AccountType::Expense) => {
                                         "expense".to_string()
                                     }
-                                    Ok(accounting::account_type::AccountType::Import) => {
-                                        "import".to_string()
-                                    }
                                     Err(_) => String::new(),
                                 };
                             break (id.0, type_str);

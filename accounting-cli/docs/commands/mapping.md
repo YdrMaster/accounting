@@ -18,15 +18,21 @@ accounting <DB_PATH> mapping delete --member <NAME> --channel <NAME> --category 
 |------|------|
 | `--member` | 成员名称 |
 | `--channel` | 渠道名称 |
-| `--category` | 导入源中的分类 key，如 `收支:餐饮美食` |
+| `--category` | 导入源中的分类 key，如 `Expenses:餐饮美食` 或 `Assets:蚂蚁宝藏信用卡` |
 | `--account` | 目标账户路径，如 `Expenses:Food` |
 
 ```bash
 accounting my.db mapping set \
   --member alice \
   --channel 支付宝 \
-  --category "收支:餐饮美食" \
+  --category "Expenses:餐饮美食" \
   --account "Expenses:Food"
+
+accounting my.db mapping set \
+  --member alice \
+  --channel 支付宝 \
+  --category "Assets:蚂蚁宝藏信用卡" \
+  --account "Assets:CreditCard"
 ```
 
 ## mapping list
@@ -45,7 +51,7 @@ accounting my.db mapping list --member alice --channel 支付宝
 accounting my.db mapping delete \
   --member alice \
   --channel 支付宝 \
-  --category "收支:餐饮美食"
+  --category "Expenses:餐饮美食"
 ```
 
 ## 说明

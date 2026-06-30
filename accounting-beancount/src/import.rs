@@ -269,14 +269,7 @@ pub async fn import(
 }
 
 fn resolve_account_path(path: &str, account_type: &str) -> (String, String) {
-    if account_type == "Import" {
-        let resolved =
-            path.replacen("Equity:Import:", "导入:", 1)
-                .replacen("Equity:Import", "导入", 1);
-        (resolved, "Import".to_string())
-    } else {
-        (path.to_string(), account_type.to_string())
-    }
+    (path.to_string(), account_type.to_string())
 }
 
 async fn resolve_account_id(

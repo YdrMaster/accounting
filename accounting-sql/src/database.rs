@@ -974,7 +974,7 @@ mod tests {
                 .await
                 .unwrap();
 
-        assert_eq!(root_names, vec!["导入", "支出", "收入", "权益", "资产"]);
+        assert_eq!(root_names, vec!["Assets", "Equity", "Expenses", "Income"]);
 
         let lang = db.get_setting("language").await.unwrap();
         assert_eq!(lang, Some("zh-CN".to_string()));

@@ -43,6 +43,6 @@ accounting my.db import \
 - 导入前需要确保：
   1. 成员已存在（`member add`）。
   2. 对应来源的渠道已存在，或通过 `mapping set` 等方式创建。
-  3. 已经配置好账户映射（`mapping set`），否则交易可能全部进入导入根账户。
+  3. 已经配置好账户映射（`mapping set`），否则交易会进入 `Assets:Import:<channel>` / `Income:Import:<channel>` / `Expenses:Import:<channel>` 等 fallback 账户。
 - 目前内置适配器支持 `alipay`。
 - 跳过的记录通常是因为文件格式不匹配或金额解析失败，具体原因会在输出中列出。

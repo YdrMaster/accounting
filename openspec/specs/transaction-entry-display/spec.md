@@ -5,14 +5,14 @@
 ## Requirements
 
 ### Requirement: 纯导入账单检测
-系统 SHALL 提供 `isPureImport(tx)` 检测函数，当账单的所有分录的 `account_type` 都不在 `['asset', 'income', 'expense']` 中时返回 true。
+系统 SHALL 提供 `isPureImport(tx)` 检测函数，当账单的所有分录的账户路径都包含 `:Import:` 段时返回 true。
 
 #### Scenario: 纯导入账单
-- **WHEN** 账单的所有分录 account_type 均为非 asset/income/expense 类型
+- **WHEN** 账单的所有分录账户路径都包含 `:Import:`
 - **THEN** `isPureImport(tx)` 返回 true
 
 #### Scenario: 正常账单
-- **WHEN** 账单至少有一个分录的 account_type 为 asset、income 或 expense
+- **WHEN** 账单至少有一个分录的账户路径不包含 `:Import:`
 - **THEN** `isPureImport(tx)` 返回 false
 
 ### Requirement: 纯导入账单显示

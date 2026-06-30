@@ -155,9 +155,9 @@ impl AccountService {
 
     /// 根据路径级联查找/创建账户（支持系统根账户）
     ///
-    /// 与 `create_cascading` 类似，但允许首段为非标准根类型名称（如 "Import"），
-    /// 只要首段对应的根账户已存在且为系统账户即可。
-    /// 用于导入场景：在 Import 系统根账户下自动创建子账户。
+    /// 与 `create_cascading` 类似，但允许路径中间段为任意名称。
+    /// 只要首段是已存在的系统根账户（如 "Assets" / "Income" / "Expenses" / "Equity"）即可。
+    /// 用于导入场景：在标准根账户下自动创建 `Import` 子树。
     pub async fn ensure_cascading(&self, path: &str) -> Result<AccountId, AccountingError> {
         let segments: Vec<&str> = path.split(':').collect();
         if segments.is_empty() {
@@ -492,9 +492,9 @@ mod tests {
         db.initialize(Some("en")).await.unwrap();
         let service = AccountService::new(db);
 
-        // Import 根账户已通过 seed data 创建
+        // Expenses 系统根账户下创建 Import 子树
         let leaf_id = service
-            .ensure_cascading("Import:支付宝:餐饮美食")
+            .ensure_cascading("Expenses:Import:支付宝:餐饮美食")
             .await
             .unwrap();
         assert!(leaf_id.0 > 0);
@@ -502,15 +502,23 @@ mod tests {
         // 验证路径上的账户都存在
         let root = service
             .db
-            .account_get_by_parent_and_name(None, "Import")
+            .account_get_by_parent_and_name(None, "Expenses")
             .await
             .unwrap()
             .unwrap();
         assert!(root.is_system);
 
+        let import_node = service
+            .db
+            .account_get_by_parent_and_name(Some(root.id), "Import")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!import_node.is_system);
+
         let alipay = service
             .db
-            .account_get_by_parent_and_name(Some(root.id), "支付宝")
+            .account_get_by_parent_and_name(Some(import_node.id), "支付宝")
             .await
             .unwrap()
             .unwrap();
@@ -533,11 +541,11 @@ mod tests {
         let service = AccountService::new(db);
 
         let id1 = service
-            .ensure_cascading("Import:支付宝:餐饮美食")
+            .ensure_cascading("Expenses:Import:支付宝:餐饮美食")
             .await
             .unwrap();
         let id2 = service
-            .ensure_cascading("Import:支付宝:餐饮美食")
+            .ensure_cascading("Expenses:Import:支付宝:餐饮美食")
             .await
             .unwrap();
         assert_eq!(id1, id2, "重复调用应返回相同 AccountId");

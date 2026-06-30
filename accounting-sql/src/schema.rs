@@ -468,8 +468,7 @@ INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
 ('Assets', NULL, 1),
 ('Equity', NULL, 1),
 ('Income', NULL, 1),
-('Expenses', NULL, 1),
-('Import', NULL, 1);
+('Expenses', NULL, 1);
 "#;
 
 const SEED_ACCOUNTS_CHILD_EN: &str = r#"
@@ -484,21 +483,20 @@ INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
 
 const SEED_ACCOUNTS_ROOT_ZH: &str = r#"
 INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
-('资产', NULL, 1),
-('权益', NULL, 1),
-('收入', NULL, 1),
-('支出', NULL, 1),
-('导入', NULL, 1);
+('Assets', NULL, 1),
+('Equity', NULL, 1),
+('Income', NULL, 1),
+('Expenses', NULL, 1);
 "#;
 
 const SEED_ACCOUNTS_CHILD_ZH: &str = r#"
 INSERT OR IGNORE INTO accounts (name, parent_id, is_system) VALUES
-('期初余额', (SELECT id FROM accounts WHERE name = '权益' AND parent_id IS NULL), 1),
-('手续费', (SELECT id FROM accounts WHERE name = '支出' AND parent_id IS NULL), 1),
-('折扣', (SELECT id FROM accounts WHERE name = '支出' AND parent_id IS NULL), 1),
-('分期手续费', (SELECT id FROM accounts WHERE name = '支出' AND parent_id IS NULL), 1),
-('现金', (SELECT id FROM accounts WHERE name = '资产' AND parent_id IS NULL), 1),
-('返现', (SELECT id FROM accounts WHERE name = '资产' AND parent_id IS NULL), 1);
+('期初余额', (SELECT id FROM accounts WHERE name = 'Equity' AND parent_id IS NULL), 1),
+('手续费', (SELECT id FROM accounts WHERE name = 'Expenses' AND parent_id IS NULL), 1),
+('折扣', (SELECT id FROM accounts WHERE name = 'Expenses' AND parent_id IS NULL), 1),
+('分期手续费', (SELECT id FROM accounts WHERE name = 'Expenses' AND parent_id IS NULL), 1),
+('现金', (SELECT id FROM accounts WHERE name = 'Assets' AND parent_id IS NULL), 1),
+('返现', (SELECT id FROM accounts WHERE name = 'Assets' AND parent_id IS NULL), 1);
 "#;
 
 const SEED_COMMODITIES: &str = r#"
@@ -613,7 +611,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(count, 11);
+        assert_eq!(count, 10);
 
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE name='repayment'")
             .fetch_one(&mut conn)
@@ -628,7 +626,7 @@ mod tests {
         assert_eq!(count, 1);
 
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM accounts WHERE name='Import' AND parent_id IS NULL",
+            "SELECT COUNT(*) FROM accounts WHERE name='Expenses' AND parent_id IS NULL",
         )
         .fetch_one(&mut conn)
         .await

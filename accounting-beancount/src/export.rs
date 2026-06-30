@@ -81,27 +81,12 @@ async fn export_accounts(
             "Equity" | "权益" => "Equity",
             "Income" | "收入" => "Income",
             "Expense" | "Expenses" | "支出" => "Expense",
-            "Import" | "Imports" | "导入" => "Import",
             _ => "Asset",
-        };
-
-        let export_path = if account_type == "Import" {
-            path.replacen(
-                root_name.as_str(),
-                if root_name == "导入" {
-                    "权益:导入"
-                } else {
-                    "Equity:Import"
-                },
-                1,
-            )
-        } else {
-            path
         };
 
         data.accounts.push(BAccount {
             internal_id: a.id.0,
-            path: export_path,
+            path,
             account_type: account_type.to_string(),
             created_at: created_at_by_id.get(&a.id).copied(),
             closed_at: a.closed_at,

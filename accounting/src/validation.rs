@@ -146,7 +146,7 @@ pub fn validate_account_close(
                 ));
             }
         }
-        AccountType::Equity | AccountType::Income | AccountType::Expense | AccountType::Import => {}
+        AccountType::Equity | AccountType::Income | AccountType::Expense => {}
     }
     Ok(())
 }

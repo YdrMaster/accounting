@@ -35,9 +35,6 @@ fn format_import_error(err: ImportError) -> AccountingError {
             "{}",
             rust_i18n::t!("import_cny_commodity_not_found")
         )),
-        ImportError::ImportRootNotFound => {
-            AccountingError::AccountNotFound(format!("{}", rust_i18n::t!("import_root_not_found")))
-        }
         ImportError::Parse { source } => AccountingError::InvalidTransaction(format!(
             "{}",
             rust_i18n::t!("import_parse_failed", source = source)

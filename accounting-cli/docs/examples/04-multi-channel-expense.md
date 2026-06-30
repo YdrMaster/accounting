@@ -23,7 +23,7 @@ accounting my.db account add Expenses:Food
 accounting my.db mapping set \
   --member alice \
   --channel 支付宝 \
-  --category "收支:餐饮美食" \
+  --category "Expenses:餐饮美食" \
   --account "Expenses:Food"
 
 # 4. 记录一笔多渠道支出：淘宝 -> 支付宝 -> 花呗 & 建行卡

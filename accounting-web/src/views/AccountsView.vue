@@ -18,10 +18,9 @@ const typeLabels: Record<string, string> = {
   Income: '收入',
   Expense: '支出',
   Equity: '权益',
-  Import: '导入',
 }
 
-const typeOrder = ['Asset', 'Income', 'Expense', 'Equity', 'Import'] as const
+const typeOrder = ['Asset', 'Income', 'Expense', 'Equity'] as const
 
 function getChildrenOfType(type: string): AccountDto[] {
   const roots = store.groupedAccounts.get(type) ?? []

@@ -43,7 +43,7 @@ async fn list_accounts(
             .map_err(|e| e.to_string())?;
         let account_type = AccountType::from_str(&root_name)
             .map(|ty| format!("{:?}", ty))
-            .unwrap_or_else(|_| "Import".to_string());
+            .unwrap_or_else(|_| "Asset".to_string());
         dtos.push(AccountDto {
             id: a.id.0,
             name: a.name.clone(),

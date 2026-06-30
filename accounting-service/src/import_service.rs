@@ -15,8 +15,8 @@ use rust_decimal::Decimal;
 /// 映射查找键：(member_id, channel_id)
 type MappingKey = (MemberId, ChannelId);
 
-/// 导入上下文：(channel_name, import_root)
-type ImportCtx = (String, String);
+/// 导入上下文：channel_name
+type ImportCtx = String;
 
 /// 导入致命错误
 #[derive(Debug)]
@@ -24,7 +24,6 @@ pub enum ImportError {
     UnsupportedSource { source: String },
     ChannelNotFound { source: String },
     CnyCommodityNotFound,
-    ImportRootNotFound,
     Parse { source: String },
     Database { source: String },
 }
@@ -35,7 +34,6 @@ impl std::fmt::Display for ImportError {
             ImportError::UnsupportedSource { source } => write!(f, "unsupported source: {source}"),
             ImportError::ChannelNotFound { source } => write!(f, "channel not found: {source}"),
             ImportError::CnyCommodityNotFound => write!(f, "default commodity CNY not found"),
-            ImportError::ImportRootNotFound => write!(f, "import root account not found"),
             ImportError::Parse { source } => write!(f, "parse error: {source}"),
             ImportError::Database { source } => write!(f, "database error: {source}"),
         }
@@ -111,10 +109,7 @@ impl ImportService {
             None => (None, None),
         };
 
-        // 5. 查找导入根账户名称
-        let import_root = self.resolve_import_root().await?;
-
-        // 6. 构造 ImportContext
+        // 5. 构造 ImportContext
         let ctx = ImportContext {
             member_id,
             channel_id,
@@ -153,7 +148,7 @@ impl ImportService {
                 .submit_entry(
                     &entry,
                     (member_id, channel_id),
-                    &(channel_name.clone(), import_root.clone()),
+                    &channel_name,
                     commodity_id,
                     pending_tag_id,
                     &account_service,
@@ -219,6 +214,7 @@ impl ImportService {
                     import_ctx,
                     bp.role,
                     &bp.category,
+                    bp.amount,
                     account_service,
                 )
                 .await?;
@@ -287,11 +283,12 @@ impl ImportService {
         import_ctx: &ImportCtx,
         role: PostingRole,
         category: &str,
+        amount: Decimal,
         account_service: &AccountService,
     ) -> Result<AccountId, AccountingError> {
         let (member_id, channel_id) = mapping_key;
-        let (channel_name, import_root) = import_ctx;
-        let key = role.to_key(category);
+        let channel_name = import_ctx;
+        let key = role.to_key(category, amount);
 
         // 1. 查映射表
         if let Some(mapping) = self
@@ -304,13 +301,8 @@ impl ImportService {
         }
 
         // 2. 无映射 → Import fallback
-        let path = format!(
-            "{}:{}:{}:{}",
-            import_root,
-            channel_name,
-            role.import_segment(),
-            category
-        );
+        let root = role.fallback_root(category, amount);
+        let path = format!("{}:Import:{}:{}", root, channel_name, category);
         account_service.ensure_cascading(&path).await
     }
 
@@ -339,37 +331,6 @@ impl ImportService {
             return Ok(Some((tag.id, tag.name)));
         }
         Ok(None)
-    }
-
-    /// 解析导入根账户名称
-    async fn resolve_import_root(&self) -> Result<String, ImportError> {
-        // 尝试中文
-        if let Some(account) =
-            self.db
-                .account_get_by_name("导入")
-                .await
-                .map_err(|e| ImportError::Database {
-                    source: e.to_string(),
-                })?
-            && account.parent_id.is_none()
-            && account.is_system
-        {
-            return Ok("导入".to_string());
-        }
-        // 尝试英文
-        if let Some(account) =
-            self.db
-                .account_get_by_name("Import")
-                .await
-                .map_err(|e| ImportError::Database {
-                    source: e.to_string(),
-                })?
-            && account.parent_id.is_none()
-            && account.is_system
-        {
-            return Ok("Import".to_string());
-        }
-        Err(ImportError::ImportRootNotFound)
     }
 }
 
@@ -428,47 +389,33 @@ mod tests {
             assert_eq!(tx.description, "美团外卖 - 美团外卖-午餐");
         }
 
-        // 验证 Import 子账户已创建（新结构：含角色层级）
-        let root = db
-            .account_get_by_parent_and_name(None, "Import")
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(root.is_system);
-
-        let alipay = db
-            .account_get_by_parent_and_name(Some(root.id), "alipay")
-            .await
-            .unwrap();
-        assert!(alipay.is_some(), "Import:alipay 子账户应已创建");
-        let alipay_id = alipay.as_ref().unwrap().id;
-
-        // 验证收支层级
-        let income_expense = db
-            .account_get_by_parent_and_name(Some(alipay_id), "收支")
-            .await
-            .unwrap();
-        assert!(
-            income_expense.is_some(),
-            "Import:alipay:收支 子账户应已创建"
-        );
-
-        let ie_account = income_expense.unwrap();
+        // 验证新 fallback 账户已创建
         let dining = db
-            .account_get_by_parent_and_name(Some(ie_account.id), "餐饮美食")
+            .account_get_by_name("Expenses:Import:alipay:餐饮美食")
             .await
             .unwrap();
         assert!(
             dining.is_some(),
-            "Import:alipay:收支:餐饮美食 子账户应已创建"
+            "Expenses:Import:alipay:餐饮美食 子账户应已创建"
         );
 
-        // 验证资产层级
-        let asset = db
-            .account_get_by_parent_and_name(Some(alipay_id), "资产")
+        let transport = db
+            .account_get_by_name("Expenses:Import:alipay:交通出行")
             .await
             .unwrap();
-        assert!(asset.is_some(), "Import:alipay:资产 子账户应已创建");
+        assert!(
+            transport.is_some(),
+            "Expenses:Import:alipay:交通出行 子账户应已创建"
+        );
+
+        let card = db
+            .account_get_by_name("Assets:Import:alipay:蚂蚁宝藏信用卡")
+            .await
+            .unwrap();
+        assert!(
+            card.is_some(),
+            "Assets:Import:alipay:蚂蚁宝藏信用卡 子账户应已创建"
+        );
     }
 
     #[tokio::test]
@@ -497,7 +444,7 @@ mod tests {
         let mapping = accounting::account_mapping::AccountMapping {
             member_id: MemberId(1),
             channel_id: channel.id,
-            category: "收支:餐饮美食".to_string(),
+            category: "Expenses:餐饮美食".to_string(),
             account_id: expense_id,
         };
         db.account_mapping_upsert(&mapping).await.unwrap();
@@ -586,7 +533,7 @@ mod tests {
     #[tokio::test]
     async fn test_import_alipay_refund_row() {
         let db = setup_db().await;
-        let service = ImportService::new(db);
+        let service = ImportService::new(db.clone());
 
         let csv_data = concat!(
             "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
@@ -600,6 +547,15 @@ mod tests {
 
         assert_eq!(result.imported, 1, "退款行应成功导入");
         assert_eq!(result.skipped, 0, "不应跳过退款行");
+
+        let refund = db
+            .account_get_by_name("Expenses:Import:alipay:退款")
+            .await
+            .unwrap();
+        assert!(
+            refund.is_some(),
+            "退款应作为负支出归入 Expenses:Import:alipay:退款"
+        );
     }
 
     #[tokio::test]

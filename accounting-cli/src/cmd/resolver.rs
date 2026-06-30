@@ -130,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_account_found() {
         let db = setup_db().await;
-        let id = resolve_account(&db, "资产").await.unwrap();
+        let id = resolve_account(&db, "Assets").await.unwrap();
         assert!(id.0 > 0);
     }
 

@@ -27,7 +27,7 @@ pub struct MappingSetArgs {
     /// 渠道名称
     #[arg(long)]
     pub channel: String,
-    /// 映射 key（如 "收支:餐饮美食" 或 "资产:信用卡"）
+    /// 映射 key（如 "Expenses:餐饮美食" 或 "Assets:信用卡"）
     #[arg(long)]
     pub category: String,
     /// 目标账户路径（如 "Expenses:餐饮"）
@@ -53,7 +53,7 @@ pub struct MappingDeleteArgs {
     /// 渠道名称
     #[arg(long)]
     pub channel: String,
-    /// 映射 key（如 "收支:餐饮美食"）
+    /// 映射 key（如 "Expenses:餐饮美食"）
     #[arg(long)]
     pub category: String,
 }
