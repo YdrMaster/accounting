@@ -261,6 +261,8 @@ impl BudgetService {
 mod tests {
     use super::*;
     use accounting::account::Account;
+    use accounting::id::MemberId;
+    use accounting::member::Member;
     use accounting_sql::SqliteDatabase;
     use std::str::FromStr;
 
@@ -332,6 +334,15 @@ mod tests {
         let transport = accounts.iter().find(|a| a.name == "Transport").unwrap();
         let assets = accounts.iter().find(|a| a.name == "Assets").unwrap();
 
+        let member_id = service
+            .db
+            .member_create(&Member {
+                id: MemberId(0),
+                name: "Test".to_string(),
+            })
+            .await
+            .unwrap();
+
         let budget_id = service
             .create_budget(
                 "Monthly Life",
@@ -354,7 +365,7 @@ mod tests {
             .unwrap(),
             description: "lunch".to_string(),
             kind: accounting::transaction::TransactionKind::Normal,
-            member_id: None,
+            member_id,
         };
         let tx_id = service.db.transaction_insert(&tx, &[]).await.unwrap();
 

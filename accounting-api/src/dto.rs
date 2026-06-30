@@ -95,9 +95,9 @@ pub struct TransactionDto {
     /// 交易类型。
     pub kind: String,
     /// 成员 ID。
-    pub member_id: Option<i64>,
+    pub member_id: i64,
     /// 成员名称。
-    pub member_name: Option<String>,
+    pub member_name: String,
     /// 标签名称列表。
     pub tags: Vec<String>,
     /// 渠道链路节点列表。
@@ -140,7 +140,7 @@ pub struct CreateTransactionRequest {
     #[serde(default = "default_kind")]
     pub kind: String,
     /// 成员 ID。
-    pub member_id: Option<i64>,
+    pub member_id: i64,
     /// 渠道链路节点列表。
     #[serde(default)]
     pub channel_paths: Vec<ChannelPathNodeRequest>,

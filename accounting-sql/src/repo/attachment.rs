@@ -67,9 +67,15 @@ pub async fn attachment_delete(
 
 #[cfg(test)]
 async fn insert_test_transaction(conn: &mut SqliteConnection) -> TransactionId {
+    let member_id: i64 =
+        sqlx::query_scalar("INSERT INTO members (name) VALUES ('Test Member') RETURNING id")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO transactions (date_time, description) VALUES ('2024-01-01 00:00:00', 'test') RETURNING id",
+        "INSERT INTO transactions (date_time, description, member_id) VALUES ('2024-01-01 00:00:00', 'test', ?1) RETURNING id",
     )
+    .bind(member_id)
     .fetch_one(conn)
     .await
     .unwrap();

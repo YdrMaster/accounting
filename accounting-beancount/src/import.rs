@@ -105,14 +105,33 @@ pub async fn import(
             _ => TransactionKind::Normal,
         };
 
-        let member_id = tx.member.as_ref().and_then(|name| {
-            data.members.iter().find(|m| m.name == *name).map(|m| {
-                member_id_map
-                    .get(&m.internal_id)
-                    .copied()
-                    .unwrap_or(MemberId(0))
-            })
-        });
+        let member_name = tx
+            .member
+            .as_ref()
+            .ok_or_else(|| BeancountError::ParseError {
+                line: 0,
+                message: format!(
+                    "transaction is missing member metadata (internal_id: {})",
+                    tx.internal_id
+                ),
+            })?;
+
+        let b_member = data
+            .members
+            .iter()
+            .find(|m| &m.name == member_name)
+            .ok_or_else(|| BeancountError::ParseError {
+                line: 0,
+                message: format!("transaction references unknown member: {}", member_name),
+            })?;
+
+        let member_id = member_id_map
+            .get(&b_member.internal_id)
+            .copied()
+            .ok_or_else(|| BeancountError::ParseError {
+                line: 0,
+                message: format!("member {} has no internal_id mapping", member_name),
+            })?;
 
         let transaction = Transaction {
             id: TransactionId(0),

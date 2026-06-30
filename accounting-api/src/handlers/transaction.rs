@@ -173,8 +173,8 @@ async fn list_transactions(
                 }
                 _ => "normal".to_string(),
             },
-            member_id: tx.member_id.map(|id| id.0),
-            member_name: tx.member_id.and_then(|id| members.get(&id.0).cloned()),
+            member_id: tx.member_id.0,
+            member_name: members.get(&tx.member_id.0).cloned().unwrap_or_default(),
             tags: tag_map.get(&tx.id).cloned().unwrap_or_default(),
             channel_paths: channel_paths
                 .into_iter()
@@ -221,7 +221,7 @@ async fn create_transaction(
     let db = state.db();
 
     let date_time = parse_date_time(&req.date_time).map_err(|e| e.to_string())?;
-    let member_id = req.member_id.map(MemberId);
+    let member_id = MemberId(req.member_id);
 
     let mut postings = Vec::new();
     for posting_req in req.postings {
@@ -393,8 +393,8 @@ async fn get_transaction(
             accounting::transaction::TransactionKind::Reimbursement => "reimbursement".to_string(),
             _ => "normal".to_string(),
         },
-        member_id: tx.member_id.map(|id| id.0),
-        member_name: tx.member_id.and_then(|id| members.get(&id.0).cloned()),
+        member_id: tx.member_id.0,
+        member_name: members.get(&tx.member_id.0).cloned().unwrap_or_default(),
         tags: tag_map.get(&tx.id).cloned().unwrap_or_default(),
         channel_paths: channel_paths
             .into_iter()
@@ -473,7 +473,7 @@ async fn update_transaction(
 ) -> Result<String, String> {
     let db = state.db();
     let date_time = parse_date_time(&req.date_time).map_err(|e| e.to_string())?;
-    let member_id = req.member_id.map(MemberId);
+    let member_id = MemberId(req.member_id);
 
     let (postings, tag_ids) = {
         let mut postings = Vec::new();

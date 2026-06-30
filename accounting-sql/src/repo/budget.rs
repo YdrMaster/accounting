@@ -298,14 +298,27 @@ mod tests {
         account_create_with_closure(conn, &account).await.unwrap()
     }
 
+    async fn ensure_test_member(conn: &mut SqliteConnection) -> i64 {
+        sqlx::query("INSERT OR IGNORE INTO members (name) VALUES ('Test Member')")
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        sqlx::query_scalar("SELECT id FROM members WHERE name = 'Test Member'")
+            .fetch_one(conn)
+            .await
+            .unwrap()
+    }
+
     async fn insert_transaction_at(
         conn: &mut SqliteConnection,
         date: &str,
     ) -> accounting::id::TransactionId {
+        let member_id = ensure_test_member(conn).await;
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO transactions (date_time, description) VALUES (?1, 'test') RETURNING id",
+            "INSERT INTO transactions (date_time, description, member_id) VALUES (?1, 'test', ?2) RETURNING id",
         )
         .bind(date)
+        .bind(member_id)
         .fetch_one(conn)
         .await
         .unwrap();

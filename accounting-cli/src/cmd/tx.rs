@@ -41,7 +41,7 @@ pub struct TxAddArgs {
     #[arg(long, value_delimiter = ',')]
     pub tag: Vec<String>,
     #[arg(long)]
-    pub member: Option<String>,
+    pub member: String,
     /// 渠道链路，如 "淘宝->支付宝->花呗&建行卡"
     #[arg(long)]
     pub channel: Option<String>,
@@ -250,10 +250,7 @@ async fn parse_tx_args(
     let postings = parse_postings(&args.posting, db).await?;
     let tag_ids = resolve_tags(&args.tag, db).await?;
     let channel_path_nodes = parse_channel_paths(args.channel.as_deref(), db).await?;
-    let member_id = match args.member {
-        Some(name) => Some(resolve_member(db, &name).await?),
-        None => None,
-    };
+    let member_id = resolve_member(db, &args.member).await?;
     let tx = Transaction {
         id: TransactionId(0),
         date_time,
@@ -273,8 +270,20 @@ async fn parse_tx_args_for_update(
     let tag_ids = resolve_tags(&args.tag, db).await?;
     let channel_path_nodes = parse_channel_paths(args.channel.as_deref(), db).await?;
     let member_id = match args.member {
-        Some(ref name) => Some(resolve_member(db, name).await?),
-        None => None,
+        Some(ref name) => resolve_member(db, name).await?,
+        None => {
+            let existing = db
+                .transaction_get(TransactionId(args.id))
+                .await
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+                .ok_or_else(|| {
+                    AccountingError::InvalidTransaction(format!(
+                        "{}",
+                        t!("tx_not_found", id = args.id)
+                    ))
+                })?;
+            existing.member_id
+        }
     };
     let tx = Transaction {
         id: TransactionId(0),

@@ -19,7 +19,7 @@ pub async fn transaction_insert(
     )
     .bind(tx.date_time.to_string())
     .bind(&tx.description)
-    .bind(tx.member_id.map(|id| id.0))
+    .bind(tx.member_id.0)
     .bind(tx.kind as i32)
     .fetch_one(&mut *conn)
     .await
@@ -203,7 +203,7 @@ pub async fn transaction_update(
     )
     .bind(tx.date_time.to_string())
     .bind(&tx.description)
-    .bind(tx.member_id.map(|id| id.0))
+    .bind(tx.member_id.0)
     .bind(tx.kind as i32)
     .bind(tx.id.0)
     .execute(&mut *conn)
@@ -235,7 +235,7 @@ struct TransactionRow {
     date_time: String,
     description: String,
     kind: i32,
-    member_id: Option<i64>,
+    member_id: i64,
 }
 
 impl TryFrom<TransactionRow> for Transaction {
@@ -250,7 +250,7 @@ impl TryFrom<TransactionRow> for Transaction {
             date_time,
             description: row.description,
             kind: TransactionKind::from_db(row.kind).unwrap_or(TransactionKind::Normal),
-            member_id: row.member_id.map(accounting::id::MemberId),
+            member_id: accounting::id::MemberId(row.member_id),
         })
     }
 }
@@ -271,7 +271,16 @@ mod tests {
         conn
     }
 
-    fn sample_tx() -> Transaction {
+    async fn create_test_member(conn: &mut SqliteConnection) -> MemberId {
+        let id: i64 =
+            sqlx::query_scalar("INSERT INTO members (name) VALUES ('Test Member') RETURNING id")
+                .fetch_one(conn)
+                .await
+                .unwrap();
+        MemberId(id)
+    }
+
+    fn sample_tx(member_id: MemberId) -> Transaction {
         Transaction {
             id: TransactionId(0),
             date_time: NaiveDate::from_ymd_opt(2024, 6, 15)
@@ -280,14 +289,15 @@ mod tests {
                 .unwrap(),
             description: "Grocery shopping".to_string(),
             kind: TransactionKind::Normal,
-            member_id: None,
+            member_id,
         }
     }
 
     #[tokio::test]
     async fn test_insert_and_get() {
         let mut conn = setup().await;
-        let tx = sample_tx();
+        let member_id = create_test_member(&mut conn).await;
+        let tx = sample_tx(member_id);
         let id = transaction_insert(&mut conn, &tx, &[]).await.unwrap();
         let fetched = transaction_get(&mut conn, id).await.unwrap().unwrap();
         assert_eq!(fetched.description, "Grocery shopping");
@@ -297,7 +307,8 @@ mod tests {
     #[tokio::test]
     async fn test_insert_with_tags() {
         let mut conn = setup().await;
-        let tx = sample_tx();
+        let member_id = create_test_member(&mut conn).await;
+        let tx = sample_tx(member_id);
         let tag_id = TagId(1); // repayment seed tag
         let id = transaction_insert(&mut conn, &tx, &[tag_id]).await.unwrap();
         let count: i64 =
@@ -312,7 +323,8 @@ mod tests {
     #[tokio::test]
     async fn test_delete() {
         let mut conn = setup().await;
-        let tx = sample_tx();
+        let member_id = create_test_member(&mut conn).await;
+        let tx = sample_tx(member_id);
         let id = transaction_insert(&mut conn, &tx, &[]).await.unwrap();
         transaction_delete(&mut conn, id).await.unwrap();
         assert!(transaction_get(&mut conn, id).await.unwrap().is_none());
@@ -321,7 +333,8 @@ mod tests {
     #[tokio::test]
     async fn test_update() {
         let mut conn = setup().await;
-        let tx = sample_tx();
+        let member_id = create_test_member(&mut conn).await;
+        let tx = sample_tx(member_id);
         let id = transaction_insert(&mut conn, &tx, &[]).await.unwrap();
         let mut updated = tx.clone();
         updated.id = id;
@@ -334,12 +347,13 @@ mod tests {
     #[tokio::test]
     async fn test_list_filter_by_date() {
         let mut conn = setup().await;
-        let mut tx1 = sample_tx();
+        let member_id = create_test_member(&mut conn).await;
+        let mut tx1 = sample_tx(member_id);
         tx1.date_time = NaiveDate::from_ymd_opt(2024, 1, 1)
             .unwrap()
             .and_hms_opt(0, 0, 0)
             .unwrap();
-        let mut tx2 = sample_tx();
+        let mut tx2 = sample_tx(member_id);
         tx2.date_time = NaiveDate::from_ymd_opt(2024, 12, 31)
             .unwrap()
             .and_hms_opt(0, 0, 0)
@@ -360,9 +374,10 @@ mod tests {
     #[tokio::test]
     async fn test_list_filter_by_keyword() {
         let mut conn = setup().await;
-        let mut tx1 = sample_tx();
+        let member_id = create_test_member(&mut conn).await;
+        let mut tx1 = sample_tx(member_id);
         tx1.description = "Buy coffee".to_string();
-        let mut tx2 = sample_tx();
+        let mut tx2 = sample_tx(member_id);
         tx2.description = "Pay rent".to_string();
         transaction_insert(&mut conn, &tx1, &[]).await.unwrap();
         transaction_insert(&mut conn, &tx2, &[]).await.unwrap();
@@ -379,7 +394,8 @@ mod tests {
     #[tokio::test]
     async fn test_count() {
         let mut conn = setup().await;
-        let tx = sample_tx();
+        let member_id = create_test_member(&mut conn).await;
+        let tx = sample_tx(member_id);
         transaction_insert(&mut conn, &tx, &[]).await.unwrap();
         transaction_insert(&mut conn, &tx, &[]).await.unwrap();
 
@@ -397,8 +413,7 @@ mod tests {
                 .await
                 .unwrap();
         let member_id = MemberId(member_id);
-        let mut tx = sample_tx();
-        tx.member_id = Some(member_id);
+        let tx = sample_tx(member_id);
         transaction_insert(&mut conn, &tx, &[]).await.unwrap();
 
         let filter = TransactionFilter {
@@ -412,6 +427,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_filter_by_channel() {
         let mut conn = setup().await;
+        let member_id = create_test_member(&mut conn).await;
 
         let channel_id: i64 =
             sqlx::query_scalar("INSERT INTO channels (name) VALUES ('TestPay') RETURNING id")
@@ -419,7 +435,7 @@ mod tests {
                 .await
                 .unwrap();
 
-        let tx = sample_tx();
+        let tx = sample_tx(member_id);
         let tx_id = transaction_insert(&mut conn, &tx, &[]).await.unwrap();
 
         // Add a channel_path for this transaction

@@ -174,7 +174,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date_time TEXT NOT NULL,
         description TEXT NOT NULL,
-        member_id INTEGER REFERENCES members(id),
+        member_id INTEGER NOT NULL REFERENCES members(id),
         kind INTEGER NOT NULL DEFAULT 1 CHECK(kind BETWEEN 1 AND 3),
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))

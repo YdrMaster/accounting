@@ -172,7 +172,7 @@ impl From<&accounting::transaction::Transaction> for TransactionRow {
             id: t.id.0,
             date_time: t.date_time.to_string(),
             description: t.description.clone(),
-            member_id: t.member_id.map(|id| id.0.to_string()).unwrap_or_default(),
+            member_id: t.member_id.0.to_string(),
             channel_paths: Vec::new(),
         }
     }

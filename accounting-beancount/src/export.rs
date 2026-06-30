@@ -210,7 +210,9 @@ async fn export_transactions(
             TransactionKind::Reimbursement => "reimbursement",
         };
 
-        let member_name = tx.member_id.and_then(|id| mem_by_id.get(&id).cloned());
+        let member_name = Some(mem_by_id.get(&tx.member_id).cloned().ok_or_else(|| {
+            BeancountError::DatabaseError(format!("member id {} not found", tx.member_id.0))
+        })?);
 
         let cp_entries: Vec<ChannelPathEntry> = channel_paths
             .iter()

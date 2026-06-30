@@ -21,8 +21,8 @@ export interface TransactionDto {
   date_time: string
   description: string
   kind: string
-  member_id: number | null
-  member_name: string | null
+  member_id: number
+  member_name: string
   tags: string[]
   channel_paths: ChannelPathNodeDto[]
   postings: PostingDto[]

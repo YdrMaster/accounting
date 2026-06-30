@@ -697,10 +697,23 @@ mod tests {
         conn
     }
 
+    async fn ensure_test_member(conn: &mut SqliteConnection) -> i64 {
+        sqlx::query("INSERT OR IGNORE INTO members (name) VALUES ('Test Member')")
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        sqlx::query_scalar("SELECT id FROM members WHERE name = 'Test Member'")
+            .fetch_one(conn)
+            .await
+            .unwrap()
+    }
+
     async fn insert_transaction(conn: &mut SqliteConnection) -> TransactionId {
+        let member_id = ensure_test_member(conn).await;
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO transactions (date_time, description) VALUES ('2024-01-01 00:00:00', 'test') RETURNING id",
+            "INSERT INTO transactions (date_time, description, member_id) VALUES ('2024-01-01 00:00:00', 'test', ?1) RETURNING id",
         )
+        .bind(member_id)
         .fetch_one(conn)
         .await
         .unwrap();
@@ -863,9 +876,11 @@ mod tests {
         .unwrap();
         let tag_id = TagId(tag_id);
 
+        let member_id = ensure_test_member(&mut conn).await;
         let tx_id: i64 = sqlx::query_scalar(
-            "INSERT INTO transactions (date_time, description) VALUES ('2024-01-15 00:00:00', 'lunch') RETURNING id",
+            "INSERT INTO transactions (date_time, description, member_id) VALUES ('2024-01-15 00:00:00', 'lunch', ?1) RETURNING id",
         )
+        .bind(member_id)
         .fetch_one(&mut conn)
         .await
         .unwrap();
@@ -993,9 +1008,11 @@ mod tests {
         .unwrap();
         let channel_id = ChannelId(channel_id);
 
+        let member_id = ensure_test_member(&mut conn).await;
         let tx_id: i64 = sqlx::query_scalar(
-            "INSERT INTO transactions (date_time, description) VALUES ('2024-06-01 00:00:00', 'online shopping') RETURNING id",
+            "INSERT INTO transactions (date_time, description, member_id) VALUES ('2024-06-01 00:00:00', 'online shopping', ?1) RETURNING id",
         )
+        .bind(member_id)
         .fetch_one(&mut conn)
         .await
         .unwrap();

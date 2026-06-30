@@ -101,7 +101,9 @@ impl ImportService {
                 .map_err(|e| ImportError::Database {
                     source: e.to_string(),
                 })?;
-        let commodity_id = commodity.map(|c| c.id).ok_or(ImportError::CnyCommodityNotFound)?;
+        let commodity_id = commodity
+            .map(|c| c.id)
+            .ok_or(ImportError::CnyCommodityNotFound)?;
 
         // 4. 查找 "待处理" 系统 Tag
         let (pending_tag_id, pending_tag_name) = match self.resolve_pending_tag_id().await? {
@@ -241,7 +243,7 @@ impl ImportService {
             date_time: entry.date_time,
             description: entry.description.clone(),
             kind: entry.kind,
-            member_id: Some(member_id),
+            member_id,
         };
 
         // 构建 tag_ids（含 "待处理" 系统 Tag）

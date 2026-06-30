@@ -113,7 +113,7 @@ mod tests {
             .unwrap(),
             description: "午餐".to_string(),
             kind: TransactionKind::Normal,
-            member_id: Some(member_id),
+            member_id,
         };
         let tag_ids = vec![tag_id];
         let tx_id = db.transaction_insert(&tx, &tag_ids).await.unwrap();

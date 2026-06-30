@@ -323,7 +323,7 @@ impl TransactionService {
 mod tests {
     use super::*;
     use accounting::account::Account;
-    use accounting::id::{AccountId, CommodityId, PostingId, TransactionId};
+    use accounting::id::{AccountId, CommodityId, MemberId, PostingId, TransactionId};
     use accounting::posting::Posting;
     use accounting::transaction::Transaction;
     use accounting::transaction::TransactionKind;
@@ -364,11 +364,20 @@ mod tests {
         db.account_create(&account).await.unwrap()
     }
 
+    async fn create_test_member(db: &SqliteDatabase) -> MemberId {
+        let member = accounting::member::Member {
+            id: MemberId(0),
+            name: "Test Member".to_string(),
+        };
+        db.member_create(&member).await.unwrap()
+    }
+
     #[tokio::test]
     async fn test_submit_transaction() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
         db.initialize(Some("en")).await.unwrap();
         let tx_service = TransactionService::new(db);
+        let member_id = create_test_member(&tx_service.db).await;
 
         let id1 = create_test_account(&tx_service.db, "Assets:A").await;
         let id2 = create_test_account(&tx_service.db, "Assets:B").await;
@@ -381,7 +390,7 @@ mod tests {
                 .unwrap(),
             description: "Test".to_string(),
             kind: TransactionKind::Normal,
-            member_id: None,
+            member_id,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
 
@@ -397,6 +406,7 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
         db.initialize(Some("en")).await.unwrap();
         let tx_service = TransactionService::new(db);
+        let member_id = create_test_member(&tx_service.db).await;
 
         let id1 = create_test_account(&tx_service.db, "Assets:C").await;
         let id2 = create_test_account(&tx_service.db, "Assets:D").await;
@@ -409,7 +419,7 @@ mod tests {
                 .unwrap(),
             description: "Bad".to_string(),
             kind: TransactionKind::Normal,
-            member_id: None,
+            member_id,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-50")];
 
@@ -425,6 +435,7 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
         db.initialize(Some("en")).await.unwrap();
         let tx_service = TransactionService::new(db);
+        let member_id = create_test_member(&tx_service.db).await;
 
         let id1 = create_test_account(&tx_service.db, "Assets:E").await;
         let id2 = create_test_account(&tx_service.db, "Assets:F").await;
@@ -437,7 +448,7 @@ mod tests {
                 .unwrap(),
             description: "Original".to_string(),
             kind: TransactionKind::Normal,
-            member_id: None,
+            member_id,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
 
@@ -452,7 +463,7 @@ mod tests {
             date_time: tx.date_time,
             description: "Updated".to_string(),
             kind: TransactionKind::Normal,
-            member_id: None,
+            member_id,
         };
         let new_postings = vec![sample_posting(id1, "200"), sample_posting(id2, "-200")];
 
@@ -476,6 +487,7 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
         db.initialize(Some("en")).await.unwrap();
         let tx_service = TransactionService::new(db);
+        let member_id = create_test_member(&tx_service.db).await;
 
         let id1 = create_test_account(&tx_service.db, "Assets:G").await;
         let id2 = create_test_account(&tx_service.db, "Assets:H").await;
@@ -488,7 +500,7 @@ mod tests {
                 .unwrap(),
             description: "ToDelete".to_string(),
             kind: TransactionKind::Normal,
-            member_id: None,
+            member_id,
         };
         let postings = vec![sample_posting(id1, "100"), sample_posting(id2, "-100")];
 

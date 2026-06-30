@@ -173,7 +173,8 @@ impl CashFlowService {
 mod tests {
     use super::*;
     use accounting::account::Account;
-    use accounting::id::{AccountId, PostingId, TransactionId};
+    use accounting::id::{AccountId, MemberId, PostingId, TransactionId};
+    use accounting::member::Member;
     use accounting::posting::Posting;
     use accounting::transaction::{Transaction, TransactionKind};
     use accounting_sql::SqliteDatabase;
@@ -213,10 +214,20 @@ mod tests {
         db
     }
 
+    async fn create_test_member(db: &SqliteDatabase) -> MemberId {
+        db.member_create(&Member {
+            id: MemberId(0),
+            name: "Test".to_string(),
+        })
+        .await
+        .unwrap()
+    }
+
     #[tokio::test]
     async fn test_cash_flow_report() {
         let db = setup_db().await;
         let service = CashFlowService::new(db.clone());
+        let member_id = create_test_member(&db).await;
 
         let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
         let expenses_id = db
@@ -239,7 +250,7 @@ mod tests {
                 .unwrap(),
             description: "Expense".to_string(),
             kind: TransactionKind::Normal,
-            member_id: None,
+            member_id,
         };
         let tx_id = db.transaction_insert(&tx, &[]).await.unwrap();
 

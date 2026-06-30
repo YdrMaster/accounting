@@ -78,7 +78,8 @@ impl BalanceSheetService {
 mod tests {
     use super::*;
     use accounting::account::Account;
-    use accounting::id::{AccountId, CommodityId, PostingId, TransactionId};
+    use accounting::id::{AccountId, CommodityId, MemberId, PostingId, TransactionId};
+    use accounting::member::Member;
     use accounting::posting::Posting;
     use accounting::transaction::{Transaction, TransactionKind};
     use accounting_sql::SqliteDatabase;
@@ -119,10 +120,20 @@ mod tests {
         db
     }
 
+    async fn create_test_member(db: &SqliteDatabase) -> MemberId {
+        db.member_create(&Member {
+            id: MemberId(0),
+            name: "Test".to_string(),
+        })
+        .await
+        .unwrap()
+    }
+
     #[tokio::test]
     async fn test_balance_sheet_only_assets() {
         let db = setup_db().await;
         let service = BalanceSheetService::new(db.clone());
+        let member_id = create_test_member(&db).await;
 
         let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
         let equity_id = db
@@ -143,7 +154,7 @@ mod tests {
                 .unwrap(),
             description: "Initial balance".to_string(),
             kind: TransactionKind::Normal,
-            member_id: None,
+            member_id,
         };
         let tx_id = db.transaction_insert(&tx, &[]).await.unwrap();
 
@@ -169,6 +180,7 @@ mod tests {
     async fn test_balance_sheet_excludes_zero_balance() {
         let db = setup_db().await;
         let service = BalanceSheetService::new(db.clone());
+        let member_id = create_test_member(&db).await;
 
         let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
 
@@ -183,7 +195,7 @@ mod tests {
                 .unwrap(),
             description: "Zero balance".to_string(),
             kind: TransactionKind::Normal,
-            member_id: None,
+            member_id,
         };
         let tx_id = db.transaction_insert(&tx, &[]).await.unwrap();
 

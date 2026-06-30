@@ -36,5 +36,5 @@ pub struct Transaction {
     /// 交易类型（普通/退款/报销）
     pub kind: TransactionKind,
     /// 关联成员 ID
-    pub member_id: Option<MemberId>,
+    pub member_id: MemberId,
 }
