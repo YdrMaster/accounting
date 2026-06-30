@@ -255,6 +255,14 @@ impl SqliteDatabase {
         crate::repo::account::account_rebuild_ancestors(&mut conn).await
     }
 
+    pub async fn account_created_at_map(
+        &self,
+    ) -> Result<std::collections::HashMap<accounting::id::AccountId, chrono::NaiveDate>, DbError>
+    {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_created_at_map(&mut conn).await
+    }
+
     // === Commodity ===
 
     pub async fn commodity_get_by_symbol(

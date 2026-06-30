@@ -171,7 +171,7 @@ mod tests {
         assert!(!beancount_text.is_empty());
 
         // 写入 beancount 文件
-        let beancount_file = output_dir.join("backup.beancount");
+        let beancount_file = output_dir.join("transactions.beancount");
         std::fs::write(&beancount_file, &beancount_text).unwrap();
 
         // 导入到新库
@@ -261,7 +261,7 @@ mod tests {
         assert_eq!(exported_attachment_content, attachment_data);
 
         // 写入 beancount 文件
-        let beancount_file = output_dir.join("backup.beancount");
+        let beancount_file = output_dir.join("transactions.beancount");
         std::fs::write(&beancount_file, &beancount_text).unwrap();
 
         // 导入到新库
@@ -339,7 +339,7 @@ mod tests {
         }
 
         // 写入 beancount 文件
-        let beancount_file = output_dir.join("backup.beancount");
+        let beancount_file = output_dir.join("transactions.beancount");
         std::fs::write(&beancount_file, &beancount_text).unwrap();
 
         // 导入应该成功但附件数为 0（因为文件不存在）
@@ -363,7 +363,7 @@ mod tests {
         let beancount_text = export(&source_db, &output_dir).await.unwrap();
 
         // 写入 beancount 文件
-        let beancount_file = output_dir.join("backup.beancount");
+        let beancount_file = output_dir.join("transactions.beancount");
         std::fs::write(&beancount_file, &beancount_text).unwrap();
 
         // 第一次导入

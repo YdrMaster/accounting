@@ -186,6 +186,7 @@ fn parse_account_open(
             internal_id,
             path,
             account_type,
+            created_at: None,
             closed_at: None,
             billing_day,
             repayment_day,

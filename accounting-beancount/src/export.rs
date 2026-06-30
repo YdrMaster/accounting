@@ -5,6 +5,7 @@ use accounting::account::Account;
 use accounting::id::*;
 use accounting::transaction::TransactionKind;
 use accounting_sql::SqliteDatabase;
+use chrono::NaiveDate;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -60,6 +61,11 @@ async fn export_accounts(
         .await
         .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
 
+    let created_at_by_id: HashMap<AccountId, NaiveDate> = db
+        .account_created_at_map()
+        .await
+        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+
     let accounts_by_id: HashMap<AccountId, Account> =
         accounts.iter().map(|a| (a.id, a.clone())).collect();
 
@@ -97,6 +103,7 @@ async fn export_accounts(
             internal_id: a.id.0,
             path: export_path,
             account_type: account_type.to_string(),
+            created_at: created_at_by_id.get(&a.id).copied(),
             closed_at: a.closed_at,
             billing_day: a.billing_day,
             repayment_day: a.repayment_day,

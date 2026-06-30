@@ -1,5 +1,6 @@
 use chrono::NaiveDate;
 use sqlx::SqliteConnection;
+use std::collections::HashMap;
 
 use crate::error::DbError;
 use accounting::account::Account;
@@ -358,6 +359,29 @@ pub async fn account_list_owners(
         .into_iter()
         .map(|(a, m)| (AccountId(a), MemberId(m)))
         .collect())
+}
+
+pub async fn account_created_at_map(
+    conn: &mut SqliteConnection,
+) -> Result<HashMap<AccountId, NaiveDate>, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct CreatedAtRow {
+        id: i64,
+        created_at: String,
+    }
+
+    let rows: Vec<CreatedAtRow> = sqlx::query_as("SELECT id, created_at FROM accounts")
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    let mut map = HashMap::new();
+    for row in rows {
+        if let Ok(date) = NaiveDate::parse_from_str(&row.created_at, "%Y-%m-%d %H:%M:%S") {
+            map.insert(AccountId(row.id), date);
+        }
+    }
+    Ok(map)
 }
 
 pub async fn account_set_owners(

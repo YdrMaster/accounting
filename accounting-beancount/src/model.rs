@@ -15,6 +15,7 @@ pub struct BAccount {
     pub internal_id: i64,
     pub path: String,
     pub account_type: String,
+    pub created_at: Option<NaiveDate>,
     pub closed_at: Option<NaiveDate>,
     pub billing_day: Option<u8>,
     pub repayment_day: Option<u8>,

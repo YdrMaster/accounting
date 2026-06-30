@@ -47,7 +47,7 @@ async fn run_export(db: SqliteDatabase, args: BeancountExportArgs) -> Result<(),
         .await
         .map_err(|e| AccountingError::Unknown(e.to_string()))?;
 
-    let output_file = args.output_dir.join("backup.beancount");
+    let output_file = args.output_dir.join("transactions.beancount");
     std::fs::write(&output_file, &text).map_err(|e| {
         AccountingError::Unknown(format!("{}", t!("beancount_write_file_failed", error = e)))
     })?;

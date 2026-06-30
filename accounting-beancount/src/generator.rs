@@ -1,4 +1,5 @@
 use crate::model::*;
+use chrono::NaiveDate;
 use std::fmt::Write;
 
 pub fn generate(data: &BeancountData) -> String {
@@ -54,7 +55,10 @@ fn generate_commodity(out: &mut String, c: &BCommodity) {
 }
 
 fn generate_account_open(out: &mut String, a: &BAccount) {
-    let _ = writeln!(out, "1970-01-01 open {}", a.path);
+    let open_date = a
+        .created_at
+        .unwrap_or_else(|| NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
+    let _ = writeln!(out, "{} open {}", open_date, a.path);
     write_metadata(out, "internal_id", &a.internal_id.to_string());
     write_metadata(out, "account_type", &escape_string(&a.account_type));
     if let Some(bd) = a.billing_day {
@@ -202,6 +206,7 @@ mod tests {
                     internal_id: 1,
                     path: "资产:现金".to_string(),
                     account_type: "Asset".to_string(),
+                    created_at: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
                     closed_at: None,
                     billing_day: None,
                     repayment_day: None,
@@ -210,6 +215,7 @@ mod tests {
                     internal_id: 2,
                     path: "支出:食品".to_string(),
                     account_type: "Expense".to_string(),
+                    created_at: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
                     closed_at: Some(NaiveDate::from_ymd_opt(2024, 12, 31).unwrap()),
                     billing_day: None,
                     repayment_day: None,
@@ -279,7 +285,7 @@ mod tests {
     fn test_generate_account_open_and_close() {
         let data = sample_data();
         let output = generate(&data);
-        assert!(output.contains("1970-01-01 open 资产:现金"));
+        assert!(output.contains("2024-01-01 open 资产:现金"));
         assert!(output.contains("account_type: \"Asset\""));
         assert!(output.contains("2024-12-31 close 支出:食品"));
     }
