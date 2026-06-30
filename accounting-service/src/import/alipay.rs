@@ -147,19 +147,18 @@ fn parse_alipay_row(
         });
     }
 
-    // 判断交易类型
-    let kind = if category == "退款" {
-        TransactionKind::Refund
-    } else {
-        TransactionKind::Normal
-    };
+    // 判断是否为退款行：导入的银行/支付渠道退款是独立的资金回流事件，
+    // 系统中 TransactionKind::Refund 要求关联到已存在的原分录，导入时无法确定，
+    // 因此按普通交易导入，由用户后续映射到合适的收入/折扣账户。
+    let is_refund = category == "退款";
+    let kind = TransactionKind::Normal;
 
     // 判断金额方向（绝对值）
     let abs_amount = amount.abs();
 
     // 收支侧金额：支出为正（Expense 增加），收入/退款为负（Income 增加）
     // 资产侧金额：与收支侧相反
-    let (income_expense_amount, asset_amount) = if kind == TransactionKind::Refund {
+    let (income_expense_amount, asset_amount) = if is_refund {
         // 退款：收支侧为负（收入类账户增加），资产侧为正（资产增加）
         (-abs_amount, abs_amount)
     } else if direction.contains("支") {
@@ -312,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_refund_row() {
+    fn test_parse_refund_row_as_normal() {
         let adapter = AlipayAdapter;
         let ctx = test_context();
 
@@ -323,7 +322,8 @@ mod tests {
 
         let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
         let entry = iter.next().unwrap().unwrap();
-        assert_eq!(entry.kind, TransactionKind::Refund);
+        // 导入的退款行是独立的资金回流事件，按普通交易导入。
+        assert_eq!(entry.kind, TransactionKind::Normal);
         // 退款：收支侧为负（收入类账户增加），资产侧为正（资产增加）
         assert_eq!(entry.postings[0].role, PostingRole::IncomeExpense);
         assert_eq!(entry.postings[0].category, "退款");
@@ -468,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ampersand_refund() {
+    fn test_parse_ampersand_refund_as_normal() {
         let adapter = AlipayAdapter;
         let ctx = test_context();
 
@@ -479,7 +479,7 @@ mod tests {
 
         let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
         let entry = iter.next().unwrap().unwrap();
-        assert_eq!(entry.kind, TransactionKind::Refund);
+        assert_eq!(entry.kind, TransactionKind::Normal);
         assert_eq!(entry.postings.len(), 3);
 
         assert_eq!(entry.postings[0].role, PostingRole::IncomeExpense);

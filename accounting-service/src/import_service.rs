@@ -521,4 +521,45 @@ mod tests {
         assert_eq!(result.skipped, 1, "应跳过 1 条");
         assert_eq!(result.errors.len(), 1);
     }
+
+    #[tokio::test]
+    async fn test_import_alipay_refund_row() {
+        let db = setup_db().await;
+        let service = ImportService::new(db);
+
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2024-01-15 12:30:00,退款,测试商家,test***@test.com,测试商品,不计收支,36.75,蚂蚁宝藏信用卡,退款成功,2024011522001470000001\t,MO20240101\t,,\n",
+        );
+
+        let result = service
+            .import(csv_data.as_bytes(), "alipay", MemberId(1))
+            .await
+            .unwrap();
+
+        assert_eq!(result.imported, 1, "退款行应成功导入");
+        assert_eq!(result.skipped, 0, "不应跳过退款行");
+    }
+
+    #[tokio::test]
+    async fn test_import_alipay_real_file_includes_refunds() {
+        let db = setup_db().await;
+        let service = ImportService::new(db);
+
+        let data = std::fs::read("test/支付宝交易明细.csv").unwrap();
+        let result = service.import(&data, "alipay", MemberId(1)).await.unwrap();
+
+        assert!(
+            result.imported > 300,
+            "应导入 300+ 条，实际导入 {} 条，跳过 {} 条",
+            result.imported,
+            result.skipped
+        );
+        // 测试账本里只有已关闭交易会被跳过，退款行必须被正常导入。
+        assert!(
+            result.errors.iter().all(|e| e.to_string().contains("交易已关闭")),
+            "测试账本出现非预期的跳过错误：{:?}",
+            result.errors
+        );
+    }
 }
