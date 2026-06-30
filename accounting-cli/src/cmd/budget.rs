@@ -6,6 +6,7 @@ use accounting::id::AccountId;
 use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use std::str::FromStr;
 
 #[derive(Subcommand)]
@@ -95,8 +96,8 @@ fn parse_period(s: &str) -> Result<FinancePeriod, AccountingError> {
         "monthly" => Ok(FinancePeriod::Monthly),
         "yearly" => Ok(FinancePeriod::Yearly),
         _ => Err(AccountingError::InvalidDate(format!(
-            "未知周期类型: {}，可选: daily, weekly-sun, weekly-mon, monthly, yearly",
-            s
+            "{}",
+            t!("unknown_period_type", period = s)
         ))),
     }
 }
@@ -111,12 +112,16 @@ async fn parse_limits(
         let parts: Vec<&str> = limit_str.rsplitn(2, ':').collect();
         if parts.len() != 2 {
             return Err(AccountingError::InvalidDate(format!(
-                "限额格式错误: {}，应为 账户路径:金额",
-                limit_str
+                "{}",
+                t!("budget_limit_format_invalid", value = limit_str)
             )));
         }
-        let amount = Decimal::from_str(parts[0])
-            .map_err(|_| AccountingError::InvalidDate(format!("金额格式错误: {}", parts[0])))?;
+        let amount = Decimal::from_str(parts[0]).map_err(|_| {
+            AccountingError::InvalidDate(format!(
+                "{}",
+                t!("budget_amount_format_invalid", value = parts[0])
+            ))
+        })?;
         let account_id = resolve_account(db, parts[1]).await?;
         limits.push((account_id, amount));
     }
@@ -133,7 +138,7 @@ async fn create(db: &SqliteDatabase, args: &BudgetCreateArgs) -> Result<(), Acco
         .create_budget(&args.name, period, commodity_id, &limits)
         .await?;
 
-    println!("预算表已创建，ID: {}", id.0);
+    println!("{}", t!("budget_created", id = id.0));
     Ok(())
 }
 
@@ -142,7 +147,7 @@ async fn list(db: &SqliteDatabase) -> Result<(), AccountingError> {
     let budgets = service.list_budgets().await?;
 
     if budgets.is_empty() {
-        println!("暂无预算表");
+        println!("{}", t!("budget_empty"));
         return Ok(());
     }
 
@@ -158,8 +163,9 @@ async fn list(db: &SqliteDatabase) -> Result<(), AccountingError> {
 
 async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), AccountingError> {
     let date = match &args.date {
-        Some(d) => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d")
-            .map_err(|_| AccountingError::InvalidDate(format!("日期格式错误: {}", d)))?,
+        Some(d) => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|_| {
+            AccountingError::InvalidDate(format!("{}", t!("invalid_date_only_format", value = d)))
+        })?,
         None => chrono::Local::now().date_naive(),
     };
 
@@ -167,10 +173,15 @@ async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), Accounti
     let service = accounting_service::report::budget::BudgetService::new(db.clone());
     let status = service.get_budget_status(budget_id, date).await?;
 
-    println!("预算表：{}", status.budget.name);
+    println!("{}", t!("budget_name", name = status.budget.name));
     println!(
-        "周期：{} ~ {} ({})",
-        status.period_start, status.period_end, status.budget.period
+        "{}",
+        t!(
+            "budget_period",
+            start = status.period_start,
+            end = status.period_end,
+            period = status.budget.period
+        )
     );
     println!();
 
@@ -193,9 +204,9 @@ async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), Accounti
             .unwrap_or_else(|| item.account_id.to_string());
 
         let warning = if item.remaining < Decimal::ZERO {
-            " ⚠ 超支"
+            t!("budget_over_spent").to_string()
         } else {
-            ""
+            String::new()
         };
 
         println!(
@@ -241,7 +252,7 @@ async fn update(db: &SqliteDatabase, args: &BudgetUpdateArgs) -> Result<(), Acco
         .update_budget(budget_id, name, period, commodity_id, &limits)
         .await?;
 
-    println!("预算表已更新");
+    println!("{}", t!("budget_updated"));
     Ok(())
 }
 
@@ -250,6 +261,6 @@ async fn delete(db: &SqliteDatabase, args: &BudgetDeleteArgs) -> Result<(), Acco
     let service = accounting_service::report::budget::BudgetService::new(db.clone());
     service.delete_budget(budget_id).await?;
 
-    println!("预算表已删除");
+    println!("{}", t!("budget_deleted"));
     Ok(())
 }

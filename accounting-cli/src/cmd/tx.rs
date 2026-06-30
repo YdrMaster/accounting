@@ -127,7 +127,8 @@ impl TxCmd {
                 let limit = args.limit;
                 let offset = args.offset;
                 let filter = build_filter(&args, &db).await?;
-                let service = accounting_service::transaction_service::TransactionService::new(db.clone());
+                let service =
+                    accounting_service::transaction_service::TransactionService::new(db.clone());
                 let results = service.list(filter, limit, offset).await?;
                 let channel_names = channel_name_map(&db).await?;
                 let rows: Vec<TransactionRow> = results
@@ -152,7 +153,8 @@ impl TxCmd {
             }
             TxCmd::Show(args) => {
                 // 查询单笔交易详情并打印交易与分录及链路
-                let service = accounting_service::transaction_service::TransactionService::new(db.clone());
+                let service =
+                    accounting_service::transaction_service::TransactionService::new(db.clone());
                 let result = service.get(TransactionId(args.id)).await?;
                 match result {
                     Some((tx, postings, channel_paths)) => {
@@ -300,9 +302,10 @@ async fn parse_channel_paths(
 
     let segments: Vec<&str> = expr.split("->").map(|s| s.trim()).collect();
     if segments.iter().any(|s| s.is_empty()) {
-        return Err(AccountingError::InvalidTransaction(
-            "渠道路径包含空节点".to_string(),
-        ));
+        return Err(AccountingError::InvalidTransaction(format!(
+            "{}",
+            t!("tx_channel_path_empty_node")
+        )));
     }
 
     let last_idx = segments.len() - 1;
@@ -314,17 +317,19 @@ async fn parse_channel_paths(
             seg.split('&').map(|s| s.trim()).collect()
         } else {
             if seg.contains('&') {
-                return Err(AccountingError::InvalidTransaction(
-                    "& 只能在链路最后一级使用".to_string(),
-                ));
+                return Err(AccountingError::InvalidTransaction(format!(
+                    "{}",
+                    t!("tx_ampersand_only_last")
+                )));
             }
             vec![*seg]
         };
 
         if names.iter().any(|n| n.is_empty()) {
-            return Err(AccountingError::InvalidTransaction(
-                "渠道名称不能为空".to_string(),
-            ));
+            return Err(AccountingError::InvalidTransaction(format!(
+                "{}",
+                t!("tx_channel_name_empty")
+            )));
         }
 
         for name in names {
@@ -511,13 +516,19 @@ async fn build_filter(
         filter.end_date = Some(parse_date_time(to)?.date());
     }
     for account_path in &args.account {
-        filter.account_ids.push(resolve_account(db, account_path).await?);
+        filter
+            .account_ids
+            .push(resolve_account(db, account_path).await?);
     }
     for member_name in &args.member {
-        filter.member_ids.push(resolve_member(db, member_name).await?);
+        filter
+            .member_ids
+            .push(resolve_member(db, member_name).await?);
     }
     for channel_name in &args.channel {
-        filter.channel_ids.push(resolve_channel(db, channel_name).await?);
+        filter
+            .channel_ids
+            .push(resolve_channel(db, channel_name).await?);
     }
     for tag_name in &args.tag {
         let tag = db

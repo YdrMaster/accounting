@@ -18,11 +18,39 @@ type MappingKey = (MemberId, ChannelId);
 /// 导入上下文：(channel_name, import_root)
 type ImportCtx = (String, String);
 
+/// 导入致命错误
+#[derive(Debug)]
+pub enum ImportError {
+    UnsupportedSource { source: String },
+    ChannelNotFound { source: String },
+    CnyCommodityNotFound,
+    ImportRootNotFound,
+    Parse { source: String },
+    Database { source: String },
+}
+
+impl std::fmt::Display for ImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImportError::UnsupportedSource { source } => write!(f, "unsupported source: {source}"),
+            ImportError::ChannelNotFound { source } => write!(f, "channel not found: {source}"),
+            ImportError::CnyCommodityNotFound => write!(f, "default commodity CNY not found"),
+            ImportError::ImportRootNotFound => write!(f, "import root account not found"),
+            ImportError::Parse { source } => write!(f, "parse error: {source}"),
+            ImportError::Database { source } => write!(f, "database error: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for ImportError {}
+
 /// 导入结果
+#[derive(Debug)]
 pub struct ImportResult {
     pub transaction_ids: Vec<TransactionId>,
     pub imported: usize,
     pub skipped: usize,
+    pub pending_tag_name: Option<String>,
     pub errors: Vec<AdaptError>,
 }
 
@@ -42,35 +70,44 @@ impl ImportService {
         data: &[u8],
         source: &str,
         member_id: MemberId,
-    ) -> Result<ImportResult, AccountingError> {
+    ) -> Result<ImportResult, ImportError> {
         // 1. 查找适配器
         let adapters = builtin_adapters();
-        let adapter = find_adapter(source, &adapters).ok_or_else(|| {
-            AccountingError::InvalidTransaction(format!("不支持的来源: {source}"))
-        })?;
+        let adapter =
+            find_adapter(source, &adapters).ok_or_else(|| ImportError::UnsupportedSource {
+                source: source.to_string(),
+            })?;
 
         // 2. 解析 source 为 ChannelId 和渠道名称
-        let channel = self
-            .db
-            .channel_get_by_name(source)
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        let (channel_id, channel_name) = channel.map(|c| (c.id, c.name)).ok_or_else(|| {
-            AccountingError::AccountNotFound(format!("渠道 '{source}' 不存在，请先创建对应渠道"))
-        })?;
+        let channel =
+            self.db
+                .channel_get_by_name(source)
+                .await
+                .map_err(|e| ImportError::Database {
+                    source: e.to_string(),
+                })?;
+        let (channel_id, channel_name) =
+            channel
+                .map(|c| (c.id, c.name))
+                .ok_or_else(|| ImportError::ChannelNotFound {
+                    source: source.to_string(),
+                })?;
 
         // 3. 查找默认 CommodityId（CNY）
-        let commodity = self
-            .db
-            .commodity_get_by_symbol("CNY")
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        let commodity_id = commodity
-            .map(|c| c.id)
-            .ok_or_else(|| AccountingError::AccountNotFound("默认商品 CNY 不存在".to_string()))?;
+        let commodity =
+            self.db
+                .commodity_get_by_symbol("CNY")
+                .await
+                .map_err(|e| ImportError::Database {
+                    source: e.to_string(),
+                })?;
+        let commodity_id = commodity.map(|c| c.id).ok_or(ImportError::CnyCommodityNotFound)?;
 
         // 4. 查找 "待处理" 系统 Tag
-        let pending_tag_id = self.resolve_pending_tag_id().await?;
+        let (pending_tag_id, pending_tag_name) = match self.resolve_pending_tag_id().await? {
+            Some((id, name)) => (Some(id), Some(name)),
+            None => (None, None),
+        };
 
         // 5. 查找导入根账户名称
         let import_root = self.resolve_import_root().await?;
@@ -84,9 +121,9 @@ impl ImportService {
         };
 
         // 7. 调用适配器解析
-        let iter = adapter
-            .parse(data, &ctx)
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        let iter = adapter.parse(data, &ctx).map_err(|e| ImportError::Parse {
+            source: e.to_string(),
+        })?;
 
         // 8. 迭代 BillEntry 逐条处理
         let account_service = AccountService::new(self.db.clone());
@@ -96,6 +133,7 @@ impl ImportService {
             transaction_ids: Vec::new(),
             imported: 0,
             skipped: 0,
+            pending_tag_name,
             errors: Vec::new(),
         };
 
@@ -128,12 +166,19 @@ impl ImportService {
                 Err(e) => {
                     result.skipped += 1;
                     let error = if let Some(row) = entry.row {
-                        AdaptError::RowError {
+                        AdaptError::Row {
                             row,
-                            message: e.to_string(),
+                            detail: crate::import::RowErrorDetail::Other {
+                                message: e.to_string(),
+                            },
                         }
                     } else {
-                        AdaptError::FormatError(e.to_string())
+                        AdaptError::Row {
+                            row: 0,
+                            detail: crate::import::RowErrorDetail::Other {
+                                message: e.to_string(),
+                            },
+                        }
                     };
                     result.errors.push(error);
                 }
@@ -267,56 +312,62 @@ impl ImportService {
         account_service.ensure_cascading(&path).await
     }
 
-    /// 解析 "待处理" 系统 Tag ID
-    async fn resolve_pending_tag_id(&self) -> Result<Option<TagId>, AccountingError> {
+    /// 解析 "待处理" 系统 Tag ID 和名称
+    async fn resolve_pending_tag_id(&self) -> Result<Option<(TagId, String)>, ImportError> {
         // 尝试中文
-        if let Some(tag) = self
-            .db
-            .tag_get_by_name("待处理")
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+        if let Some(tag) =
+            self.db
+                .tag_get_by_name("待处理")
+                .await
+                .map_err(|e| ImportError::Database {
+                    source: e.to_string(),
+                })?
         {
-            return Ok(Some(tag.id));
+            return Ok(Some((tag.id, tag.name)));
         }
         // 尝试英文
-        if let Some(tag) = self
-            .db
-            .tag_get_by_name("pending")
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+        if let Some(tag) =
+            self.db
+                .tag_get_by_name("pending")
+                .await
+                .map_err(|e| ImportError::Database {
+                    source: e.to_string(),
+                })?
         {
-            return Ok(Some(tag.id));
+            return Ok(Some((tag.id, tag.name)));
         }
         Ok(None)
     }
 
     /// 解析导入根账户名称
-    async fn resolve_import_root(&self) -> Result<String, AccountingError> {
+    async fn resolve_import_root(&self) -> Result<String, ImportError> {
         // 尝试中文
-        if let Some(account) = self
-            .db
-            .account_get_by_name("导入")
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+        if let Some(account) =
+            self.db
+                .account_get_by_name("导入")
+                .await
+                .map_err(|e| ImportError::Database {
+                    source: e.to_string(),
+                })?
             && account.parent_id.is_none()
             && account.is_system
         {
             return Ok("导入".to_string());
         }
         // 尝试英文
-        if let Some(account) = self
-            .db
-            .account_get_by_name("Import")
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+        if let Some(account) =
+            self.db
+                .account_get_by_name("Import")
+                .await
+                .map_err(|e| ImportError::Database {
+                    source: e.to_string(),
+                })?
             && account.parent_id.is_none()
             && account.is_system
         {
             return Ok("Import".to_string());
         }
-        Err(AccountingError::AccountNotFound(
-            "导入根账户不存在，请检查数据库初始化".to_string(),
-        ))
+        Err(ImportError::ImportRootNotFound)
     }
 }
 
@@ -481,13 +532,10 @@ mod tests {
         let result = service.import(b"test", "unknown", MemberId(1)).await;
 
         assert!(result.is_err());
-        let err = result.err().unwrap();
-        match err {
-            AccountingError::InvalidTransaction(msg) => {
-                assert!(msg.contains("不支持的来源"), "actual: {msg}");
-            }
-            _ => panic!("预期 InvalidTransaction 错误，实际：{err:?}"),
-        }
+        assert!(
+            matches!(result.unwrap_err(), ImportError::UnsupportedSource { .. }),
+            "expected UnsupportedSource error"
+        );
     }
 
     #[tokio::test]
@@ -520,6 +568,17 @@ mod tests {
         assert_eq!(result.imported, 1, "只应成功导入 1 条");
         assert_eq!(result.skipped, 1, "应跳过 1 条");
         assert_eq!(result.errors.len(), 1);
+        assert!(
+            matches!(
+                result.errors[0],
+                AdaptError::Row {
+                    detail: crate::import::RowErrorDetail::ClosedTransaction,
+                    ..
+                }
+            ),
+            "expected ClosedTransaction error, got {:?}",
+            result.errors[0]
+        );
     }
 
     #[tokio::test]
@@ -557,7 +616,13 @@ mod tests {
         );
         // 测试账本里只有已关闭交易会被跳过，退款行必须被正常导入。
         assert!(
-            result.errors.iter().all(|e| e.to_string().contains("交易已关闭")),
+            result.errors.iter().all(|e| matches!(
+                e,
+                AdaptError::Row {
+                    detail: crate::import::RowErrorDetail::ClosedTransaction,
+                    ..
+                }
+            )),
             "测试账本出现非预期的跳过错误：{:?}",
             result.errors
         );

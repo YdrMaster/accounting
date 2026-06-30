@@ -1,5 +1,5 @@
-use crate::cmd::resolver::resolve_commodity;
 use crate::cmd::ReportBalanceRow;
+use crate::cmd::resolver::resolve_commodity;
 use crate::output::{OutputFormat, print_line, print_vec};
 use accounting::error::AccountingError;
 use accounting::finance_period::FinancePeriod;
@@ -44,7 +44,10 @@ impl ReportCmd {
                     for (cid, amount) in &item.balances {
                         rows.push(ReportBalanceRow {
                             account_id: item.account.id.0,
-                            account_name: format!("[资产] {}", item.account.name),
+                            account_name: format!(
+                                "{}",
+                                t!("report_account_asset", name = item.account.name)
+                            ),
                             commodity_id: cid.0,
                             amount: amount.to_string(),
                         });
@@ -75,8 +78,12 @@ impl ReportCmd {
                 let report = service.cash_flow_report(date, period, commodity_id).await?;
 
                 println!(
-                    "资金流量表：{} ~ {}",
-                    report.period_start, report.period_end
+                    "{}",
+                    t!(
+                        "report_cash_flow_title",
+                        start = report.period_start,
+                        end = report.period_end
+                    )
                 );
                 println!();
                 println!(
@@ -114,8 +121,8 @@ fn parse_period(s: &str) -> Result<FinancePeriod, AccountingError> {
         "monthly" => Ok(FinancePeriod::Monthly),
         "yearly" => Ok(FinancePeriod::Yearly),
         _ => Err(AccountingError::InvalidDate(format!(
-            "未知周期类型: {}，可选: daily, weekly-sun, weekly-mon, monthly, yearly",
-            s
+            "{}",
+            t!("unknown_period_type", period = s)
         ))),
     }
 }

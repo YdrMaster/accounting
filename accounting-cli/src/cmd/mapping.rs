@@ -4,6 +4,7 @@ use accounting::error::AccountingError;
 use accounting_service::mapping_service::MappingService;
 use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
+use rust_i18n::t;
 use serde::Serialize;
 use tabled::Tabled;
 
@@ -86,8 +87,14 @@ impl MappingSetArgs {
             .await?;
 
         println!(
-            "映射已设置：成员 {} 渠道 '{}' {} → {}",
-            self.member, self.channel, self.category, self.account
+            "{}",
+            t!(
+                "mapping_set",
+                member = self.member,
+                channel = self.channel,
+                category = self.category,
+                account = self.account
+            )
         );
         Ok(())
     }
@@ -107,7 +114,7 @@ impl MappingListArgs {
         match format {
             OutputFormat::Table => {
                 if list.is_empty() {
-                    println!("无映射记录");
+                    println!("{}", t!("mapping_empty"));
                 } else {
                     let rows: Vec<MappingRow> = list.iter().map(MappingRow::from_mapping).collect();
                     let table = tabled::Table::new(&rows).to_string();
@@ -139,8 +146,13 @@ impl MappingDeleteArgs {
             .await?;
 
         println!(
-            "映射已删除：成员 {} 渠道 '{}' {}",
-            self.member, self.channel, self.category
+            "{}",
+            t!(
+                "mapping_deleted",
+                member = self.member,
+                channel = self.channel,
+                category = self.category
+            )
         );
         Ok(())
     }

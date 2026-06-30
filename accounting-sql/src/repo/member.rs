@@ -55,12 +55,11 @@ pub async fn member_get_by_name(
     conn: &mut SqliteConnection,
     name: &str,
 ) -> Result<Option<Member>, DbError> {
-    let row: Option<MemberRow> =
-        sqlx::query_as("SELECT id, name FROM members WHERE name = ?1")
-            .bind(name)
-            .fetch_optional(conn)
-            .await
-            .map_err(|e| DbError::Database(e.to_string()))?;
+    let row: Option<MemberRow> = sqlx::query_as("SELECT id, name FROM members WHERE name = ?1")
+        .bind(name)
+        .fetch_optional(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(row.map(|r| r.into_member()))
 }
 

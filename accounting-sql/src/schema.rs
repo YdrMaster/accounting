@@ -19,12 +19,11 @@ pub async fn initialize_schema(conn: &mut SqliteConnection) -> Result<(), DbErro
 /// 对旧数据库，表结构可能已存在但没有 UNIQUE 约束；本函数通过
 /// `CREATE UNIQUE INDEX IF NOT EXISTS` 补齐，若存在重复则返回可读错误。
 async fn create_unique_indexes(conn: &mut SqliteConnection) -> Result<(), DbError> {
-    let duplicate_members: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT name, COUNT(*) as c FROM members GROUP BY name HAVING c > 1",
-    )
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(|e| DbError::Database(e.to_string()))?;
+    let duplicate_members: Vec<(String, i64)> =
+        sqlx::query_as("SELECT name, COUNT(*) as c FROM members GROUP BY name HAVING c > 1")
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
     if !duplicate_members.is_empty() {
         let names: Vec<String> = duplicate_members.into_iter().map(|(n, _)| n).collect();
         return Err(DbError::Database(format!(
@@ -33,12 +32,11 @@ async fn create_unique_indexes(conn: &mut SqliteConnection) -> Result<(), DbErro
         )));
     }
 
-    let duplicate_budgets: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT name, COUNT(*) as c FROM budgets GROUP BY name HAVING c > 1",
-    )
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(|e| DbError::Database(e.to_string()))?;
+    let duplicate_budgets: Vec<(String, i64)> =
+        sqlx::query_as("SELECT name, COUNT(*) as c FROM budgets GROUP BY name HAVING c > 1")
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
     if !duplicate_budgets.is_empty() {
         let names: Vec<String> = duplicate_budgets.into_iter().map(|(n, _)| n).collect();
         return Err(DbError::Database(format!(

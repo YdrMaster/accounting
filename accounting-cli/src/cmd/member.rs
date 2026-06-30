@@ -55,7 +55,10 @@ impl MemberCmd {
                 let id = resolve_member(&db, &args.name).await?;
                 let service = accounting_service::member_service::MemberService::new(db);
                 service.delete(id).await?;
-                print_line(&format!("{}", t!("member_deleted", name = args.name)), format);
+                print_line(
+                    &format!("{}", t!("member_deleted", name = args.name)),
+                    format,
+                );
             }
         }
         Ok(())

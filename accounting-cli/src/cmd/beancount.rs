@@ -2,6 +2,7 @@ use crate::output::OutputFormat;
 use accounting::error::AccountingError;
 use accounting_sql::SqliteDatabase;
 use clap::{Args, Subcommand};
+use rust_i18n::t;
 use std::path::PathBuf;
 
 #[derive(Subcommand)]
@@ -38,16 +39,18 @@ impl BeancountCmd {
 }
 
 async fn run_export(db: SqliteDatabase, args: BeancountExportArgs) -> Result<(), AccountingError> {
-    std::fs::create_dir_all(&args.output_dir)
-        .map_err(|e| AccountingError::Unknown(format!("创建输出目录失败: {e}")))?;
+    std::fs::create_dir_all(&args.output_dir).map_err(|e| {
+        AccountingError::Unknown(format!("{}", t!("beancount_create_dir_failed", error = e)))
+    })?;
 
     let text = accounting_beancount::export::export(&db, &args.output_dir)
         .await
         .map_err(|e| AccountingError::Unknown(e.to_string()))?;
 
     let output_file = args.output_dir.join("backup.beancount");
-    std::fs::write(&output_file, &text)
-        .map_err(|e| AccountingError::Unknown(format!("写入文件失败: {e}")))?;
+    std::fs::write(&output_file, &text).map_err(|e| {
+        AccountingError::Unknown(format!("{}", t!("beancount_write_file_failed", error = e)))
+    })?;
 
     println!(
         "{}",
@@ -59,8 +62,12 @@ async fn run_export(db: SqliteDatabase, args: BeancountExportArgs) -> Result<(),
 async fn run_import(db: SqliteDatabase, args: BeancountImportArgs) -> Result<(), AccountingError> {
     let input = std::fs::read_to_string(&args.input_file).map_err(|e| {
         AccountingError::Unknown(format!(
-            "读取文件 '{}' 失败: {e}",
-            args.input_file.display()
+            "{}",
+            t!(
+                "beancount_read_file_failed",
+                file = args.input_file.display(),
+                error = e
+            )
         ))
     })?;
 
@@ -74,14 +81,17 @@ async fn run_import(db: SqliteDatabase, args: BeancountImportArgs) -> Result<(),
         .map_err(|e| AccountingError::Unknown(e.to_string()))?;
 
     println!(
-        "导入完成: {} 笔交易, {} 跳过, {} 账户, {} 商品, {} 成员, {} 渠道, {} 附件",
-        result.transactions,
-        result.skipped,
-        result.accounts,
-        result.commodities,
-        result.members,
-        result.channels,
-        result.attachments,
+        "{}",
+        t!(
+            "beancount_import_summary",
+            transactions = result.transactions,
+            skipped = result.skipped,
+            accounts = result.accounts,
+            commodities = result.commodities,
+            members = result.members,
+            channels = result.channels,
+            attachments = result.attachments
+        )
     );
     Ok(())
 }

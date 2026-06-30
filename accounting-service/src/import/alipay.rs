@@ -1,4 +1,4 @@
-use super::{AdaptError, BillAdapter, BillEntry, BillPosting};
+use super::{AdaptError, BillAdapter, BillEntry, BillPosting, RowErrorDetail};
 use accounting::posting_role::PostingRole;
 use accounting::transaction::TransactionKind;
 use chrono::NaiveDateTime;
@@ -24,8 +24,8 @@ impl BillAdapter for AlipayAdapter {
         let text = if had_errors {
             // GBK 解码失败，尝试 UTF-8（测试数据或新版导出格式）
             std::str::from_utf8(data)
-                .map_err(|e| {
-                    AdaptError::FormatError(format!("文件编码无法识别（GBK/UTF-8 均失败）：{e}"))
+                .map_err(|e| AdaptError::Encoding {
+                    source: e.to_string(),
                 })?
                 .to_string()
         } else {
@@ -103,9 +103,12 @@ fn parse_alipay_row(
     let field = |idx: usize, name: &str| -> Result<&str, AdaptError> {
         fields
             .get(idx)
-            .ok_or_else(|| AdaptError::RowError {
+            .ok_or_else(|| AdaptError::Row {
                 row,
-                message: format!("缺少 {name} 列（索引 {idx}）"),
+                detail: RowErrorDetail::MissingColumn {
+                    index: idx,
+                    name: name.to_string(),
+                },
             })
             .map(|s| s.trim())
     };
@@ -128,9 +131,12 @@ fn parse_alipay_row(
 
     // 金额（索引 6）
     let amount_str = field(6, "金额")?;
-    let amount = Decimal::from_str(amount_str).map_err(|e| AdaptError::RowError {
+    let amount = Decimal::from_str(amount_str).map_err(|e| AdaptError::Row {
         row,
-        message: format!("金额解析失败 '{amount_str}'：{e}"),
+        detail: RowErrorDetail::AmountParse {
+            value: amount_str.to_string(),
+            source: e.to_string(),
+        },
     })?;
 
     // 收/付款方式（索引 7）— 资产侧分类
@@ -141,9 +147,9 @@ fn parse_alipay_row(
 
     // 跳过已关闭的交易
     if status.contains("交易关闭") || status.contains("关闭") {
-        return Err(AdaptError::RowError {
+        return Err(AdaptError::Row {
             row,
-            message: "交易已关闭".to_string(),
+            detail: RowErrorDetail::ClosedTransaction,
         });
     }
 
@@ -212,7 +218,11 @@ fn parse_alipay_row(
             role: PostingRole::Asset,
             category: asset_category.clone(),
             commodity_symbol: commodity_symbol.clone(),
-            amount: if idx == 0 { asset_amount } else { Decimal::ZERO },
+            amount: if idx == 0 {
+                asset_amount
+            } else {
+                Decimal::ZERO
+            },
             is_reimbursable: false,
         });
     }
@@ -235,9 +245,11 @@ fn parse_datetime(row: usize, s: &str) -> Result<NaiveDateTime, AdaptError> {
     if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y/%m/%d %H:%M:%S") {
         return Ok(dt);
     }
-    Err(AdaptError::RowError {
+    Err(AdaptError::Row {
         row,
-        message: format!("日期格式无法解析：'{s}'"),
+        detail: RowErrorDetail::DateParse {
+            value: s.to_string(),
+        },
     })
 }
 
@@ -351,7 +363,20 @@ mod tests {
 
         let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
         let result = iter.next().unwrap();
-        assert!(result.is_err(), "交易关闭应返回错误（被跳过）");
+        assert!(
+            result.is_err(),
+            "closed transaction should return an error (skipped)"
+        );
+        assert!(
+            matches!(
+                result.unwrap_err(),
+                AdaptError::Row {
+                    detail: RowErrorDetail::ClosedTransaction,
+                    ..
+                }
+            ),
+            "expected ClosedTransaction error"
+        );
     }
 
     #[test]
@@ -436,7 +461,10 @@ mod tests {
 
         assert_eq!(entry.postings[1].role, PostingRole::Asset);
         assert_eq!(entry.postings[1].category, "蚂蚁宝藏信用卡(江苏银行)");
-        assert_eq!(entry.postings[1].amount, Decimal::from_str("-4.80").unwrap());
+        assert_eq!(
+            entry.postings[1].amount,
+            Decimal::from_str("-4.80").unwrap()
+        );
 
         assert_eq!(entry.postings[2].role, PostingRole::Asset);
         assert_eq!(entry.postings[2].category, "超划算");
@@ -458,7 +486,10 @@ mod tests {
         assert_eq!(entry.postings.len(), 4);
 
         assert_eq!(entry.postings[1].category, "蚂蚁宝藏信用卡(江苏银行)");
-        assert_eq!(entry.postings[1].amount, Decimal::from_str("-4.30").unwrap());
+        assert_eq!(
+            entry.postings[1].amount,
+            Decimal::from_str("-4.30").unwrap()
+        );
 
         assert_eq!(entry.postings[2].category, "茶咖自由卡");
         assert_eq!(entry.postings[2].amount, Decimal::ZERO);
@@ -484,11 +515,17 @@ mod tests {
 
         assert_eq!(entry.postings[0].role, PostingRole::IncomeExpense);
         assert_eq!(entry.postings[0].category, "退款");
-        assert_eq!(entry.postings[0].amount, Decimal::from_str("-3158.00").unwrap());
+        assert_eq!(
+            entry.postings[0].amount,
+            Decimal::from_str("-3158.00").unwrap()
+        );
 
         assert_eq!(entry.postings[1].role, PostingRole::Asset);
         assert_eq!(entry.postings[1].category, "招商银行信用卡分期");
-        assert_eq!(entry.postings[1].amount, Decimal::from_str("3158.00").unwrap());
+        assert_eq!(
+            entry.postings[1].amount,
+            Decimal::from_str("3158.00").unwrap()
+        );
 
         assert_eq!(entry.postings[2].role, PostingRole::Asset);
         assert_eq!(entry.postings[2].category, "招商银行满减");
@@ -511,7 +548,10 @@ mod tests {
 
         assert_eq!(entry.postings[1].role, PostingRole::Asset);
         assert_eq!(entry.postings[1].category, "支付宝");
-        assert_eq!(entry.postings[1].amount, Decimal::from_str("-10.00").unwrap());
+        assert_eq!(
+            entry.postings[1].amount,
+            Decimal::from_str("-10.00").unwrap()
+        );
     }
 
     #[test]
@@ -530,7 +570,10 @@ mod tests {
 
         assert_eq!(entry.postings[1].role, PostingRole::Asset);
         assert_eq!(entry.postings[1].category, "蚂蚁宝藏信用卡");
-        assert_eq!(entry.postings[1].amount, Decimal::from_str("-5.00").unwrap());
+        assert_eq!(
+            entry.postings[1].amount,
+            Decimal::from_str("-5.00").unwrap()
+        );
     }
 
     #[test]

@@ -59,19 +59,50 @@ pub struct BillPosting {
 /// 适配器解析错误
 #[derive(Debug, Clone)]
 pub enum AdaptError {
+    /// 文件编码错误
+    Encoding { source: String },
     /// 单行解析错误
-    RowError { row: usize, message: String },
-    /// 文件格式错误
-    FormatError(String),
+    Row { row: usize, detail: RowErrorDetail },
+}
+
+/// 单行解析错误的具体原因
+#[derive(Debug, Clone)]
+pub enum RowErrorDetail {
+    /// 缺少指定列
+    MissingColumn { index: usize, name: String },
+    /// 金额解析失败
+    AmountParse { value: String, source: String },
+    /// 日期解析失败
+    DateParse { value: String },
+    /// 交易已关闭
+    ClosedTransaction,
+    /// 上层 service 包装的其他错误（message 已由源 crate 本地化）
+    Other { message: String },
+}
+
+impl fmt::Display for RowErrorDetail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RowErrorDetail::MissingColumn { index, name } => {
+                write!(f, "missing column at index {index} ({name})")
+            }
+            RowErrorDetail::AmountParse { value, source } => {
+                write!(f, "amount parse failed for '{value}': {source}")
+            }
+            RowErrorDetail::DateParse { value } => {
+                write!(f, "date parse failed for '{value}'")
+            }
+            RowErrorDetail::ClosedTransaction => write!(f, "transaction closed"),
+            RowErrorDetail::Other { message } => write!(f, "{message}"),
+        }
+    }
 }
 
 impl fmt::Display for AdaptError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AdaptError::RowError { row, message } => {
-                write!(f, "第 {row} 行：{message}")
-            }
-            AdaptError::FormatError(msg) => write!(f, "格式错误：{msg}"),
+            AdaptError::Encoding { source } => write!(f, "encoding error: {source}"),
+            AdaptError::Row { row, detail } => write!(f, "row {row}: {detail}"),
         }
     }
 }

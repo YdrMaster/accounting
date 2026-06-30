@@ -27,9 +27,7 @@ impl ChannelRow {
 
 fn validate_channel_name(name: &str) -> Result<(), DbError> {
     if name.contains("->") || name.contains("&") {
-        return Err(DbError::Database(
-            "渠道名称不能包含 -> 或 &".to_string(),
-        ));
+        return Err(DbError::Database("渠道名称不能包含 -> 或 &".to_string()));
     }
     Ok(())
 }

@@ -94,12 +94,7 @@ impl AccountCmd {
             AccountCmd::Add(args) => {
                 let service = accounting_service::account_service::AccountService::new(db);
                 let id = service
-                    .create_cascading(
-                        &args.path,
-                        args.billing_day,
-                        args.repayment_day,
-                        &[],
-                    )
+                    .create_cascading(&args.path, args.billing_day, args.repayment_day, &[])
                     .await?;
                 print_line(&format!("{}", t!("account_created", id = id.0)), format);
             }
@@ -129,13 +124,19 @@ impl AccountCmd {
                 let account_id = resolve_account(&db, &args.path).await?;
                 let service = accounting_service::account_service::AccountService::new(db);
                 service.close(account_id).await?;
-                print_line(&format!("{}", t!("account_closed", name = args.path)), format);
+                print_line(
+                    &format!("{}", t!("account_closed", name = args.path)),
+                    format,
+                );
             }
             AccountCmd::Reopen(args) => {
                 let account_id = resolve_account(&db, &args.path).await?;
                 let service = accounting_service::account_service::AccountService::new(db);
                 service.reopen(account_id).await?;
-                print_line(&format!("{}", t!("account_reopened", name = args.path)), format);
+                print_line(
+                    &format!("{}", t!("account_reopened", name = args.path)),
+                    format,
+                );
             }
             AccountCmd::Balance(args) => {
                 let account_id = resolve_account(&db, &args.path).await?;
