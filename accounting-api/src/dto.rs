@@ -70,8 +70,10 @@ pub struct ChannelPathNodeDto {
     pub position: i32,
     /// 渠道 ID。
     pub channel_id: i64,
-    /// 是否已对账。
-    pub reconciled: bool,
+    /// 渠道名称。
+    pub channel_name: String,
+    /// 链路节点状态。
+    pub status: String,
 }
 
 /// 链路节点请求。
@@ -81,6 +83,21 @@ pub struct ChannelPathNodeRequest {
     pub position: i32,
     /// 渠道 ID。
     pub channel_id: i64,
+    /// 链路节点状态（可选，默认 default）。
+    #[serde(default = "default_channel_path_status")]
+    pub status: String,
+}
+
+fn default_channel_path_status() -> String {
+    "default".to_string()
+}
+
+/// 对账标记请求。
+#[derive(Deserialize)]
+pub struct ReconcileRequest {
+    /// 是否取消已校验标记。
+    #[serde(default)]
+    pub unset: bool,
 }
 
 /// 交易响应。
@@ -201,13 +218,6 @@ pub struct CreateChannelRequest {
 pub struct UpdateChannelRequest {
     /// 关联资产账户 ID。
     pub account_id: Option<i64>,
-}
-
-/// 对账标记请求。
-#[derive(Deserialize)]
-pub struct ReconcileRequest {
-    /// 是否已对账。
-    pub reconciled: bool,
 }
 
 /// 标签响应。

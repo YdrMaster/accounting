@@ -121,7 +121,7 @@ async fn list_transactions(
         .await
         .map_err(|e| e.to_string())?;
 
-    let (account_paths, commodities, members, account_types, tag_map) = {
+    let (account_paths, commodities, members, account_types, tag_map, channel_names) = {
         let accounts: std::collections::HashMap<
             accounting::id::AccountId,
             accounting::account::Account,
@@ -150,6 +150,13 @@ async fn list_transactions(
             .into_iter()
             .map(|m| (m.id.0, m.name))
             .collect();
+        let channel_names: std::collections::HashMap<accounting::id::ChannelId, String> = db
+            .channel_list()
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|c| (c.id, c.name))
+            .collect();
         let account_types = build_account_type_map(&accounts);
         let tx_ids: Vec<accounting::id::TransactionId> =
             transactions.iter().map(|(tx, _, _)| tx.id).collect();
@@ -157,7 +164,14 @@ async fn list_transactions(
             .tag_names_by_transactions(&tx_ids)
             .await
             .map_err(|e| e.to_string())?;
-        (account_paths, commodities, members, account_types, tag_map)
+        (
+            account_paths,
+            commodities,
+            members,
+            account_types,
+            tag_map,
+            channel_names,
+        )
     };
 
     let dtos: Vec<TransactionDto> = transactions
@@ -181,7 +195,11 @@ async fn list_transactions(
                 .map(|n| ChannelPathNodeDto {
                     position: n.position,
                     channel_id: n.channel_id.0,
-                    reconciled: n.reconciled,
+                    channel_name: channel_names
+                        .get(&n.channel_id)
+                        .cloned()
+                        .unwrap_or_else(|| n.channel_id.0.to_string()),
+                    status: n.status.as_str().to_string(),
                 })
                 .collect(),
             postings: postings
@@ -292,12 +310,18 @@ async fn create_transaction(
     let channel_path_nodes: Vec<ChannelPathNode> = req
         .channel_paths
         .into_iter()
-        .map(|n| ChannelPathNode {
-            position: n.position,
-            channel_id: ChannelId(n.channel_id),
-            reconciled: false,
+        .map(|n| {
+            let status = n
+                .status
+                .parse()
+                .map_err(|e| format!("Invalid status: {}", e))?;
+            Ok::<_, String>(ChannelPathNode {
+                position: n.position,
+                channel_id: ChannelId(n.channel_id),
+                status,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     let service = TransactionService::new(db.clone());
     let id = service
@@ -355,6 +379,14 @@ async fn get_transaction(
         .map(|m| (m.id.0, m.name))
         .collect();
 
+    let channel_names: std::collections::HashMap<accounting::id::ChannelId, String> = db
+        .channel_list()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|c| (c.id, c.name))
+        .collect();
+
     let tag_map = db
         .tag_names_by_transactions(&[tx.id])
         .await
@@ -401,7 +433,11 @@ async fn get_transaction(
             .map(|n| ChannelPathNodeDto {
                 position: n.position,
                 channel_id: n.channel_id.0,
-                reconciled: n.reconciled,
+                channel_name: channel_names
+                    .get(&n.channel_id)
+                    .cloned()
+                    .unwrap_or_else(|| n.channel_id.0.to_string()),
+                status: n.status.as_str().to_string(),
             })
             .collect(),
         postings: posting_dtos,
@@ -548,12 +584,18 @@ async fn update_transaction(
     let channel_path_nodes: Vec<ChannelPathNode> = req
         .channel_paths
         .into_iter()
-        .map(|n| ChannelPathNode {
-            position: n.position,
-            channel_id: ChannelId(n.channel_id),
-            reconciled: false,
+        .map(|n| {
+            let status = n
+                .status
+                .parse()
+                .map_err(|e| format!("Invalid status: {}", e))?;
+            Ok::<_, String>(ChannelPathNode {
+                position: n.position,
+                channel_id: ChannelId(n.channel_id),
+                status,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     let service = TransactionService::new(db.clone());
     service
@@ -585,8 +627,13 @@ async fn reconcile_channel_path(
 ) -> Result<String, String> {
     let db = state.db();
     let service = TransactionService::new(db.clone());
+    let status = if req.unset {
+        accounting::channel_path::ChannelPathStatus::Default
+    } else {
+        accounting::channel_path::ChannelPathStatus::Verified
+    };
     service
-        .update_reconciled(accounting::id::ChannelPathId(id), req.reconciled)
+        .update_status(accounting::id::ChannelPathId(id), status)
         .await
         .map_err(|e| e.to_string())?;
     Ok("updated".to_string())

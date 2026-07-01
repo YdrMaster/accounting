@@ -140,6 +140,14 @@
 - **WHEN** 导入过程中单行解析错误
 - **THEN** 跳过该行继续处理，最终汇总输出成功数和错误详情
 
+#### Scenario: 第三方导入交易渠道状态默认为 pending
+- **当** 用户通过 `import` 命令从支付宝、微信等第三方渠道导入交易
+- **那么** 每笔交易的 channel_path 中所有渠道的 status 必须为 `pending`
+
+#### Scenario: 多资产 Posting 的渠道链路
+- **当** 支付宝适配器解析一笔交易产生多个 `role=Asset` 的 BillPosting
+- **那么** ImportService 构造的 channel_path 只包含 ImportContext 中的单一渠道，status=pending，不包含各个资产账户作为渠道
+
 ### Requirement: skip-on-error 策略
 导入过程中，单行解析错误 SHALL 不中断整批导入。系统 SHALL 以结构化方式记录错误（包含行号和错误类型/数据），继续处理后续行，最终由 CLI 根据当前语言环境汇总输出成功数和错误详情。
 

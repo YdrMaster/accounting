@@ -76,10 +76,10 @@ impl ImportService {
                 source: source.to_string(),
             })?;
 
-        // 2. 解析 source 为 ChannelId 和渠道名称
+        // 2. 解析 source 为 ChannelId 和渠道名称（支持别名与大小写不敏感）
         let channel =
             self.db
-                .channel_get_by_name(source)
+                .channel_resolve_by_name(source)
                 .await
                 .map_err(|e| ImportError::Database {
                     source: e.to_string(),
@@ -261,11 +261,11 @@ impl ImportService {
             }
         }
 
-        // 构建 ChannelPathNode
+        // 构建 ChannelPathNode（第三方导入默认为 pending）
         let channel_path_nodes = vec![ChannelPathNode {
             position: 0,
             channel_id,
-            reconciled: false,
+            status: accounting::channel_path::ChannelPathStatus::Pending,
         }];
 
         tx_service
@@ -489,13 +489,43 @@ mod tests {
 
     #[tokio::test]
     async fn test_import_channel_not_found() {
+        // open_in_memory 只创建 schema，不写入种子数据，因此没有 Alipay/支付宝渠道。
+        // alipay 有适配器，应报 ChannelNotFound。
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
         let service = ImportService::new(db);
 
         let result = service.import(b"test", "alipay", MemberId(1)).await;
 
-        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), ImportError::ChannelNotFound { .. }),
+            "expected ChannelNotFound when no channel exists"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_import_with_channel_alias() {
+        // 中文环境下渠道名为“支付宝”，使用英文别名 alipay 应能导入
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize(Some("zh-CN")).await.unwrap();
+
+        let member = accounting::member::Member {
+            id: MemberId(0),
+            name: "测试用户".to_string(),
+        };
+        db.member_create(&member).await.unwrap();
+
+        let service = ImportService::new(db);
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2024-01-15 12:30:00,餐饮美食,美团外卖,mei***@tuan.com,美团外卖-午餐,支出,35.00,蚂蚁宝藏信用卡,交易成功,2024011522001470000001\t,MO20240101\t,,\n",
+        );
+
+        let result = service
+            .import(csv_data.as_bytes(), "alipay", MemberId(1))
+            .await
+            .unwrap();
+
+        assert_eq!(result.imported, 1);
     }
 
     #[tokio::test]

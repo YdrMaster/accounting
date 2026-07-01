@@ -278,6 +278,14 @@ impl SqliteDatabase {
         crate::repo::commodity::commodity_list(&mut conn).await
     }
 
+    pub async fn commodity_created_at_map(
+        &self,
+    ) -> Result<std::collections::HashMap<accounting::id::CommodityId, chrono::NaiveDate>, DbError>
+    {
+        let mut conn = self.acquire().await?;
+        crate::repo::commodity::commodity_created_at_map(&mut conn).await
+    }
+
     pub async fn commodity_create(
         &self,
         commodity: &accounting::commodity::Commodity,
@@ -364,6 +372,14 @@ impl SqliteDatabase {
     ) -> Result<Option<accounting::channel::Channel>, DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::channel::channel_get_by_name(&mut conn, name).await
+    }
+
+    pub async fn channel_resolve_by_name(
+        &self,
+        name: &str,
+    ) -> Result<Option<accounting::channel::Channel>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel::channel_resolve_by_name(&mut conn, name).await
     }
 
     pub async fn channel_list(&self) -> Result<Vec<accounting::channel::Channel>, DbError> {
@@ -460,13 +476,13 @@ impl SqliteDatabase {
         crate::repo::channel_path::channel_path_count_by_channel(&mut conn, channel_id).await
     }
 
-    pub async fn channel_path_update_reconciled(
+    pub async fn channel_path_update_status(
         &self,
         id: accounting::id::ChannelPathId,
-        reconciled: bool,
+        status: accounting::channel_path::ChannelPathStatus,
     ) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::channel_path::channel_path_update_reconciled(&mut conn, id, reconciled).await
+        crate::repo::channel_path::channel_path_update_status(&mut conn, id, status).await
     }
 
     pub async fn channel_path_get(

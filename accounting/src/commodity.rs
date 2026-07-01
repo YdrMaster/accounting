@@ -11,6 +11,8 @@ pub struct Commodity {
     pub name: String,
     /// 小数精度
     pub precision: u8,
+    /// 创建日期
+    pub created_at: Option<chrono::NaiveDate>,
 }
 
 #[cfg(test)]
@@ -25,6 +27,7 @@ mod tests {
             symbol: "CNY".to_string(),
             name: "人民币".to_string(),
             precision: 2,
+            created_at: None,
         };
         assert_eq!(c.symbol, "CNY");
         assert_eq!(c.precision, 2);

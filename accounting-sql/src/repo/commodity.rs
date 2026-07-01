@@ -10,15 +10,22 @@ struct CommodityRow {
     symbol: String,
     name: String,
     precision: i32,
+    created_at: Option<String>,
 }
 
 impl CommodityRow {
     fn into_commodity(self) -> Commodity {
+        let created_at = self.created_at.and_then(|s| {
+            chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")
+                .ok()
+                .or_else(|| chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok())
+        });
         Commodity {
             id: CommodityId(self.id),
             symbol: self.symbol,
             name: self.name,
             precision: self.precision as u8,
+            created_at,
         }
     }
 }
@@ -27,22 +34,51 @@ pub async fn commodity_get_by_symbol(
     conn: &mut SqliteConnection,
     symbol: &str,
 ) -> Result<Option<Commodity>, DbError> {
-    let row: Option<CommodityRow> =
-        sqlx::query_as("SELECT id, symbol, name, precision FROM commodities WHERE symbol = ?1")
-            .bind(symbol)
-            .fetch_optional(conn)
-            .await
-            .map_err(|e| DbError::Database(e.to_string()))?;
+    let row: Option<CommodityRow> = sqlx::query_as(
+        "SELECT id, symbol, name, precision, created_at FROM commodities WHERE symbol = ?1",
+    )
+    .bind(symbol)
+    .fetch_optional(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(row.map(|r| r.into_commodity()))
 }
 
 pub async fn commodity_list(conn: &mut SqliteConnection) -> Result<Vec<Commodity>, DbError> {
-    let rows: Vec<CommodityRow> =
-        sqlx::query_as("SELECT id, symbol, name, precision FROM commodities ORDER BY id")
-            .fetch_all(conn)
-            .await
-            .map_err(|e| DbError::Database(e.to_string()))?;
+    let rows: Vec<CommodityRow> = sqlx::query_as(
+        "SELECT id, symbol, name, precision, created_at FROM commodities ORDER BY id",
+    )
+    .fetch_all(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(rows.into_iter().map(|r| r.into_commodity()).collect())
+}
+
+pub async fn commodity_created_at_map(
+    conn: &mut SqliteConnection,
+) -> Result<std::collections::HashMap<accounting::id::CommodityId, chrono::NaiveDate>, DbError> {
+    #[derive(sqlx::FromRow)]
+    struct CreatedAtRow {
+        id: i64,
+        created_at: Option<String>,
+    }
+
+    let rows: Vec<CreatedAtRow> = sqlx::query_as("SELECT id, created_at FROM commodities")
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    let mut map = std::collections::HashMap::new();
+    for row in rows {
+        if let Some(date) = row.created_at.and_then(|s| {
+            chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")
+                .ok()
+                .or_else(|| chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok())
+        }) {
+            map.insert(accounting::id::CommodityId(row.id), date);
+        }
+    }
+    Ok(map)
 }
 
 pub async fn commodity_create(
@@ -82,6 +118,7 @@ pub async fn commodity_upsert_by_symbol(
             symbol: symbol.to_string(),
             name: name.to_string(),
             precision,
+            created_at: None,
         };
         commodity_create(conn, &commodity).await
     }
@@ -130,6 +167,7 @@ mod tests {
             symbol: "USD".to_string(),
             name: "美元".to_string(),
             precision: 2,
+            created_at: None,
         };
         let id = commodity_create(&mut conn, &commodity).await.unwrap();
         let fetched = commodity_get_by_symbol(&mut conn, "USD")

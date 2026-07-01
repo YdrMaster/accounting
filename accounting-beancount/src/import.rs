@@ -197,7 +197,7 @@ pub async fn import(
                         .map(|&ch_id| ChannelPathNode {
                             position: cp.position,
                             channel_id: ch_id,
-                            reconciled: cp.reconciled,
+                            status: cp.status,
                         })
                 })
                 .collect();

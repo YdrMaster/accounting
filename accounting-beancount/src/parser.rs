@@ -147,6 +147,7 @@ fn parse_commodity(
             symbol,
             name,
             precision,
+            created_at: None,
         },
         next_i,
     ))
@@ -623,8 +624,19 @@ fn is_posting_line(line: &str) -> bool {
 
 fn parse_metadata_line(line: &str) -> (String, String) {
     let trimmed = line.trim();
-    if let Some((key, value)) = trimmed.split_once(':') {
-        (key.trim().to_string(), value.trim().to_string())
+    if let Some((key, rest)) = trimmed.split_once(':') {
+        let key = key.trim().to_string();
+        let rest = rest.trim();
+        // 如果值是 JSON 字符串（以 [ 或 { 开头），则把冒号后整段作为值，
+        // 避免后续冒号被 split_once 截断。
+        if rest.starts_with('"') && (rest.contains('[') || rest.contains('{')) {
+            // 找到第一个 " 开始的位置，取从该位置到行尾的内容
+            if let Some(start) = trimmed.find(':') {
+                let value = trimmed[start + 1..].trim().to_string();
+                return (key, value);
+            }
+        }
+        (key, rest.to_string())
     } else {
         (trimmed.to_string(), String::new())
     }
@@ -716,18 +728,90 @@ fn infer_account_type(path: &str) -> String {
     }
 }
 
-fn parse_channel_path(json_str: &str) -> Vec<ChannelPathEntry> {
-    serde_json::from_str::<Vec<serde_json::Value>>(json_str)
+fn parse_channel_path(value: &str) -> Vec<ChannelPathEntry> {
+    // 优先尝试新的文本格式
+    if let Some(entries) = parse_channel_path_text(value) {
+        return entries;
+    }
+
+    // 兼容旧 JSON 备份
+    serde_json::from_str::<Vec<serde_json::Value>>(value)
         .unwrap_or_default()
         .into_iter()
         .filter_map(|v| {
+            let status = if v.get("reconciled")?.as_bool().unwrap_or(false) {
+                accounting::channel_path::ChannelPathStatus::Verified
+            } else {
+                accounting::channel_path::ChannelPathStatus::Default
+            };
             Some(ChannelPathEntry {
                 position: v.get("position")?.as_i64()? as i32,
                 channel: v.get("channel")?.as_str()?.to_string(),
-                reconciled: v.get("reconciled")?.as_bool().unwrap_or(false),
+                status,
             })
         })
         .collect()
+}
+
+/// 解析 CLI 文本格式的渠道链路。
+///
+/// 示例：`淘宝 -> 支付宝* -> 花呗 & 建行卡√`
+fn parse_channel_path_text(value: &str) -> Option<Vec<ChannelPathEntry>> {
+    let value = value.trim();
+    // JSON 旧格式以 [ 或 { 开头，交给 JSON fallback 处理
+    if value.starts_with('[') || value.starts_with('{') {
+        return None;
+    }
+
+    let mut entries = Vec::new();
+
+    for (pos, part) in value.split("->").enumerate() {
+        let part = part.trim();
+        if part.is_empty() {
+            return None;
+        }
+
+        for name in part.split('&') {
+            let name = name.trim();
+            if name.is_empty() {
+                return None;
+            }
+
+            let (name, status) = parse_channel_status(name);
+            if name.is_empty() {
+                return None;
+            }
+
+            entries.push(ChannelPathEntry {
+                position: pos as i32,
+                channel: name.to_string(),
+                status,
+            });
+        }
+    }
+
+    if entries.is_empty() {
+        None
+    } else {
+        Some(entries)
+    }
+}
+
+/// 从渠道名末尾剥离状态后缀。
+fn parse_channel_status(name: &str) -> (&str, accounting::channel_path::ChannelPathStatus) {
+    if let Some(prefix) = name.strip_suffix('*') {
+        return (
+            prefix.trim(),
+            accounting::channel_path::ChannelPathStatus::Pending,
+        );
+    }
+    if let Some(prefix) = name.strip_suffix('√') {
+        return (
+            prefix.trim(),
+            accounting::channel_path::ChannelPathStatus::Verified,
+        );
+    }
+    (name, accounting::channel_path::ChannelPathStatus::Default)
 }
 
 fn parse_reversal(json_str: &str) -> Option<ReversalInfo> {
@@ -825,12 +909,43 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_channel_path_metadata() {
+    fn test_parse_channel_path_metadata_json() {
         let input = "2024-01-01 * \"\" \"test\"\n    internal_id: 1\n    kind: \"normal\"\n    channel_path: \"[{\\\"position\\\":0,\\\"channel\\\":\\\"微信\\\",\\\"reconciled\\\":true}]\"\n  支出:食品 100 CNY\n        internal_id: 1\n        reimbursable: FALSE\n";
         let data = parse(input).unwrap();
         let tx = &data.transactions[0];
         assert_eq!(tx.channel_path.len(), 1);
         assert_eq!(tx.channel_path[0].channel, "微信");
-        assert!(tx.channel_path[0].reconciled);
+        assert_eq!(
+            tx.channel_path[0].status,
+            accounting::channel_path::ChannelPathStatus::Verified
+        );
+    }
+
+    #[test]
+    fn test_parse_channel_path_metadata_text() {
+        let input = "2024-01-01 * \"\" \"test\"\n    internal_id: 1\n    kind: \"normal\"\n    channel_path: \"淘宝 -> 支付宝* -> 花呗 & 建行卡√\"\n  支出:食品 100 CNY\n        internal_id: 1\n        reimbursable: FALSE\n";
+        let data = parse(input).unwrap();
+        let tx = &data.transactions[0];
+        assert_eq!(tx.channel_path.len(), 4);
+        assert_eq!(tx.channel_path[0].channel, "淘宝");
+        assert_eq!(
+            tx.channel_path[0].status,
+            accounting::channel_path::ChannelPathStatus::Default
+        );
+        assert_eq!(tx.channel_path[1].channel, "支付宝");
+        assert_eq!(
+            tx.channel_path[1].status,
+            accounting::channel_path::ChannelPathStatus::Pending
+        );
+        assert_eq!(tx.channel_path[2].channel, "花呗");
+        assert_eq!(
+            tx.channel_path[2].status,
+            accounting::channel_path::ChannelPathStatus::Default
+        );
+        assert_eq!(tx.channel_path[3].channel, "建行卡");
+        assert_eq!(
+            tx.channel_path[3].status,
+            accounting::channel_path::ChannelPathStatus::Verified
+        );
     }
 }

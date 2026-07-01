@@ -1,4 +1,5 @@
 use crate::model::*;
+use accounting::channel_path::ChannelPathStatus;
 use chrono::NaiveDate;
 use std::fmt::Write;
 
@@ -47,7 +48,10 @@ fn escape_string(s: &str) -> String {
 }
 
 fn generate_commodity(out: &mut String, c: &BCommodity) {
-    let _ = writeln!(out, "1970-01-01 commodity {}", c.symbol);
+    let date = c
+        .created_at
+        .unwrap_or_else(|| NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
+    let _ = writeln!(out, "{} commodity {}", date, c.symbol);
     write_metadata(out, "internal_id", &c.internal_id.to_string());
     write_metadata(out, "name", &escape_string(&c.name));
     write_metadata(out, "precision", &c.precision.to_string());
@@ -124,20 +128,8 @@ fn generate_transaction(out: &mut String, tx: &BTransaction) {
     }
 
     if !tx.channel_path.is_empty() {
-        let cp_json = serde_json::to_string(
-            &tx.channel_path
-                .iter()
-                .map(|cp| {
-                    serde_json::json!({
-                        "position": cp.position,
-                        "channel": cp.channel,
-                        "reconciled": cp.reconciled,
-                    })
-                })
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
-        write_metadata(out, "channel_path", &escape_string(&cp_json));
+        let cp_text = format_channel_path(&tx.channel_path);
+        write_metadata(out, "channel_path", &escape_string(&cp_text));
     }
 
     if let Some(ref rev) = tx.reversal_of {
@@ -154,6 +146,39 @@ fn generate_transaction(out: &mut String, tx: &BTransaction) {
     }
 
     let _ = writeln!(out);
+}
+
+/// 将渠道链路条目格式化为 CLI 文本格式。
+///
+/// 同一 position 的多个渠道用 `&` 连接，不同 position 用 ` -> ` 连接。
+/// pending 后缀 `*`，verified 后缀 `√`，default 无后缀。
+fn format_channel_path(entries: &[ChannelPathEntry]) -> String {
+    use std::collections::BTreeMap;
+
+    let mut groups: BTreeMap<i32, Vec<&ChannelPathEntry>> = BTreeMap::new();
+    for e in entries {
+        groups.entry(e.position).or_default().push(e);
+    }
+
+    let mut parts = Vec::new();
+    for (_, group) in groups {
+        let mut names: Vec<String> = group
+            .iter()
+            .map(|e| {
+                let mut s = e.channel.clone();
+                match e.status {
+                    ChannelPathStatus::Pending => s.push('*'),
+                    ChannelPathStatus::Verified => s.push('√'),
+                    ChannelPathStatus::Default => {}
+                }
+                s
+            })
+            .collect();
+        names.sort();
+        parts.push(names.join(" & "));
+    }
+
+    parts.join(" -> ")
 }
 
 fn generate_posting(out: &mut String, p: &BPosting) {
@@ -200,6 +225,7 @@ mod tests {
                 symbol: "CNY".to_string(),
                 name: "人民币".to_string(),
                 precision: 2,
+                created_at: None,
             }],
             accounts: vec![
                 BAccount {
@@ -243,7 +269,7 @@ mod tests {
                 channel_path: vec![ChannelPathEntry {
                     position: 0,
                     channel: "微信".to_string(),
-                    reconciled: true,
+                    status: accounting::channel_path::ChannelPathStatus::Verified,
                 }],
                 postings: vec![
                     BPosting {
@@ -275,10 +301,26 @@ mod tests {
     fn test_generate_commodity() {
         let data = sample_data();
         let output = generate(&data);
-        assert!(output.contains("1970-01-01 commodity CNY"));
+        assert!(
+            output.contains("1970-01-01 commodity CNY"),
+            "expected default commodity date, got:\n{}",
+            output
+        );
         assert!(output.contains("internal_id: 1"));
         assert!(output.contains("name: \"人民币\""));
         assert!(output.contains("precision: 2"));
+    }
+
+    #[test]
+    fn test_generate_commodity_with_created_at() {
+        let mut data = sample_data();
+        data.commodities[0].created_at = Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+        let output = generate(&data);
+        assert!(
+            output.contains("2024-01-15 commodity CNY"),
+            "expected created_at date, got:\n{}",
+            output
+        );
     }
 
     #[test]
@@ -312,6 +354,11 @@ mod tests {
         assert!(output.contains("2024-03-15 10:30:00 * \"\" \"盒马买菜\" #餐饮"));
         assert!(output.contains("kind: \"normal\""));
         assert!(output.contains("member: \"张三\""));
+        assert!(
+            output.contains("channel_path: \"微信√\""),
+            "expected text channel_path, got:\n{}",
+            output
+        );
         assert!(output.contains("支出:食品 150.00 CNY"));
         assert!(output.contains("资产:现金 -150.00 CNY"));
     }

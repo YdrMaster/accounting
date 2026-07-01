@@ -1,7 +1,7 @@
 use sqlx::{FromRow, SqliteConnection};
 
 use crate::error::DbError;
-use accounting::channel_path::{ChannelPath, ChannelPathNode};
+use accounting::channel_path::{ChannelPath, ChannelPathNode, ChannelPathStatus};
 use accounting::id::{ChannelId, ChannelPathId, TransactionId};
 
 #[derive(FromRow)]
@@ -10,7 +10,7 @@ struct ChannelPathRow {
     transaction_id: i64,
     position: i32,
     channel_id: i64,
-    reconciled: i32,
+    status: i32,
 }
 
 impl ChannelPathRow {
@@ -20,7 +20,7 @@ impl ChannelPathRow {
             transaction_id: TransactionId(self.transaction_id),
             position: self.position,
             channel_id: ChannelId(self.channel_id),
-            reconciled: self.reconciled != 0,
+            status: ChannelPathStatus::from_i32(self.status),
         }
     }
 }
@@ -32,13 +32,13 @@ pub async fn channel_path_create(
     node: &ChannelPathNode,
 ) -> Result<ChannelPathId, DbError> {
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO channel_paths (transaction_id, position, channel_id, reconciled)
+        "INSERT INTO channel_paths (transaction_id, position, channel_id, status)
          VALUES (?1, ?2, ?3, ?4) RETURNING id",
     )
     .bind(transaction_id.0)
     .bind(node.position)
     .bind(node.channel_id.0)
-    .bind(node.reconciled as i32)
+    .bind(node.status.as_i32())
     .fetch_one(conn)
     .await
     .map_err(|e| DbError::Database(e.to_string()))?;
@@ -51,7 +51,7 @@ pub async fn channel_path_list_by_transaction(
     transaction_id: TransactionId,
 ) -> Result<Vec<ChannelPath>, DbError> {
     let rows: Vec<ChannelPathRow> = sqlx::query_as(
-        "SELECT id, transaction_id, position, channel_id, reconciled
+        "SELECT id, transaction_id, position, channel_id, status
          FROM channel_paths
          WHERE transaction_id = ?1
          ORDER BY position ASC, id ASC",
@@ -104,14 +104,14 @@ pub async fn channel_path_count_by_channel(
     Ok(count)
 }
 
-/// 更新链路节点的对账状态
-pub async fn channel_path_update_reconciled(
+/// 更新链路节点的状态
+pub async fn channel_path_update_status(
     conn: &mut SqliteConnection,
     id: ChannelPathId,
-    reconciled: bool,
+    status: ChannelPathStatus,
 ) -> Result<(), DbError> {
-    sqlx::query("UPDATE channel_paths SET reconciled = ?1 WHERE id = ?2")
-        .bind(reconciled as i32)
+    sqlx::query("UPDATE channel_paths SET status = ?1 WHERE id = ?2")
+        .bind(status.as_i32())
         .bind(id.0)
         .execute(conn)
         .await
@@ -125,7 +125,7 @@ pub async fn channel_path_get(
     id: ChannelPathId,
 ) -> Result<Option<ChannelPath>, DbError> {
     let row: Option<ChannelPathRow> = sqlx::query_as(
-        "SELECT id, transaction_id, position, channel_id, reconciled FROM channel_paths WHERE id = ?1",
+        "SELECT id, transaction_id, position, channel_id, status FROM channel_paths WHERE id = ?1",
     )
     .bind(id.0)
     .fetch_optional(conn)
@@ -205,17 +205,17 @@ mod tests {
             ChannelPathNode {
                 position: 0,
                 channel_id: ch1,
-                reconciled: false,
+                status: ChannelPathStatus::Default,
             },
             ChannelPathNode {
                 position: 1,
                 channel_id: ch2,
-                reconciled: false,
+                status: ChannelPathStatus::Default,
             },
             ChannelPathNode {
                 position: 2,
                 channel_id: ch3,
-                reconciled: false,
+                status: ChannelPathStatus::Default,
             },
         ];
         channel_path_create_batch(&mut conn, tx_id, &nodes)
@@ -244,22 +244,22 @@ mod tests {
             ChannelPathNode {
                 position: 0,
                 channel_id: ch1,
-                reconciled: false,
+                status: ChannelPathStatus::Default,
             },
             ChannelPathNode {
                 position: 1,
                 channel_id: ch2,
-                reconciled: false,
+                status: ChannelPathStatus::Default,
             },
             ChannelPathNode {
                 position: 2,
                 channel_id: ch3,
-                reconciled: false,
+                status: ChannelPathStatus::Default,
             },
             ChannelPathNode {
                 position: 2,
                 channel_id: ch4,
-                reconciled: false,
+                status: ChannelPathStatus::Default,
             },
         ];
         channel_path_create_batch(&mut conn, tx_id, &nodes)
@@ -283,16 +283,16 @@ mod tests {
         let node = ChannelPathNode {
             position: 0,
             channel_id: ch,
-            reconciled: false,
+            status: ChannelPathStatus::Default,
         };
         let path_id = channel_path_create(&mut conn, tx_id, &node).await.unwrap();
 
-        channel_path_update_reconciled(&mut conn, path_id, true)
+        channel_path_update_status(&mut conn, path_id, ChannelPathStatus::Verified)
             .await
             .unwrap();
 
         let path = channel_path_get(&mut conn, path_id).await.unwrap().unwrap();
-        assert!(path.reconciled);
+        assert_eq!(path.status, ChannelPathStatus::Verified);
     }
 
     #[tokio::test]
@@ -305,7 +305,7 @@ mod tests {
         let node = ChannelPathNode {
             position: 0,
             channel_id: ch,
-            reconciled: false,
+            status: ChannelPathStatus::Default,
         };
         channel_path_create(&mut conn, tx1, &node).await.unwrap();
         channel_path_create(&mut conn, tx2, &node).await.unwrap();
@@ -325,7 +325,7 @@ mod tests {
         let node = ChannelPathNode {
             position: 0,
             channel_id: ch,
-            reconciled: false,
+            status: ChannelPathStatus::Default,
         };
         channel_path_create(&mut conn, tx_id, &node).await.unwrap();
 
@@ -347,7 +347,7 @@ mod tests {
         let node = ChannelPathNode {
             position: 0,
             channel_id: ch,
-            reconciled: false,
+            status: ChannelPathStatus::Default,
         };
         channel_path_create(&mut conn, tx_id, &node).await.unwrap();
 
@@ -367,12 +367,12 @@ mod tests {
             ChannelPathNode {
                 position: 0,
                 channel_id: ch1,
-                reconciled: false,
+                status: ChannelPathStatus::Default,
             },
             ChannelPathNode {
                 position: 1,
                 channel_id: ch2,
-                reconciled: false,
+                status: ChannelPathStatus::Default,
             },
         ];
         channel_path_create_batch(&mut conn, tx_id, &nodes)
@@ -408,7 +408,7 @@ mod tests {
         let node = ChannelPathNode {
             position: 0,
             channel_id: ch,
-            reconciled: false,
+            status: ChannelPathStatus::Default,
         };
         channel_path_create(&mut conn, tx_id, &node).await.unwrap();
 
@@ -422,8 +422,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_reconciled_toggle() {
-        // Test marking and unmarking reconciled state
+    async fn test_status_update() {
+        // Test updating channel path status
         let mut conn = setup().await;
         let ch1 = insert_channel(&mut conn, "Taobao").await;
         let ch2 = insert_channel(&mut conn, "TestPay").await;
@@ -432,38 +432,42 @@ mod tests {
         let node1 = ChannelPathNode {
             position: 0,
             channel_id: ch1,
-            reconciled: false,
+            status: ChannelPathStatus::Default,
         };
         let node2 = ChannelPathNode {
             position: 1,
             channel_id: ch2,
-            reconciled: false,
+            status: ChannelPathStatus::Default,
         };
         let id1 = channel_path_create(&mut conn, tx_id, &node1).await.unwrap();
         let id2 = channel_path_create(&mut conn, tx_id, &node2).await.unwrap();
 
-        // Mark first as reconciled
-        channel_path_update_reconciled(&mut conn, id1, true)
+        // Mark first as verified
+        channel_path_update_status(&mut conn, id1, ChannelPathStatus::Verified)
             .await
             .unwrap();
 
         let path1 = channel_path_get(&mut conn, id1).await.unwrap().unwrap();
         let path2 = channel_path_get(&mut conn, id2).await.unwrap().unwrap();
-        assert!(path1.reconciled);
-        assert!(!path2.reconciled, "Second path should remain unreconciled");
+        assert_eq!(path1.status, ChannelPathStatus::Verified);
+        assert_eq!(
+            path2.status,
+            ChannelPathStatus::Default,
+            "Second path should remain default"
+        );
 
         // Unmark it
-        channel_path_update_reconciled(&mut conn, id1, false)
+        channel_path_update_status(&mut conn, id1, ChannelPathStatus::Default)
             .await
             .unwrap();
 
         let path1 = channel_path_get(&mut conn, id1).await.unwrap().unwrap();
-        assert!(!path1.reconciled);
+        assert_eq!(path1.status, ChannelPathStatus::Default);
     }
 
     #[tokio::test]
-    async fn test_query_unreconciled_paths() {
-        // Query only unreconciled paths for a transaction
+    async fn test_query_default_paths() {
+        // Query only default status paths for a transaction
         let mut conn = setup().await;
         let ch1 = insert_channel(&mut conn, "Taobao").await;
         let ch2 = insert_channel(&mut conn, "TestPay").await;
@@ -472,27 +476,30 @@ mod tests {
         let node1 = ChannelPathNode {
             position: 0,
             channel_id: ch1,
-            reconciled: false,
+            status: ChannelPathStatus::Default,
         };
         let node2 = ChannelPathNode {
             position: 1,
             channel_id: ch2,
-            reconciled: false,
+            status: ChannelPathStatus::Default,
         };
         let id1 = channel_path_create(&mut conn, tx_id, &node1).await.unwrap();
         let id2 = channel_path_create(&mut conn, tx_id, &node2).await.unwrap();
 
-        // Mark first as reconciled
-        channel_path_update_reconciled(&mut conn, id1, true)
+        // Mark first as verified
+        channel_path_update_status(&mut conn, id1, ChannelPathStatus::Verified)
             .await
             .unwrap();
 
-        // List all paths and filter unreconciled
+        // List all paths and filter default
         let all = channel_path_list_by_transaction(&mut conn, tx_id)
             .await
             .unwrap();
-        let unreconciled: Vec<_> = all.iter().filter(|p| !p.reconciled).collect();
-        assert_eq!(unreconciled.len(), 1);
-        assert_eq!(unreconciled[0].id, id2);
+        let default_paths: Vec<_> = all
+            .iter()
+            .filter(|p| p.status == ChannelPathStatus::Default)
+            .collect();
+        assert_eq!(default_paths.len(), 1);
+        assert_eq!(default_paths[0].id, id2);
     }
 }

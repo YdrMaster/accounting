@@ -238,6 +238,13 @@ impl<'a> SqliteTransaction<'a> {
         crate::repo::channel::channel_get_by_name(&mut self.tx, name).await
     }
 
+    pub async fn channel_resolve_by_name(
+        &mut self,
+        name: &str,
+    ) -> Result<Option<accounting::channel::Channel>, DbError> {
+        crate::repo::channel::channel_resolve_by_name(&mut self.tx, name).await
+    }
+
     pub async fn channel_list(&mut self) -> Result<Vec<accounting::channel::Channel>, DbError> {
         crate::repo::channel::channel_list(&mut self.tx).await
     }
@@ -327,13 +334,12 @@ impl<'a> SqliteTransaction<'a> {
         crate::repo::channel_path::channel_path_count_by_channel(&mut self.tx, channel_id).await
     }
 
-    pub async fn channel_path_update_reconciled(
+    pub async fn channel_path_update_status(
         &mut self,
         id: accounting::id::ChannelPathId,
-        reconciled: bool,
+        status: accounting::channel_path::ChannelPathStatus,
     ) -> Result<(), DbError> {
-        crate::repo::channel_path::channel_path_update_reconciled(&mut self.tx, id, reconciled)
-            .await
+        crate::repo::channel_path::channel_path_update_status(&mut self.tx, id, status).await
     }
 
     pub async fn channel_path_get(

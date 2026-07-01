@@ -34,6 +34,7 @@ impl CommodityService {
             symbol,
             name,
             precision,
+            created_at: None,
         };
         self.db
             .commodity_create(&commodity)

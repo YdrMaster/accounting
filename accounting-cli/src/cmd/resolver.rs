@@ -55,7 +55,7 @@ pub async fn resolve_channel(
         )));
     }
     let channel = db
-        .channel_get_by_name(name)
+        .channel_resolve_by_name(name)
         .await
         .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
     channel.map(|c| c.id).ok_or_else(|| {

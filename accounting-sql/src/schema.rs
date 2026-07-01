@@ -186,7 +186,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
         position INTEGER NOT NULL,
         channel_id INTEGER NOT NULL REFERENCES channels(id),
-        reconciled INTEGER NOT NULL DEFAULT 0,
+        status INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );

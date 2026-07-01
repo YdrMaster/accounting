@@ -1,7 +1,7 @@
 use crate::cmd::resolver::{resolve_account, resolve_channel, resolve_member};
 use crate::cmd::{PostingRow, TransactionRow};
 use crate::output::{OutputFormat, print as output_print, print_line, print_vec};
-use accounting::channel_path::ChannelPathNode;
+use accounting::channel_path::{ChannelPathNode, ChannelPathStatus};
 use accounting::error::AccountingError;
 use accounting::id::{ChannelId, PostingId, TagId, TransactionId};
 use accounting::posting::Posting;
@@ -42,7 +42,7 @@ pub struct TxAddArgs {
     pub tag: Vec<String>,
     #[arg(long)]
     pub member: String,
-    /// 渠道链路，如 "淘宝->支付宝->花呗&建行卡"
+    /// 渠道链路，如 "淘宝 -> 支付宝* -> 花呗 & 建行卡√"
     #[arg(long)]
     pub channel: Option<String>,
 }
@@ -92,18 +92,21 @@ pub struct TxUpdateArgs {
     pub tag: Vec<String>,
     #[arg(long)]
     pub member: Option<String>,
-    /// 渠道链路，如 "淘宝->支付宝->花呗&建行卡"
+    /// 渠道链路，如 "淘宝 -> 支付宝* -> 花呗 & 建行卡√"
     #[arg(long)]
     pub channel: Option<String>,
 }
 
 #[derive(Args)]
 pub struct TxReconcileArgs {
-    /// channel_path 记录 ID
-    pub path_id: i64,
-    /// 标记为已对账或未对账
+    /// 交易 ID
+    pub tx_id: i64,
+    /// 要标记的渠道名称（支持 * / √ 后缀与别名）
     #[arg(long)]
-    pub set: Option<bool>,
+    pub channel: String,
+    /// 取消已校验标记，回到 default
+    #[arg(long)]
+    pub unset: bool,
 }
 
 impl TxCmd {
@@ -143,7 +146,7 @@ impl TxCmd {
                                     .get(&n.channel_id)
                                     .cloned()
                                     .unwrap_or_else(|| n.channel_id.0.to_string()),
-                                reconciled: n.reconciled,
+                                status: n.status.as_str().to_string(),
                             })
                             .collect();
                         row
@@ -168,7 +171,7 @@ impl TxCmd {
                                     .get(&n.channel_id)
                                     .cloned()
                                     .unwrap_or_else(|| n.channel_id.0.to_string()),
-                                reconciled: n.reconciled,
+                                status: n.status.as_str().to_string(),
                             })
                             .collect();
                         output_print(&tx_row, format);
@@ -182,7 +185,7 @@ impl TxCmd {
                                             .get(&n.channel_id)
                                             .cloned()
                                             .unwrap_or_else(|| n.channel_id.0.to_string()),
-                                        reconciled: n.reconciled,
+                                        status: n.status.as_str().to_string(),
                                     })
                                     .collect::<Vec<_>>(),
                                 format,
@@ -216,18 +219,57 @@ impl TxCmd {
                 print_line(&format!("{}", t!("tx_updated", id = id)), format);
             }
             TxCmd::Reconcile(args) => {
-                // 对账标记
-                let reconciled = args.set.unwrap_or(true);
-                let service = accounting_service::transaction_service::TransactionService::new(db);
-                service
-                    .update_reconciled(accounting::id::ChannelPathId(args.path_id), reconciled)
-                    .await?;
-                let msg = if reconciled {
-                    t!("reconciled_marked", id = args.path_id)
+                // 对账标记：默认设为 verified，--unset 时回到 default
+                let status = if args.unset {
+                    ChannelPathStatus::Default
                 } else {
-                    t!("reconciled_unmarked", id = args.path_id)
+                    ChannelPathStatus::Verified
                 };
-                print_line(msg.as_ref(), format);
+                let (channel_name, _) = parse_channel_status(&args.channel);
+                let channel_id = resolve_channel(&db, channel_name).await?;
+                let tx_id = TransactionId(args.tx_id);
+
+                // 确认交易存在
+                let service =
+                    accounting_service::transaction_service::TransactionService::new(db.clone());
+                if service.get(tx_id).await?.is_none() {
+                    return Err(AccountingError::InvalidTransaction(format!(
+                        "{}",
+                        t!("tx_not_found", id = args.tx_id)
+                    )));
+                }
+
+                let updated = service
+                    .update_channel_status_by_tx_and_channel(tx_id, channel_id, status)
+                    .await?;
+                if updated == 0 {
+                    print_line(
+                        &format!(
+                            "{}",
+                            t!(
+                                "reconcile_no_channel",
+                                tx_id = args.tx_id,
+                                channel = channel_name
+                            )
+                        ),
+                        format,
+                    );
+                } else {
+                    let msg = if args.unset {
+                        t!(
+                            "reconcile_unset",
+                            tx_id = args.tx_id,
+                            channel = channel_name
+                        )
+                    } else {
+                        t!(
+                            "reconcile_marked",
+                            tx_id = args.tx_id,
+                            channel = channel_name
+                        )
+                    };
+                    print_line(msg.as_ref(), format);
+                }
             }
         }
         Ok(())
@@ -239,7 +281,7 @@ impl TxCmd {
 pub struct ChannelPathRow {
     pub position: i32,
     pub channel: String,
-    pub reconciled: bool,
+    pub status: String,
 }
 
 async fn parse_tx_args(
@@ -297,9 +339,10 @@ async fn parse_tx_args_for_update(
 
 /// 解析渠道链路表达式。
 ///
-/// 语法：`渠道1 -> 渠道2 -> 渠道3&渠道4`
+/// 语法：`渠道1 -> 渠道2* -> 渠道3&渠道4√`
 /// - `->` 表示链的下一级，前后可有空格
 /// - `&` 仅允许在最后一级使用，表示末级多个并行渠道
+/// - 渠道名后可追加 `*` 表示 pending，`√` 表示 verified，无后缀为 default
 async fn parse_channel_paths(
     expr: Option<&str>,
     db: &SqliteDatabase,
@@ -342,16 +385,30 @@ async fn parse_channel_paths(
         }
 
         for name in names {
+            let (name, status) = parse_channel_status(name);
             let channel_id = resolve_channel(db, name).await?;
             nodes.push(ChannelPathNode {
                 position: i as i32,
                 channel_id,
-                reconciled: false,
+                status,
             });
         }
     }
 
     Ok(nodes)
+}
+
+/// 从渠道名末尾剥离状态后缀。
+///
+/// `*` → pending，`√` → verified，无后缀 → default。
+fn parse_channel_status(name: &str) -> (&str, ChannelPathStatus) {
+    if let Some(prefix) = name.strip_suffix('*') {
+        return (prefix.trim(), ChannelPathStatus::Pending);
+    }
+    if let Some(prefix) = name.strip_suffix('√') {
+        return (prefix.trim(), ChannelPathStatus::Verified);
+    }
+    (name, ChannelPathStatus::Default)
 }
 
 async fn channel_name_map(

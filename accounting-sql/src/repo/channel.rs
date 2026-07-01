@@ -26,8 +26,10 @@ impl ChannelRow {
 }
 
 fn validate_channel_name(name: &str) -> Result<(), DbError> {
-    if name.contains("->") || name.contains("&") {
-        return Err(DbError::Database("渠道名称不能包含 -> 或 &".to_string()));
+    if name.contains("->") || name.contains("&") || name.contains('*') || name.contains('√') {
+        return Err(DbError::Database(
+            "渠道名称不能包含 ->、&、* 或 √".to_string(),
+        ));
     }
     Ok(())
 }
@@ -76,6 +78,57 @@ pub async fn channel_get_by_name(
     .await
     .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(row.map(|r| r.into_channel()))
+}
+
+/// 返回与给定渠道名相关的内置别名。
+///
+/// 用于跨语言/大小写解析：例如英文环境创建的是 `Alipay`，
+/// 用户仍可使用 `alipay` 或 `支付宝` 来引用它。
+fn channel_builtin_aliases(name: &str) -> Vec<&'static str> {
+    match name {
+        "Alipay" | "alipay" | "支付宝" => vec!["Alipay", "alipay", "支付宝"],
+        _ => Vec::new(),
+    }
+}
+
+/// 解析渠道名称，支持：
+/// 1. 精确匹配
+/// 2. 大小写不敏感匹配
+/// 3. 内置中英文别名匹配
+pub async fn channel_resolve_by_name(
+    conn: &mut SqliteConnection,
+    name: &str,
+) -> Result<Option<Channel>, DbError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Ok(None);
+    }
+
+    let all = channel_list(conn).await?;
+    let input_lower = name.to_lowercase();
+
+    // 1. 精确匹配
+    if let Some(channel) = all.iter().find(|c| c.name == name) {
+        return Ok(Some(channel.clone()));
+    }
+
+    // 2. 大小写不敏感匹配
+    if let Some(channel) = all.iter().find(|c| c.name.to_lowercase() == input_lower) {
+        return Ok(Some(channel.clone()));
+    }
+
+    // 3. 内置别名匹配（也忽略大小写）
+    for channel in &all {
+        let aliases = channel_builtin_aliases(&channel.name);
+        if aliases
+            .iter()
+            .any(|alias| alias.to_lowercase() == input_lower)
+        {
+            return Ok(Some(channel.clone()));
+        }
+    }
+
+    Ok(None)
 }
 
 pub async fn channel_list(conn: &mut SqliteConnection) -> Result<Vec<Channel>, DbError> {
@@ -360,5 +413,38 @@ mod tests {
         let result = channel_upsert_by_name(&mut conn, "A->B", None, None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("不能包含"));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_channel_by_name_case_insensitive() {
+        let mut conn = setup().await;
+        let id = channel_create(
+            &mut conn,
+            &Channel {
+                id: ChannelId(0),
+                name: "TestPay".to_string(),
+                description: None,
+                account_id: None,
+                is_system: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        let found = channel_resolve_by_name(&mut conn, "testpay").await.unwrap();
+        assert_eq!(found.unwrap().id, id);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_channel_by_alias() {
+        // 英文种子创建的是 Alipay，应能通过 alipay/支付宝 解析到同一个渠道
+        let mut conn = setup().await;
+        let found = channel_resolve_by_name(&mut conn, "alipay").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "Alipay");
+
+        let found = channel_resolve_by_name(&mut conn, "支付宝").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "Alipay");
     }
 }

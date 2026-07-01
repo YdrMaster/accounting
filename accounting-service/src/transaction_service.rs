@@ -1,6 +1,6 @@
-use accounting::channel_path::ChannelPathNode;
+use accounting::channel_path::{ChannelPathNode, ChannelPathStatus};
 use accounting::error::AccountingError;
-use accounting::id::{ChannelPathId, TagId, TransactionId};
+use accounting::id::{ChannelId, ChannelPathId, TagId, TransactionId};
 use accounting::posting::Posting;
 use accounting::transaction::Transaction;
 use accounting::transaction_filter::TransactionFilter;
@@ -261,7 +261,7 @@ impl TransactionService {
                 .map(|p| ChannelPathNode {
                     position: p.position,
                     channel_id: p.channel_id,
-                    reconciled: p.reconciled,
+                    status: p.status,
                 })
                 .collect();
             result.push((tx, postings, nodes));
@@ -296,7 +296,7 @@ impl TransactionService {
                     .map(|p| ChannelPathNode {
                         position: p.position,
                         channel_id: p.channel_id,
-                        reconciled: p.reconciled,
+                        status: p.status,
                     })
                     .collect();
                 Ok(Some((tx, postings, nodes)))
@@ -305,17 +305,42 @@ impl TransactionService {
         }
     }
 
-    /// 标记/取消标记链路节点的对账状态
-    pub async fn update_reconciled(
+    /// 设置链路节点状态
+    pub async fn update_status(
         &self,
         channel_path_id: ChannelPathId,
-        reconciled: bool,
+        status: ChannelPathStatus,
     ) -> Result<(), AccountingError> {
         self.db
-            .channel_path_update_reconciled(channel_path_id, reconciled)
+            .channel_path_update_status(channel_path_id, status)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(())
+    }
+
+    /// 按交易 ID 与渠道 ID 更新所有匹配链路节点的状态，返回更新条数
+    pub async fn update_channel_status_by_tx_and_channel(
+        &self,
+        tx_id: TransactionId,
+        channel_id: ChannelId,
+        status: ChannelPathStatus,
+    ) -> Result<usize, AccountingError> {
+        let paths = self
+            .db
+            .channel_path_list_by_transaction(tx_id)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        let mut updated = 0;
+        for path in paths {
+            if path.channel_id == channel_id {
+                self.db
+                    .channel_path_update_status(path.id, status)
+                    .await
+                    .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+                updated += 1;
+            }
+        }
+        Ok(updated)
     }
 }
 

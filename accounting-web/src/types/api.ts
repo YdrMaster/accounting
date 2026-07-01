@@ -1,7 +1,8 @@
 export interface ChannelPathNodeDto {
   position: number
   channel_id: number
-  reconciled: boolean
+  channel_name: string
+  status: 'default' | 'pending' | 'verified'
 }
 
 export interface PostingDto {

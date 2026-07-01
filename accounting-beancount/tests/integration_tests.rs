@@ -3,7 +3,7 @@ mod tests {
     use accounting::account::Account;
     use accounting::attachment::Attachment;
     use accounting::channel::Channel;
-    use accounting::channel_path::ChannelPathNode;
+    use accounting::channel_path::{ChannelPathNode, ChannelPathStatus};
     use accounting::commodity::Commodity;
     use accounting::id::*;
     use accounting::member::Member;
@@ -38,6 +38,7 @@ mod tests {
                 symbol: "USD".to_string(),
                 name: "美元".to_string(),
                 precision: 2,
+                created_at: None,
             })
             .await
             .unwrap();
@@ -156,7 +157,7 @@ mod tests {
         let nodes = vec![ChannelPathNode {
             position: 0,
             channel_id,
-            reconciled: true,
+            status: ChannelPathStatus::Verified,
         }];
         db.channel_path_create_batch(tx_id, &nodes).await.unwrap();
 
@@ -227,7 +228,7 @@ mod tests {
             .unwrap();
         assert_eq!(channel_paths.len(), 1);
         assert_eq!(channel_paths[0].position, 0);
-        assert!(channel_paths[0].reconciled);
+        assert_eq!(channel_paths[0].status, ChannelPathStatus::Verified);
     }
 
     #[tokio::test]

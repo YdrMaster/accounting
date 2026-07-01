@@ -40,6 +40,10 @@ async fn export_commodities(
         .commodity_list()
         .await
         .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+    let created_at_map = db
+        .commodity_created_at_map()
+        .await
+        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
 
     for c in &commodities {
         data.commodities.push(BCommodity {
@@ -47,6 +51,7 @@ async fn export_commodities(
             symbol: c.symbol.clone(),
             name: c.name.clone(),
             precision: c.precision,
+            created_at: created_at_map.get(&c.id).copied(),
         });
     }
     Ok(())
@@ -211,7 +216,7 @@ async fn export_transactions(
             .map(|cp| ChannelPathEntry {
                 position: cp.position,
                 channel: ch_by_id.get(&cp.channel_id).cloned().unwrap_or_default(),
-                reconciled: cp.reconciled,
+                status: cp.status,
             })
             .collect();
 

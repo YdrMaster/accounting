@@ -8,6 +8,7 @@ pub struct BCommodity {
     pub symbol: String,
     pub name: String,
     pub precision: u8,
+    pub created_at: Option<NaiveDate>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,7 +63,7 @@ pub struct BTransaction {
 pub struct ChannelPathEntry {
     pub position: i32,
     pub channel: String,
-    pub reconciled: bool,
+    pub status: accounting::channel_path::ChannelPathStatus,
 }
 
 #[derive(Debug, Clone)]
