@@ -2,7 +2,7 @@
 import type { RowNode } from '../../utils/accountGrid'
 import AccountCard from './AccountCard.vue'
 
-const props = defineProps<{
+defineProps<{
   node: RowNode
   selectedAccountId: number | null
 }>()
