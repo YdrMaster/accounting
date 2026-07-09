@@ -8,7 +8,9 @@ export function useGridColumns(gridRef: Ref<HTMLElement | undefined>) {
   function update() {
     const el = gridRef.value
     if (!el) return
-    const raw = getComputedStyle(el).getPropertyValue('--grid-columns') || el.style.getPropertyValue('--grid-columns')
+    const raw =
+      getComputedStyle(el).getPropertyValue('--grid-columns') ||
+      el.style.getPropertyValue('--grid-columns')
     const value = parseInt(raw.trim(), 10)
     columns.value = Number.isNaN(value) ? 2 : value
     isReady.value = true

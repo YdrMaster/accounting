@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
-import AccountsView from '../AccountsView.vue'
 import { useAccountStore } from '../../stores/account'
 import type { GridRow } from '../../utils/accountGrid'
+import AccountsView from '../AccountsView.vue'
 
 vi.mock('../../components/layout/AccountDrawer.vue', () => ({
   default: {

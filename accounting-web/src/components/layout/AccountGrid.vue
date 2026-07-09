@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useGridColumns } from '../../composables/useGridColumns'
 import type { AccountDto } from '../../types/api'
 import type { GridRow } from '../../utils/accountGrid'
 import { buildRowTree } from '../../utils/accountGrid'
-import { useGridColumns } from '../../composables/useGridColumns'
 import AccountRowGroup from './AccountRowGroup.vue'
 
 const props = defineProps<{
@@ -21,11 +21,15 @@ const tree = computed(() => buildRowTree(props.rows))
 const gridRef = ref<HTMLElement | undefined>(undefined)
 const { columns, isReady } = useGridColumns(gridRef)
 
-watch([columns, isReady], () => {
-  if (isReady.value) {
-    emit('columnsChange', columns.value)
-  }
-}, { immediate: true })
+watch(
+  [columns, isReady],
+  () => {
+    if (isReady.value) {
+      emit('columnsChange', columns.value)
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>

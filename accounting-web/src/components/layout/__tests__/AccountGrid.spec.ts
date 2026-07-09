@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { describe, expect, it, vi } from 'vitest'
 import AccountGrid from '../AccountGrid.vue'
 
 const account = (id: number, name: string) => ({

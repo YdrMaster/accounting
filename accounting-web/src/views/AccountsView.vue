@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useAccountStore } from '../stores/account'
-import type { AccountDto } from '../types/api'
 import AccountDrawer from '../components/layout/AccountDrawer.vue'
 import AccountGrid from '../components/layout/AccountGrid.vue'
+import { useAccountStore } from '../stores/account'
+import type { AccountDto } from '../types/api'
 import { compileRows, type GridRow } from '../utils/accountGrid'
 
 const store = useAccountStore()
