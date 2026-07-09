@@ -86,44 +86,21 @@ export function compileRows(
 
 export function buildRowTree(rows: GridRow[]): RowNode[] {
   const roots: RowNode[] = []
-  const expandedNodeByRowIndex: (RowNode | null)[] = []
+  const stack: RowNode[] = []
 
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-    const row = rows[rowIndex]
-    const parent =
-      row.parentRowIndex !== null ? (expandedNodeByRowIndex[row.parentRowIndex] ?? null) : null
-
-    if (row.expandedIndex === null) {
-      const node: RowNode = { row, children: [] }
-      if (parent) {
-        parent.children.push(node)
-      } else {
-        roots.push(node)
-      }
-      expandedNodeByRowIndex[rowIndex] = null
-      continue
+  for (const row of rows) {
+    while (stack.length > 0 && stack[stack.length - 1].row.depth >= row.depth) {
+      stack.pop()
     }
 
-    let lastNode: RowNode | null = null
-    for (let i = 0; i <= row.expandedIndex; i++) {
-      const item = row.items[i]
-      if (item.isPlaceholder) {
-        continue
-      }
-      const node: RowNode = { row, children: [] }
-      if (lastNode === null) {
-        if (parent) {
-          parent.children.push(node)
-        } else {
-          roots.push(node)
-        }
-      } else {
-        lastNode.children.push(node)
-      }
-      lastNode = node
+    const node: RowNode = { row, children: [] }
+    if (stack.length === 0) {
+      roots.push(node)
+    } else {
+      stack[stack.length - 1].children.push(node)
     }
 
-    expandedNodeByRowIndex[rowIndex] = lastNode
+    stack.push(node)
   }
 
   return roots

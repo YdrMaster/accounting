@@ -70,12 +70,29 @@ describe('buildRowTree', () => {
     const roots = [makeAccount(1), makeAccount(2)]
     const children: Record<number, AccountDto[]> = { 2: [makeAccount(3, 2)] }
     const rows = compileRows(roots, [2], 3, id => children[id] ?? [])
+    const [row0, row1] = rows
     const tree = buildRowTree(rows)
     expect(tree).toHaveLength(1)
-    expect(tree[0].row.items[0].account?.id).toBe(1)
+    expect(tree[0].row).toBe(row0)
     expect(tree[0].children).toHaveLength(1)
-    expect(tree[0].children[0].row.items[1].account?.id).toBe(2)
+    expect(tree[0].children[0].row).toBe(row1)
+    expect(tree[0].children[0].children).toHaveLength(0)
+  })
+
+  it('groups deeper rows by depth', () => {
+    const roots = [makeAccount(1), makeAccount(2)]
+    const children: Record<number, AccountDto[]> = {
+      2: [makeAccount(3, 2)],
+      3: [makeAccount(4, 3)],
+    }
+    const rows = compileRows(roots, [2, 3], 3, id => children[id] ?? [])
+    const [row0, row1, row2] = rows
+    const tree = buildRowTree(rows)
+    expect(tree).toHaveLength(1)
+    expect(tree[0].row).toBe(row0)
+    expect(tree[0].children).toHaveLength(1)
+    expect(tree[0].children[0].row).toBe(row1)
     expect(tree[0].children[0].children).toHaveLength(1)
-    expect(tree[0].children[0].children[0].row.items[0].account?.id).toBe(3)
+    expect(tree[0].children[0].children[0].row).toBe(row2)
   })
 })
