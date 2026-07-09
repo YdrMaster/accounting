@@ -21,9 +21,9 @@ const tree = computed(() => buildRowTree(props.rows))
 const gridRef = ref<HTMLElement | undefined>(undefined)
 const { columns, isReady } = useGridColumns(gridRef)
 
-watch(columns, value => {
+watch([columns, isReady], () => {
   if (isReady.value) {
-    emit('columnsChange', value)
+    emit('columnsChange', columns.value)
   }
 }, { immediate: true })
 </script>
