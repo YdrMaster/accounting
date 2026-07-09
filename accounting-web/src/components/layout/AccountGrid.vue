@@ -18,7 +18,7 @@ const emit = defineEmits<{
 }>()
 
 const tree = computed(() => buildRowTree(props.rows))
-const gridRef = ref<HTMLElement | null>(null)
+const gridRef = ref<HTMLElement | undefined>(undefined)
 const { columns } = useGridColumns(gridRef)
 
 watch(columns, value => {

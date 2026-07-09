@@ -3,7 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useAccountStore } from '../stores/account'
 import type { AccountDto } from '../types/api'
 import AccountDrawer from '../components/layout/AccountDrawer.vue'
-import AccountNode from '../components/layout/AccountNode.vue'
+import AccountGrid from '../components/layout/AccountGrid.vue'
+import { compileRows, type GridRow } from '../utils/accountGrid'
 
 const store = useAccountStore()
 
@@ -31,9 +32,14 @@ function getChildrenOfType(type: string): AccountDto[] {
   return children
 }
 
+const expandedPath = ref<number[]>([])
 const selectedAccountId = ref<number | null>(null)
-const expandedAccountIds = ref<Set<number>>(new Set())
 const drawerVisible = ref(false)
+const columnsByType = ref<Record<string, number>>({})
+
+function onColumnsChange(type: string, columns: number) {
+  columnsByType.value[type] = columns
+}
 
 function isRootAccount(account: AccountDto): boolean {
   return account.parent_id === null
@@ -44,39 +50,38 @@ function isDescendantOf(accountId: number, ancestorId: number): boolean {
 }
 
 function handleAccountClick(account: AccountDto) {
-  if (isRootAccount(account)) return
-
   const clickedId = account.id
-  const isSystemAccount = account.is_system
 
-  // If clicking the already selected card, just reopen drawer (unless it's a system account)
   if (selectedAccountId.value === clickedId) {
-    if (!isSystemAccount) {
+    if (!account.is_system && !isRootAccount(account)) {
       drawerVisible.value = true
     }
     return
   }
 
-  // Toggle expansion: add clicked account to expanded set
-  const newExpanded = new Set<number>()
+  selectedAccountId.value = clickedId
 
-  // Keep old expansions that are ancestors of clicked account
-  for (const oldExpandedId of expandedAccountIds.value) {
-    if (isDescendantOf(clickedId, oldExpandedId)) {
-      newExpanded.add(oldExpandedId)
+  const hasChildren = store.getChildren(clickedId).length > 0
+  if (hasChildren) {
+    const newPath: number[] = []
+    for (const id of expandedPath.value) {
+      if (isDescendantOf(clickedId, id)) {
+        newPath.push(id)
+      }
     }
+    newPath.push(clickedId)
+    expandedPath.value = newPath
   }
 
-  // Add clicked account to expanded set (to show its children)
-  newExpanded.add(clickedId)
-
-  selectedAccountId.value = clickedId
-  expandedAccountIds.value = newExpanded
-  
-  // Only show drawer for non-system accounts
-  if (!isSystemAccount) {
+  if (!account.is_system && !isRootAccount(account)) {
     drawerVisible.value = true
   }
+}
+
+function rowsForType(type: string): GridRow[] {
+  const roots = getChildrenOfType(type)
+  const columns = columnsByType.value[type] ?? 2
+  return compileRows(roots, expandedPath.value, columns, id => store.getChildren(id))
 }
 
 const selectedAccount = computed(() => {
@@ -94,9 +99,9 @@ function onAccountUpdated(updated: AccountDto) {
 
 function onAccountDeleted(id: number) {
   store.removeAccount(id)
+  expandedPath.value = expandedPath.value.filter(x => x !== id)
   if (selectedAccountId.value === id) {
     selectedAccountId.value = null
-    expandedAccountIds.value.clear()
     drawerVisible.value = false
   }
 }
@@ -109,19 +114,15 @@ function onAccountDeleted(id: number) {
 
     <template v-else>
       <div class="card-area">
-        <div v-for="type in typeOrder" :key="type" class="type-section">
-          <h3 class="type-label">{{ typeLabels[type] }}</h3>
-          <div class="card-grid">
-            <AccountNode
-              v-for="account in getChildrenOfType(type)"
-              :key="account.id"
-              :account="account"
-              :selected-account-id="selectedAccountId"
-              :expanded-account-ids="expandedAccountIds"
-              @click="handleAccountClick"
-            />
-          </div>
-        </div>
+        <AccountGrid
+          v-for="type in typeOrder"
+          :key="type"
+          :type-label="typeLabels[type]"
+          :rows="rowsForType(type)"
+          :selected-account-id="selectedAccountId"
+          @click="handleAccountClick"
+          @columns-change="columns => onColumnsChange(type, columns)"
+        />
       </div>
     </template>
 
@@ -158,25 +159,5 @@ function onAccountDeleted(id: number) {
   text-align: center;
   padding: 2rem;
   color: var(--text-muted);
-}
-
-.type-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.type-label {
-  margin: 0;
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.card-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: flex-start;
 }
 </style>
