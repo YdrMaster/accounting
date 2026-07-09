@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { ref } from 'vue'
 import AccountGrid from '../AccountGrid.vue'
-
-vi.mock('../../composables/useGridColumns', () => ({
-  useGridColumns: () => ({ columns: ref(2) }),
-}))
 
 const account = (id: number, name: string) => ({
   id,
@@ -43,7 +38,17 @@ describe('AccountGrid', () => {
     expect(wrapper.text()).toContain('A')
   })
 
-  it('emits columnsChange when columns change', async () => {
+  it('emits columnsChange with the real column count once ready', async () => {
+    const originalGetComputedStyle = window.getComputedStyle
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el: Element) => {
+      const style = originalGetComputedStyle(el)
+      return {
+        ...style,
+        getPropertyValue: (prop: string) =>
+          prop === '--grid-columns' ? '3' : style.getPropertyValue(prop),
+      } as CSSStyleDeclaration
+    })
+
     const wrapper = mount(AccountGrid, {
       props: {
         typeLabel: '资产',
@@ -52,6 +57,8 @@ describe('AccountGrid', () => {
       },
     })
     await wrapper.vm.$nextTick()
-    expect(wrapper.emitted('columnsChange')?.[0]).toEqual([2])
+    expect(wrapper.emitted('columnsChange')?.[0]).toEqual([3])
+
+    vi.restoreAllMocks()
   })
 })

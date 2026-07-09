@@ -37,14 +37,29 @@ const emit = defineEmits<{
 <style scoped>
 .row {
   display: grid;
-  grid-template-columns: repeat(var(--grid-columns, 2), 1fr);
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   gap: 0.5rem;
 }
 
+@supports not (grid-template-columns: subgrid) {
+  .row {
+    grid-template-columns: repeat(var(--grid-columns, 2), minmax(0, 1fr));
+  }
+}
+
 .children-container {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  gap: 0.5rem;
   box-shadow: -2px 0 0 var(--accent);
   background: rgba(100, 108, 255, 0.05);
-  padding-top: 0.25rem;
-  padding-bottom: 0.25rem;
+}
+
+@supports not (grid-template-columns: subgrid) {
+  .children-container {
+    grid-template-columns: repeat(var(--grid-columns, 2), minmax(0, 1fr));
+  }
 }
 </style>

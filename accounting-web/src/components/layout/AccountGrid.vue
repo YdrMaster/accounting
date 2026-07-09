@@ -19,10 +19,12 @@ const emit = defineEmits<{
 
 const tree = computed(() => buildRowTree(props.rows))
 const gridRef = ref<HTMLElement | undefined>(undefined)
-const { columns } = useGridColumns(gridRef)
+const { columns, isReady } = useGridColumns(gridRef)
 
 watch(columns, value => {
-  emit('columnsChange', value)
+  if (isReady.value) {
+    emit('columnsChange', value)
+  }
 }, { immediate: true })
 </script>
 
@@ -58,7 +60,7 @@ watch(columns, value => {
 
 .account-grid {
   display: grid;
-  grid-template-columns: repeat(var(--grid-columns, 2), 1fr);
+  grid-template-columns: repeat(var(--grid-columns, 2), minmax(0, 1fr));
   gap: 0.5rem;
 }
 

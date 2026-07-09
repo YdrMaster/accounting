@@ -8,8 +8,8 @@ describe('useGridColumns', () => {
     const TestComp = defineComponent({
       setup() {
         const el = ref<HTMLElement>()
-        const { columns } = useGridColumns(el)
-        return { el, columns }
+        const { columns, isReady } = useGridColumns(el)
+        return { el, columns, isReady }
       },
       template: '<div ref="el" style="--grid-columns: 3;"></div>',
     })
@@ -17,5 +17,6 @@ describe('useGridColumns', () => {
     const wrapper = mount(TestComp)
     await wrapper.vm.$nextTick()
     expect(wrapper.vm.columns).toBe(3)
+    expect(wrapper.vm.isReady).toBe(true)
   })
 })

@@ -63,14 +63,19 @@ function handleAccountClick(account: AccountDto) {
 
   const hasChildren = store.getChildren(clickedId).length > 0
   if (hasChildren) {
-    const newPath: number[] = []
-    for (const id of expandedPath.value) {
-      if (isDescendantOf(clickedId, id)) {
-        newPath.push(id)
+    const existingIndex = expandedPath.value.indexOf(clickedId)
+    if (existingIndex !== -1) {
+      expandedPath.value = expandedPath.value.slice(0, existingIndex + 1)
+    } else {
+      const newPath: number[] = []
+      for (const id of expandedPath.value) {
+        if (isDescendantOf(clickedId, id)) {
+          newPath.push(id)
+        }
       }
+      newPath.push(clickedId)
+      expandedPath.value = newPath
     }
-    newPath.push(clickedId)
-    expandedPath.value = newPath
   }
 
   if (!account.is_system && !isRootAccount(account)) {
