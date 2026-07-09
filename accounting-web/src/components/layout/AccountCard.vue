@@ -16,6 +16,10 @@ function onClick() {
     emit('click', props.item.account)
   }
 }
+
+function isClosed(item: GridItem): boolean {
+  return !item.isPlaceholder && item.account !== null && item.account.closed_at !== null
+}
 </script>
 
 <template>
@@ -24,7 +28,7 @@ function onClick() {
     :class="{
       placeholder: item.isPlaceholder,
       selected: !item.isPlaceholder && isSelected,
-      closed: !item.isPlaceholder && item.account.closed_at !== null,
+      closed: isClosed(item),
     }"
     @click="onClick"
   >
