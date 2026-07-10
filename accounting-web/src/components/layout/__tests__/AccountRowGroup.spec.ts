@@ -40,7 +40,7 @@ describe('AccountRowGroup', () => {
     expect(wrapper.text()).toContain('B')
   })
 
-  it('wraps child rows in a children container', () => {
+  it('wraps child rows in a children container with stacked-children class', () => {
     const node: RowNode = {
       row: {
         items: [{ account: account(1, 'A'), isPlaceholder: false, hasChildren: false }],
@@ -65,8 +65,40 @@ describe('AccountRowGroup', () => {
     const wrapper = mount(AccountRowGroup, {
       props: { node, selectedAccountId: null },
     })
-    expect(wrapper.find('.children-container').exists()).toBe(true)
+    const container = wrapper.find('.children-container')
+    expect(container.exists()).toBe(true)
+    expect(container.classes()).toContain('stacked-children')
     expect(wrapper.text()).toContain('B')
+  })
+
+  it('sets --paper-bg based on row depth', () => {
+    const node: RowNode = {
+      row: {
+        items: [{ account: account(1, 'A'), isPlaceholder: false, hasChildren: false }],
+        depth: 2,
+        expandedIndex: 0,
+        expandedAccountId: 1,
+        parentRowIndex: null,
+      },
+      children: [
+        {
+          row: {
+            items: [{ account: account(2, 'B'), isPlaceholder: false, hasChildren: false }],
+            depth: 3,
+            expandedIndex: null,
+            expandedAccountId: null,
+            parentRowIndex: 0,
+          },
+          children: [],
+        },
+      ],
+    }
+    const wrapper = mount(AccountRowGroup, {
+      props: { node, selectedAccountId: null },
+    })
+    const container = wrapper.find('.children-container')
+    expect(container.attributes('style')).toContain('--paper-bg')
+    expect(container.attributes('style')).toContain('hsla(247, 80%, 71%, 0.12)')
   })
 
   it('bubbles click events from nested cards', async () => {

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>账户视图扁平网格 V2 设计</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 2rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      line-height: 1.6;
+    }
+    h1 { margin-top: 0; color: #ffffff; }
+    h2 { color: #ffffff; border-bottom: 1px solid #333; padding-bottom: 0.5rem; margin-top: 2.5rem; }
+    h3 { color: #bbbbbb; margin-top: 1.5rem; }
+    .section { margin-bottom: 3rem; }
+    .note { color: #888; font-size: 0.875rem; margin: 0.5rem 0 1rem; }
+    pre {
+      background: #161616;
+      border: 1px solid #2a2a2a;
+      border-radius: 0.5rem;
+      padding: 1rem;
+      overflow-x: auto;
+      font-size: 0.8125rem;
+      line-height: 1.5;
+    }
+    code {
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      color: #d4d4d4;
+    }
+    table {
+      width: 100%;
+      max-width: 720px;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.875rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.5rem;
+      border-bottom: 1px solid #333;
+    }
+    th { color: #aaa; }
+
+    /* 结构样式：布局、grid、卡片尺寸 */
+    .mock-app {
+      width: 100%;
+      max-width: 720px;
+      margin: 1rem 0;
+      padding: 1rem;
+      border-radius: 1rem;
+      font-size: 0.8125rem;
+    }
+    .type-label {
+      margin: 0 0 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+    .account-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.5rem;
+      position: relative;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: subgrid;
+      grid-column: 1 / -1;
+      gap: 0.5rem;
+      position: relative;
+    }
+    .children-container {
+      display: grid;
+      grid-template-columns: subgrid;
+      grid-column: 1 / -1;
+      gap: 0.5rem;
+      position: relative;
+      z-index: 1;
+      padding: 0.5rem;
+      margin: -0.25rem;
+      border-radius: 0.75rem;
+    }
+    .account-card {
+      min-height: 3rem;
+      padding: 0.75rem 0.5rem;
+      border-radius: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.25rem;
+      overflow: hidden;
+      cursor: pointer;
+      text-align: center;
+      position: relative;
+      z-index: 2;
+    }
+    .account-card .name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .account-card .indicator { font-size: 0.625rem; opacity: 0.7; }
+    .account-card.placeholder {
+      background: transparent !important;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    /* 纸片叠放效果：高层容器包裹低层容器，但不做缩进。
+       .children-container 保持 subgrid 与默认 padding/margin，确保列对齐；
+       层叠容器去掉左右 padding（padding: 0.5rem 0），使所有深度的卡片等宽；
+       上下使用负 margin 使背景上下边缘与父级重叠；
+       ::before 伪元素向左右各扩展 0.5rem，形成高亮区域并与卡片保持间距；
+       所有层级的高亮左右边缘相互对齐并重叠，半透明背景相互叠加，
+       像几张半透明的纸压在一起。 */
+    .children-container.stacked-children {
+      position: relative;
+      padding: 0.5rem 0;
+      margin: -0.25rem 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    .children-container.stacked-children::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -0.5rem;
+      right: -0.5rem;
+      background: var(--paper-bg);
+      border-radius: 0.75rem;
+      z-index: -1;
+      box-shadow: 0 -2px 8px rgba(0,0,0,0.25), 0 -1px 0 rgba(255,255,255,0.04) inset;
+    }
+
+    .legend {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin: 1rem 0;
+      font-size: 0.75rem;
+      color: #888;
+    }
+    .legend-item { display: flex; align-items: center; gap: 0.25rem; }
+    .swatch { width: 1rem; height: 1rem; border-radius: 0.25rem; border: 1px solid #444; }
+  </style>
+</head>
+<body>
+  <h1>账户视图扁平网格 V2 设计</h1>
+  <p class="note">本文件用真实 HTML/CSS 渲染目标效果。所有配色与关键样式均以内联方式写在元素上，避免外部样式干扰，保证浏览器中看到的即最终效果。</p>
+
+  <h2>1. 核心布局算法：compile</h2>
+  <p class="note">参考 <code>.ignore/show-layout/src/main.rs</code> 中的实现。该函数把多级树表示转换成每行固定宽度的渲染格式。</p>
+  <pre><code>use std::fmt::Write;
+
+/// 这个函数将多级树表示转换成渲染格式。
+///
+/// `input` 是一个多级树表示字符串，表示一个树，其每个级别的兄弟分支（用 `,` 隔开）中有 0 个或 1 个有子树。
+/// 名字前面的 `+` 表示有子树的分支。`;` 分隔下一级子树。
+///
+/// `width` 是渲染宽度，表示渲染格式每行的元素数量。
+fn compile(input: &amp;str, width: usize) -&gt; String {
+    let mut levels = input.split(';').map(|s| s.split(',')).collect::&lt;Vec&lt;_&gt;&gt;();
+    let mut depth = 0;
+    let mut ans = String::new();
+
+    'outer: loop {
+        let mut pointer = None;
+        let source = &amp;mut levels[depth];
+
+        for i in 0..width {
+            let Some(mut item) = source.next() else {
+                if i == 0 {
+                    if depth == 0 {
+                        return ans;
+                    }
+                    depth -= 1;
+                    continue 'outer;
+                }
+                for _ in i..width {
+                    write!(ans, ",").unwrap()
+                }
+                break;
+            };
+
+            if let Some(item_) = item.strip_prefix('+') {
+                pointer = Some(i);
+                item = item_;
+                depth += 1
+            }
+
+            write!(ans, "{item},").unwrap()
+        }
+
+        writeln!(ans).unwrap();
+        if let Some(pointer) = pointer {
+            for _ in 0..pointer {
+                write!(ans, "_").unwrap()
+            }
+            write!(ans, "^").unwrap();
+            for _ in pointer + 1..width {
+                write!(ans, "_").unwrap()
+            }
+            writeln!(ans).unwrap()
+        }
+    }
+}</code></pre>
+
+  <h2>2. 示例运行（字符画）</h2>
+
+  <h3>示例 1：A,B,+C,D;C1,C2,+C3;C31,*C32，width=3</h3>
+  <p class="note">展开路径：C → C3。每行 3 个卡片，左对齐，右侧不足留空；不同深度的列严格对齐。</p>
+  <pre><code>┌────┬────┬────┐
+│ A  │ B  │ C  │   ← C 被展开
+└────┴────┴────┘
+         ↓
+┌────┬────┬────┐
+│ C1 │ C2 │ C3 │   ← C3 被展开
+└────┴────┴────┘
+         ↓
+┌────┬────┬────┐
+│ C31│*C32│    │   ← * 表示叶子节点被选中
+└────┴────┴────┘</code></pre>
+
+  <h3>示例 2：A,B,C,D,+E,F,G;EA,+EB;EBA,*EBB,EBC，width=3</h3>
+  <p class="note">展开路径：E → EB。注意深度变化时列仍然对齐。</p>
+  <pre><code>┌────┬────┬────┐
+│ A  │ B  │ C  │
+└────┴────┴────┘
+┌────┬────┬────┐
+│ D  │ E  │ F  │   ← E 被展开
+└────┴────┴────┘
+         ↓
+┌────┬────┬────┐
+│ EA │ EB │    │   ← EB 被展开
+└────┴────┴────┘
+         ↓
+┌────┬────┬────┐
+│ EBA│*EBB│ EBC│
+└────┴────┴────┘</code></pre>
+
+  <h3>示例 3：A,+B,C,D;B1,B2,+B3;B31,B32,+B33;B331,*B332，width=4</h3>
+  <p class="note">宽度 4 时，每行固定 4 列，同样保持左对齐与列对齐。展开路径：B → B3 → B33。</p>
+  <pre><code>┌────┬────┬────┬────┐
+│ A  │ B  │ C  │ D  │   ← B 被展开
+└────┴────┴────┴────┘
+         ↓
+┌────┬────┬────┬────┐
+│ B1 │ B2 │ B3 │    │   ← B3 被展开
+└────┴────┴────┴────┘
+              ↓
+┌────┬────┬────┬────┐
+│ B31│ B32│ B33│    │   ← B33 被展开
+└────┴────┴────┴────┘
+              ↓
+┌────┬────┬────┬────┐
+│ B331│*B332│   │    │
+└────┴────┴────┴────┘</code></pre>
+
+  <h2>3. 折叠条件变更</h2>
+  <p>仅当新选中卡片 <strong>不在</strong> 当前 <code>expandedPath</code> 上时才折叠；在路径上时只切换选中态，子树保持展开。</p>
+  <p class="note">假设当前展开路径为 <code>[C, C3, C31]</code>，对应树：C → C3 → C31（C311/C312 已展开）。</p>
+  <table>
+    <thead>
+      <tr>
+        <th>点击卡片</th>
+        <th>是否在 expandedPath 上</th>
+        <th>行为</th>
+        <th>折叠后路径</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>C3</td>
+        <td>是</td>
+        <td>仅切换选中态，不折叠</td>
+        <td><code>[C, C3, C31]</code> 不变，C311/C312 保持</td>
+      </tr>
+      <tr>
+        <td>C32</td>
+        <td>否</td>
+        <td>折叠 C31 子树，展开 C32 子树</td>
+        <td><code>[C, C3, C32]</code>，C311/C312 被折叠</td>
+      </tr>
+      <tr>
+        <td>C</td>
+        <td>是</td>
+        <td>仅切换选中态，不折叠</td>
+        <td><code>[C, C3, C31]</code> 不变</td>
+      </tr>
+      <tr>
+        <td>D</td>
+        <td>否</td>
+        <td>折叠 C 子树，展开 D 子树</td>
+        <td><code>[D]</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>4. 层叠高亮链（包裹式纸片叠放）</h2>
+  <p class="note">保持 A/B 方案的嵌套包裹结构，但去掉缩进：每一级 <code>.children-container</code> 都和父级容器等宽。层叠容器去掉左右 padding（<code>padding: 0.5rem 0</code>），使所有深度的卡片等宽；上下用负 margin 使背景上下边缘与父级重叠；<code>::before</code> 伪元素向左右各扩展 0.5rem（<code>left: -0.5rem; right: -0.5rem</code>），形成高亮区域并与卡片保持间距。所有层级的高亮左右边缘相互对齐并重叠，半透明背景相互叠加，像几张半透明的纸压在一起。高亮做在伪元素背景上，卡片颜色保持统一。</p>
+
+  <div class="mock-app" style="background:#121212; max-width:720px;">
+    <p class="type-label" style="color:#9e9e9e;">资产 — 包裹式叠放高亮示意</p>
+    <div class="account-grid">
+      <div class="children-container stacked-children" style="--paper-bg:hsla(237,76%,65%,0.08);">
+        <div class="row">
+          <div class="account-card" style="background:#2d2d2d; color:#ffffff;"><span class="name">C1</span></div>
+          <div class="account-card" style="background:#2d2d2d; color:#ffffff;"><span class="name">C2</span></div>
+          <div class="account-card" style="background:#2d2d2d; color:#ffffff;"><span class="indicator">▾</span><span class="name">C3</span></div>
+          <div class="account-card placeholder"></div>
+        </div>
+        <div class="children-container stacked-children" style="--paper-bg:hsla(242,78%,68%,0.10);">
+          <div class="row">
+            <div class="account-card" style="background:#2d2d2d; color:#ffffff;"><span class="indicator">▾</span><span class="name">C31</span></div>
+            <div class="account-card" style="background:#2d2d2d; color:#ffffff;"><span class="name">C32</span></div>
+            <div class="account-card placeholder"></div>
+            <div class="account-card placeholder"></div>
+          </div>
+          <div class="children-container stacked-children" style="--paper-bg:hsla(247,80%,71%,0.12);">
+            <div class="row">
+              <div class="account-card" style="background:#2d2d2d; color:#ffffff;"><span class="name">C311</span></div>
+              <div class="account-card" style="background:#646cff; color:#ffffff;"><span class="name">C312</span></div>
+              <div class="account-card placeholder"></div>
+              <div class="account-card placeholder"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>5. 实现要点</h2>
+  <ul>
+    <li><strong>compileRows</strong> 已按上述算法实现，保持每行固定列数、左对齐、列跨深度对齐。</li>
+    <li><strong>buildRowTree</strong> 把扁平的 GridRow 还原为嵌套结构，继续用 <code>AccountRowGroup</code> 递归渲染。</li>
+    <li><strong>AccountRowGroup</strong> 中的 <code>.children-container</code> 保持 subgrid 与默认 padding/margin（保证列对齐）；层叠容器 <code>.stacked-children</code> 去掉左右 padding（<code>padding: 0.5rem 0</code>），使所有深度的卡片等宽；上下使用负 margin 使背景上下边缘与父级重叠；<code>::before</code> 伪元素向左右各扩展 0.5rem（<code>left: -0.5rem; right: -0.5rem</code>），形成高亮区域并与卡片保持间距；所有层级的高亮左右边缘相互对齐并重叠，半透明背景相互叠加，形成纸片叠放效果；背景色按深度使用 HSV 渐变。</li>
+    <li><strong>折叠条件</strong>：在 <code>AccountsView.handleAccountClick</code> 中，先判断 <code>clickedId</code> 是否在 <code>expandedPath</code> 中。若不在，才重新构建路径；若在，仅更新 <code>selectedAccountId</code>。</li>
+  </ul>
+
+  <h2>6. 最终方案</h2>
+  <ul>
+    <li><strong>配色</strong>：方案 C（HSV 深度渐变）</li>
+    <li><strong>布局</strong>：所有卡片等宽，所有高亮区域等宽且与卡片对齐，不做缩进，纸片叠放效果</li>
+    <li><strong>折叠条件</strong>：当且仅当新选中卡片不在当前展开路径上时才折叠</li>
+    <li><strong>层叠高亮</strong>：每级展开路径加等宽、全宽、半透明背景框，多层叠加，卡片颜色统一</li>
+  </ul>
+  <p>确认后退出 explore 模式，创建 OpenSpec change proposal 并进入实现。</p>
+</body>
+</html>

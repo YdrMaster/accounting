@@ -38,6 +38,46 @@ describe('AccountGrid', () => {
     expect(wrapper.text()).toContain('A')
   })
 
+  it('renders flat grid with fixed columns and placeholder padding', () => {
+    const wrapper = mount(AccountGrid, {
+      props: {
+        typeLabel: '资产',
+        rows: [
+          {
+            items: [
+              { account: account(1, 'A'), isPlaceholder: false, hasChildren: false },
+              { account: account(2, 'B'), isPlaceholder: false, hasChildren: false },
+              { account: null, isPlaceholder: true, hasChildren: false },
+            ],
+            depth: 0,
+            expandedIndex: null,
+            expandedAccountId: null,
+            parentRowIndex: null,
+          },
+          {
+            items: [
+              { account: account(3, 'C'), isPlaceholder: false, hasChildren: false },
+              { account: null, isPlaceholder: true, hasChildren: false },
+              { account: null, isPlaceholder: true, hasChildren: false },
+            ],
+            depth: 0,
+            expandedIndex: null,
+            expandedAccountId: null,
+            parentRowIndex: null,
+          },
+        ],
+        selectedAccountId: null,
+      },
+    })
+    const cards = wrapper.findAll('.account-card')
+    expect(cards).toHaveLength(6)
+    const placeholders = wrapper.findAll('.account-card.placeholder')
+    expect(placeholders).toHaveLength(3)
+    expect(wrapper.text()).toContain('A')
+    expect(wrapper.text()).toContain('B')
+    expect(wrapper.text()).toContain('C')
+  })
+
   it('emits columnsChange with the real column count once ready', async () => {
     const originalGetComputedStyle = window.getComputedStyle
     vi.spyOn(window, 'getComputedStyle').mockImplementation((el: Element) => {
