@@ -1,6 +1,7 @@
 //! API handlers 模块入口
 
 pub mod account;
+pub mod budget;
 pub mod channel;
 pub mod commodity;
 pub mod me;

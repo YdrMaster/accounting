@@ -13,6 +13,7 @@ pub fn create_app(state: Arc<handlers::member::AppState>, static_dir: &str) -> R
     Router::new()
         .merge(handlers::member::router())
         .merge(handlers::account::router())
+        .merge(handlers::budget::router())
         .merge(handlers::transaction::router())
         .merge(handlers::channel::router())
         .merge(handlers::commodity::router())

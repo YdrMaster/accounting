@@ -277,3 +277,124 @@ pub struct UpdateAccountRequest {
     /// 还款日。
     pub repayment_day: Option<u8>,
 }
+
+// ─── 预算 DTO ───
+
+/// 预算表响应。
+#[derive(Serialize)]
+pub struct BudgetDto {
+    /// 预算表 ID。
+    pub id: i64,
+    /// 预算表名称。
+    pub name: String,
+    /// 周期类型。
+    pub period: String,
+    /// 币种 ID。
+    pub commodity_id: i64,
+}
+
+/// 预算限额响应。
+#[derive(Serialize)]
+pub struct BudgetLimitDto {
+    /// 账户 ID。
+    pub account_id: i64,
+    /// 限额金额。
+    pub amount: String,
+}
+
+/// 预算表详情响应（含限额列表）。
+#[derive(Serialize)]
+pub struct BudgetDetailDto {
+    /// 预算表信息。
+    pub budget: BudgetDto,
+    /// 限额列表。
+    pub limits: Vec<BudgetLimitDto>,
+}
+
+/// 预算执行情况响应。
+#[derive(Serialize)]
+pub struct BudgetStatusDto {
+    /// 预算表信息。
+    pub budget: BudgetDto,
+    /// 周期起始日期。
+    pub period_start: String,
+    /// 周期结束日期。
+    pub period_end: String,
+    /// 各账户执行情况。
+    pub items: Vec<BudgetItemStatusDto>,
+}
+
+/// 单个账户的预算执行情况。
+#[derive(Serialize)]
+pub struct BudgetItemStatusDto {
+    /// 账户 ID。
+    pub account_id: i64,
+    /// 限额金额。
+    pub limit_amount: String,
+    /// 实际金额。
+    pub actual_amount: String,
+    /// 剩余金额（正=剩余，负=超支）。
+    pub remaining: String,
+    /// 执行百分比。
+    pub percentage: String,
+}
+
+/// 创建/更新预算限额请求。
+#[derive(Deserialize)]
+pub struct BudgetLimitRequest {
+    /// 账户 ID。
+    pub account_id: i64,
+    /// 限额金额。
+    pub amount: String,
+}
+
+/// 创建预算表请求。
+#[derive(Deserialize)]
+pub struct CreateBudgetRequest {
+    /// 预算表名称。
+    pub name: String,
+    /// 周期类型。
+    pub period: String,
+    /// 币种 ID。
+    pub commodity_id: i64,
+    /// 限额列表。
+    pub limits: Vec<BudgetLimitRequest>,
+}
+
+/// 更新预算表请求。
+#[derive(Deserialize)]
+pub struct UpdateBudgetRequest {
+    /// 预算表名称。
+    pub name: String,
+    /// 周期类型。
+    pub period: String,
+    /// 币种 ID。
+    pub commodity_id: i64,
+    /// 限额列表。
+    pub limits: Vec<BudgetLimitRequest>,
+}
+
+/// 解析周期字符串为 FinancePeriod。
+pub fn parse_period(s: &str) -> Result<accounting::finance_period::FinancePeriod, String> {
+    use accounting::finance_period::FinancePeriod;
+    match s.to_lowercase().as_str() {
+        "daily" => Ok(FinancePeriod::Daily),
+        "weekly-sun" => Ok(FinancePeriod::WeeklyFromSunday),
+        "weekly-mon" => Ok(FinancePeriod::WeeklyFromMonday),
+        "monthly" => Ok(FinancePeriod::Monthly),
+        "yearly" => Ok(FinancePeriod::Yearly),
+        _ => Err(format!("无效周期类型: {}", s)),
+    }
+}
+
+/// 将 FinancePeriod 转为 API 字符串。
+pub fn to_period_string(period: accounting::finance_period::FinancePeriod) -> &'static str {
+    use accounting::finance_period::FinancePeriod;
+    match period {
+        FinancePeriod::Daily => "daily",
+        FinancePeriod::WeeklyFromSunday => "weekly-sun",
+        FinancePeriod::WeeklyFromMonday => "weekly-mon",
+        FinancePeriod::Monthly => "monthly",
+        FinancePeriod::Yearly => "yearly",
+    }
+}
