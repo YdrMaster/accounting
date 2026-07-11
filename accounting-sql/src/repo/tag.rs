@@ -59,6 +59,32 @@ pub async fn tag_create(conn: &mut SqliteConnection, tag: &Tag) -> Result<TagId,
     Ok(TagId(id))
 }
 
+pub async fn tag_update(
+    conn: &mut SqliteConnection,
+    id: TagId,
+    name: &str,
+    description: Option<&str>,
+) -> Result<(), DbError> {
+    sqlx::query("UPDATE tags SET name = ?1, description = ?2 WHERE id = ?3")
+        .bind(name)
+        .bind(description)
+        .bind(id.0)
+        .execute(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(())
+}
+
+pub async fn tag_get_by_id(conn: &mut SqliteConnection, id: TagId) -> Result<Option<Tag>, DbError> {
+    let row: Option<TagRow> =
+        sqlx::query_as("SELECT id, name, description, is_system FROM tags WHERE id = ?1")
+            .bind(id.0)
+            .fetch_optional(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(row.map(|r| r.into_tag()))
+}
+
 pub async fn tag_upsert_by_name(
     conn: &mut SqliteConnection,
     name: &str,

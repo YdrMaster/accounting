@@ -53,14 +53,33 @@ async fn create_channel(
     Ok(Json(id.0))
 }
 
-/// 更新渠道（修改 account_id 关联）
+/// 更新渠道（修改 name、description、account_id）
 async fn update_channel(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(req): Json<UpdateChannelRequest>,
 ) -> Result<String, String> {
     let db = state.db();
-    db.channel_update(ChannelId(id), req.account_id.map(AccountId))
+    let existing = db
+        .channel_get(ChannelId(id))
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| t!("channel_not_found").to_string())?;
+
+    let new_name = match req.name {
+        Some(Some(ref v)) => v.as_str(),
+        _ => existing.name.as_str(),
+    };
+    let new_description = match req.description {
+        Some(ref v) => v.as_deref(),
+        None => existing.description.as_deref(),
+    };
+    let new_account_id = match req.account_id {
+        Some(v) => v.map(AccountId),
+        None => existing.account_id,
+    };
+
+    db.channel_update(ChannelId(id), new_name, new_description, new_account_id)
         .await
         .map_err(|e| e.to_string())?;
     Ok("updated".to_string())

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { fetchTags } from '../api/client'
+import { createTag, deleteTag, fetchTags, updateTag } from '../api/client'
 import type { TagDto } from '../types/api'
 
 export const useTagStore = defineStore('tag', () => {
@@ -22,5 +22,43 @@ export const useTagStore = defineStore('tag', () => {
     }
   }
 
-  return { tags, loading, error, load }
+  async function create(name: string, description?: string) {
+    error.value = null
+    try {
+      const tag = await createTag({ name, description })
+      tags.value.push(tag)
+      return tag
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  async function update(
+    id: number,
+    data: { name?: string; description?: string },
+  ) {
+    error.value = null
+    try {
+      const updated = await updateTag(id, data)
+      const idx = tags.value.findIndex((t) => t.id === id)
+      if (idx !== -1) {
+        tags.value[idx] = updated
+      }
+      return updated
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  async function remove(id: number) {
+    error.value = null
+    try {
+      await deleteTag(id)
+      tags.value = tags.value.filter((t) => t.id !== id)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  return { tags, loading, error, load, create, update, remove }
 })

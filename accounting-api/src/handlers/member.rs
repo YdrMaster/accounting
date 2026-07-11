@@ -73,9 +73,31 @@ async fn delete_member(
     Ok("deleted".to_string())
 }
 
+/// 重命名成员请求体
+#[derive(serde::Deserialize)]
+pub struct RenameMemberRequest {
+    pub name: String,
+}
+
+/// 重命名成员
+async fn rename_member(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<RenameMemberRequest>,
+) -> Result<Json<MemberDto>, String> {
+    let db = state.db();
+    db.member_rename(MemberId(id), &req.name)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(Json(MemberDto { id, name: req.name }))
+}
+
 /// 成员路由
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/members", get(list_members).post(create_member))
-        .route("/api/members/{id}", delete(delete_member))
+        .route(
+            "/api/members/{id}",
+            delete(delete_member).put(rename_member),
+        )
 }

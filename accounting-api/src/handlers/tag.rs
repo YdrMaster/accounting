@@ -7,7 +7,7 @@ use accounting::tag::Tag;
 use axum::{
     Json, Router,
     extract::{Path, State},
-    routing::{delete, get},
+    routing::{get, put},
 };
 use rust_i18n::t;
 use std::sync::Arc;
@@ -72,6 +72,52 @@ async fn create_tag(
     }))
 }
 
+/// 更新标签请求
+#[derive(serde::Deserialize)]
+pub struct UpdateTagRequest {
+    pub name: Option<Option<String>>,
+    pub description: Option<Option<String>>,
+}
+
+/// 更新标签
+async fn update_tag(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateTagRequest>,
+) -> Result<Json<TagDto>, String> {
+    let db = state.db();
+
+    let existing = db
+        .tag_get_by_id(TagId(id))
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| t!("tag_not_found").to_string())?;
+
+    if existing.is_system {
+        return Err(t!("cannot_modify_system_tag").to_string());
+    }
+
+    let new_name = match req.name {
+        Some(Some(ref v)) => v.as_str(),
+        _ => existing.name.as_str(),
+    };
+    let new_description = match req.description {
+        Some(ref v) => v.as_deref(),
+        None => existing.description.as_deref(),
+    };
+
+    db.tag_update(TagId(id), new_name, new_description)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(Json(TagDto {
+        id: existing.id.0,
+        name: new_name.to_string(),
+        description: new_description.map(|s| s.to_string()),
+        is_system: existing.is_system,
+    }))
+}
+
 /// 删除标签（只能删除非系统标签）
 async fn delete_tag(
     State(state): State<Arc<AppState>>,
@@ -98,5 +144,5 @@ async fn delete_tag(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/tags", get(list_tags).post(create_tag))
-        .route("/api/tags/{id}", delete(delete_tag))
+        .route("/api/tags/{id}", put(update_tag).delete(delete_tag))
 }

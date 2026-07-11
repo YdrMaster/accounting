@@ -207,9 +207,14 @@ pub async fn channel_force_delete_by_id(
 pub async fn channel_update(
     conn: &mut SqliteConnection,
     id: ChannelId,
+    name: &str,
+    description: Option<&str>,
     account_id: Option<AccountId>,
 ) -> Result<(), DbError> {
-    sqlx::query("UPDATE channels SET account_id = ?1 WHERE id = ?2")
+    validate_channel_name(name)?;
+    sqlx::query("UPDATE channels SET name = ?1, description = ?2, account_id = ?3 WHERE id = ?4")
+        .bind(name)
+        .bind(description)
         .bind(account_id.map(|id| id.0))
         .bind(id.0)
         .execute(conn)
@@ -308,7 +313,7 @@ mod tests {
             is_system: false,
         };
         let id = channel_create(&mut conn, &channel).await.unwrap();
-        channel_update(&mut conn, id, Some(AccountId(1)))
+        channel_update(&mut conn, id, "CC", None, Some(AccountId(1)))
             .await
             .unwrap();
         let fetched = channel_get(&mut conn, id).await.unwrap().unwrap();

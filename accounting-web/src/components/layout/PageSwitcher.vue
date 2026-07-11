@@ -13,6 +13,7 @@ const emit = defineEmits<{
   goTo: [index: number]
   left: []
   right: []
+  openConfig: []
 }>()
 
 const trackRef = ref<HTMLElement | null>(null)
@@ -230,6 +231,14 @@ function onLabelClick(originalIndex: number) {
     >
       ›
     </button>
+
+    <button
+      type="button"
+      class="config-btn"
+      @click="emit('openConfig')"
+    >
+      ⚙
+    </button>
   </header>
 </template>
 
@@ -309,5 +318,23 @@ function onLabelClick(originalIndex: number) {
 .label-btn.active {
   color: var(--text-heading);
   font-weight: 500;
+}
+
+.config-btn {
+  width: 2rem;
+  height: 2rem;
+  font-size: 1rem;
+  line-height: 1;
+  border-radius: 50%;
+  border: none;
+  background: var(--card-bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.config-btn:hover {
+  color: var(--text-heading);
 }
 </style>

@@ -348,6 +348,15 @@ impl SqliteDatabase {
         crate::repo::member::member_get_by_name(&mut conn, name).await
     }
 
+    pub async fn member_rename(
+        &self,
+        id: accounting::id::MemberId,
+        new_name: &str,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::member::member_rename(&mut conn, id, new_name).await
+    }
+
     // === Channel ===
 
     pub async fn channel_create(
@@ -406,10 +415,12 @@ impl SqliteDatabase {
     pub async fn channel_update(
         &self,
         id: accounting::id::ChannelId,
+        name: &str,
+        description: Option<&str>,
         account_id: Option<accounting::id::AccountId>,
     ) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::channel::channel_update(&mut conn, id, account_id).await
+        crate::repo::channel::channel_update(&mut conn, id, name, description, account_id).await
     }
 
     pub async fn channel_upsert_by_name(
@@ -514,6 +525,24 @@ impl SqliteDatabase {
     ) -> Result<accounting::id::TagId, DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::tag::tag_create(&mut conn, tag).await
+    }
+
+    pub async fn tag_get_by_id(
+        &self,
+        id: accounting::id::TagId,
+    ) -> Result<Option<accounting::tag::Tag>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::tag::tag_get_by_id(&mut conn, id).await
+    }
+
+    pub async fn tag_update(
+        &self,
+        id: accounting::id::TagId,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::tag::tag_update(&mut conn, id, name, description).await
     }
 
     pub async fn tag_delete(&self, name: &str) -> Result<(), DbError> {

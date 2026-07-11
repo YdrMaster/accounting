@@ -132,7 +132,7 @@ function onFormSaved() {
 </script>
 
 <template>
-  <div class="transaction" :class="{ 'no-scroll': showFormOverlay }" ref="scrollContainer" @scroll="onScroll">
+  <div ref="scrollContainer" class="transaction" :class="{ 'no-scroll': showFormOverlay }" @scroll="onScroll">
     <!-- Show normal transaction view when form is not displayed -->
     <template v-if="!showFormOverlay">
       <div class="header-actions">

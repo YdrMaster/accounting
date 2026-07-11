@@ -266,9 +266,11 @@ impl<'a> SqliteTransaction<'a> {
     pub async fn channel_update(
         &mut self,
         id: accounting::id::ChannelId,
+        name: &str,
+        description: Option<&str>,
         account_id: Option<accounting::id::AccountId>,
     ) -> Result<(), DbError> {
-        crate::repo::channel::channel_update(&mut self.tx, id, account_id).await
+        crate::repo::channel::channel_update(&mut self.tx, id, name, description, account_id).await
     }
 
     pub async fn channel_upsert_by_name(

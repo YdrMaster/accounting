@@ -94,7 +94,7 @@ function channelName(id: number): string {
           class="channel-chip"
         >
           {{ channelName(chId) }}
-          <button @click="removeChannelFromLevel(pos - 1, chId)" v-if="isLastLevel(pos - 1) && getChannelsForLevel(pos - 1).length > 1">×</button>
+          <button v-if="isLastLevel(pos - 1) && getChannelsForLevel(pos - 1).length > 1" @click="removeChannelFromLevel(pos - 1, chId)">×</button>
         </span>
         <select
           v-if="isLastLevel(pos - 1) || getChannelsForLevel(pos - 1).length === 0"

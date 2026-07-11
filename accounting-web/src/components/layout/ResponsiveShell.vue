@@ -6,6 +6,7 @@ import AssetsView from '../../views/AssetsView.vue'
 import BudgetView from '../../views/BudgetView.vue'
 import CalendarView from '../../views/CalendarView.vue'
 import TransactionView from '../../views/TransactionView.vue'
+import ConfigPanel from './ConfigPanel.vue'
 import PageSwitcher from './PageSwitcher.vue'
 import ViewPanel from './ViewPanel.vue'
 
@@ -52,6 +53,12 @@ const paneStyle = computed(() => ({
 }))
 
 let dragStartX = 0
+
+const configVisible = ref(false)
+
+function onOpenConfig() {
+  configVisible.value = true
+}
 
 function moveTo(offset: number, newIndex?: number) {
   if (isTransitioning.value) return
@@ -121,7 +128,10 @@ function onTouchEnd() {
       @go-to="onSwitcherGoTo"
       @left="shiftLeft"
       @right="shiftRight"
+      @open-config="onOpenConfig"
     />
+
+    <ConfigPanel v-if="configVisible" @close="configVisible = false" />
 
     <div
       class="viewport"

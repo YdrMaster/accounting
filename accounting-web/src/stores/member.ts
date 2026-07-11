@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { fetchMembers } from '../api/client'
+import {
+  createMember,
+  deleteMember,
+  fetchMembers,
+  renameMember,
+} from '../api/client'
 import type { MemberDto } from '../types/api'
 
 export const useMemberStore = defineStore('member', () => {
@@ -16,7 +21,6 @@ export const useMemberStore = defineStore('member', () => {
     error.value = null
     try {
       members.value = await fetchMembers()
-      // Set current member to first member if not set
       if (members.value.length > 0 && currentMemberId.value === null) {
         currentMemberId.value = members.value[0].id
       }
@@ -27,5 +31,40 @@ export const useMemberStore = defineStore('member', () => {
     }
   }
 
-  return { members, currentMemberId, loading, error, load }
+  async function create(name: string) {
+    error.value = null
+    try {
+      const member = await createMember(name)
+      members.value.push(member)
+      return member
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  async function rename(id: number, name: string) {
+    error.value = null
+    try {
+      const updated = await renameMember(id, name)
+      const idx = members.value.findIndex((m) => m.id === id)
+      if (idx !== -1) {
+        members.value[idx] = updated
+      }
+      return updated
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  async function remove(id: number) {
+    error.value = null
+    try {
+      await deleteMember(id)
+      members.value = members.value.filter((m) => m.id !== id)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  return { members, currentMemberId, loading, error, load, create, rename, remove }
 })

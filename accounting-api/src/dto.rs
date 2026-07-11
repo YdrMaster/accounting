@@ -216,8 +216,12 @@ pub struct CreateChannelRequest {
 /// 更新渠道请求。
 #[derive(Deserialize)]
 pub struct UpdateChannelRequest {
-    /// 关联资产账户 ID。
-    pub account_id: Option<i64>,
+    /// 渠道名称（None=不修改，Some(None)=清空，Some(Some(v))=设为v）。
+    pub name: Option<Option<String>>,
+    /// 渠道描述（None=不修改，Some(None)=清空，Some(Some(v))=设为v）。
+    pub description: Option<Option<String>>,
+    /// 关联资产账户 ID（None=不修改，Some(None)=取消关联，Some(Some(v))=关联v）。
+    pub account_id: Option<Option<i64>>,
 }
 
 /// 标签响应。

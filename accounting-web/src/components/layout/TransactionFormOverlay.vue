@@ -252,12 +252,12 @@ async function handleSubmit() {
 
           <div class="posting-field checkbox-field">
             <label>
-              <input type="checkbox" v-model="posting.isReimbursable" />
+              <input v-model="posting.isReimbursable" type="checkbox" />
               报销
             </label>
           </div>
 
-          <button class="remove-btn" @click="removePosting(index)" :disabled="postings.length <= 2">
+          <button class="remove-btn" :disabled="postings.length <= 2" @click="removePosting(index)">
             ×
           </button>
         </div>

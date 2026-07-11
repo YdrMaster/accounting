@@ -84,6 +84,23 @@ pub async fn member_get_or_create_by_name(
     member_create(conn, &member).await
 }
 
+pub async fn member_rename(
+    conn: &mut SqliteConnection,
+    id: MemberId,
+    new_name: &str,
+) -> Result<(), DbError> {
+    let result = sqlx::query("UPDATE members SET name = ?1 WHERE id = ?2")
+        .bind(new_name)
+        .bind(id.0)
+        .execute(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    if result.rows_affected() == 0 {
+        return Err(DbError::Database(format!("成员 {} 不存在", id.0)));
+    }
+    Ok(())
+}
+
 pub async fn member_delete(conn: &mut SqliteConnection, id: MemberId) -> Result<(), DbError> {
     sqlx::query("DELETE FROM members WHERE id = ?1")
         .bind(id.0)

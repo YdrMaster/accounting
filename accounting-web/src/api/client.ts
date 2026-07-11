@@ -229,6 +229,123 @@ export async function fetchChannels(): Promise<ChannelDto[]> {
   return apiFetch<ChannelDto[]>('/channels')
 }
 
+export async function createChannel(data: {
+  name: string
+  description?: string
+  account_id?: number
+}): Promise<number> {
+  const res = await fetch(`${BASE_URL}/channels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<number>
+}
+
+export async function updateChannel(
+  id: number,
+  data: { name?: string; description?: string; account_id?: number },
+): Promise<void> {
+  const res = await fetch(`${BASE_URL}/channels/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+}
+
+export async function deleteChannel(id: number): Promise<void> {
+  const res = await fetch(`${BASE_URL}/channels/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+}
+
 export async function fetchTags(): Promise<TagDto[]> {
   return apiFetch<TagDto[]>('/tags')
+}
+
+export async function createTag(data: {
+  name: string
+  description?: string
+}): Promise<TagDto> {
+  const res = await fetch(`${BASE_URL}/tags`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<TagDto>
+}
+
+export async function updateTag(
+  id: number,
+  data: { name?: string; description?: string },
+): Promise<TagDto> {
+  const res = await fetch(`${BASE_URL}/tags/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<TagDto>
+}
+
+export async function deleteTag(id: number): Promise<void> {
+  const res = await fetch(`${BASE_URL}/tags/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+}
+
+export async function createMember(name: string): Promise<MemberDto> {
+  const res = await fetch(`${BASE_URL}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<MemberDto>
+}
+
+export async function renameMember(
+  id: number,
+  name: string,
+): Promise<MemberDto> {
+  const res = await fetch(`${BASE_URL}/members/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<MemberDto>
+}
+
+export async function deleteMember(id: number): Promise<void> {
+  const res = await fetch(`${BASE_URL}/members/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
 }

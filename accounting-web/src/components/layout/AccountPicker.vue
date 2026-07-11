@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import AccountPickerOverlay from './AccountPickerOverlay.vue'
 import type { AccountDto } from '../../types/api'
 
-const props = defineProps<{
+defineProps<{
   modelValue: number | null
   placeholder?: string
 }>()
