@@ -9,7 +9,21 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return res.json() as Promise<T>
 }
 
-import type { AccountDto, MemberDto } from '../types/api'
+import type {
+  AccountDto,
+  BalanceSheetDto,
+  BudgetDetailDto,
+  BudgetDto,
+  BudgetStatusDto,
+  ChannelDto,
+  CommodityDto,
+  CreateAccountRequest,
+  CreateBudgetRequest,
+  CreateTransactionData,
+  MemberDto,
+  TagDto,
+  TransactionDto,
+} from '../types/api'
 
 export async function fetchAccounts(): Promise<AccountDto[]> {
   return apiFetch<AccountDto[]>('/accounts')
@@ -81,4 +95,140 @@ export async function updateAccountFields(
     const text = await res.text()
     throw new Error(text || res.statusText)
   }
+}
+
+export async function createAccount(data: CreateAccountRequest): Promise<number> {
+  const res = await fetch(`${BASE_URL}/accounts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<number>
+}
+
+// ─── 交易 CRUD ───
+
+export async function fetchTransactions(
+  params?: Record<string, string>,
+): Promise<TransactionDto[]> {
+  const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+  return apiFetch<TransactionDto[]>(`/transactions${qs}`)
+}
+
+export async function fetchTransaction(id: number): Promise<TransactionDto> {
+  return apiFetch<TransactionDto>(`/transactions/${id}`)
+}
+
+export async function createTransaction(data: CreateTransactionData): Promise<number> {
+  const res = await fetch(`${BASE_URL}/transactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<number>
+}
+
+export async function updateTransaction(
+  id: number,
+  data: CreateTransactionData,
+): Promise<void> {
+  const res = await fetch(`${BASE_URL}/transactions/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+}
+
+export async function deleteTransaction(id: number): Promise<void> {
+  const res = await fetch(`${BASE_URL}/transactions/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+}
+
+// ─── 报表 ───
+
+export async function fetchBalanceSheet(): Promise<BalanceSheetDto> {
+  return apiFetch<BalanceSheetDto>('/reports/balance-sheet')
+}
+
+// ─── 预算 CRUD ───
+
+export async function fetchBudgets(): Promise<BudgetDto[]> {
+  return apiFetch<BudgetDto[]>('/budgets')
+}
+
+export async function fetchBudgetDetail(id: number): Promise<BudgetDetailDto> {
+  return apiFetch<BudgetDetailDto>(`/budgets/${id}`)
+}
+
+export async function fetchBudgetStatus(
+  id: number,
+  date?: string,
+): Promise<BudgetStatusDto> {
+  const qs = date ? `?date=${date}` : ''
+  return apiFetch<BudgetStatusDto>(`/budgets/${id}/status${qs}`)
+}
+
+export async function createBudget(data: CreateBudgetRequest): Promise<BudgetDto> {
+  const res = await fetch(`${BASE_URL}/budgets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<BudgetDto>
+}
+
+export async function updateBudget(
+  id: number,
+  data: CreateBudgetRequest,
+): Promise<void> {
+  const res = await fetch(`${BASE_URL}/budgets/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+}
+
+export async function deleteBudget(id: number): Promise<void> {
+  const res = await fetch(`${BASE_URL}/budgets/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+}
+
+// ─── 辅助数据 ───
+
+export async function fetchCommodities(): Promise<CommodityDto[]> {
+  return apiFetch<CommodityDto[]>('/commodities')
+}
+
+export async function fetchChannels(): Promise<ChannelDto[]> {
+  return apiFetch<ChannelDto[]>('/channels')
+}
+
+export async function fetchTags(): Promise<TagDto[]> {
+  return apiFetch<TagDto[]>('/tags')
 }

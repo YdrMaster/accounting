@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import AccountDrawer from '../components/layout/AccountDrawer.vue'
+import AccountCreateDrawer from '../components/layout/AccountCreateDrawer.vue'
 import AccountGrid from '../components/layout/AccountGrid.vue'
 import { useAccountStore } from '../stores/account'
 import type { AccountDto } from '../types/api'
@@ -107,10 +108,21 @@ function onAccountDeleted(id: number) {
     drawerVisible.value = false
   }
 }
+
+const createDrawerVisible = ref(false)
+
+function onAccountCreated() {
+  createDrawerVisible.value = false
+  store.loadAccounts()
+}
 </script>
 
 <template>
   <div class="accounts">
+    <div class="header-actions">
+      <button class="create-btn" @click="createDrawerVisible = true">+ 新建账户</button>
+    </div>
+
     <div v-if="store.loading" class="loading">加载中...</div>
     <div v-else-if="store.error" class="error">{{ store.error }}</div>
 
@@ -135,6 +147,12 @@ function onAccountDeleted(id: number) {
       @updated="onAccountUpdated"
       @deleted="onAccountDeleted"
     />
+
+    <AccountCreateDrawer
+      v-if="createDrawerVisible"
+      @close="createDrawerVisible = false"
+      @created="onAccountCreated"
+    />
   </div>
 </template>
 
@@ -145,6 +163,27 @@ function onAccountDeleted(id: number) {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+}
+
+.header-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.75rem 0.5rem 0;
+}
+
+.create-btn {
+  background: var(--accent, #646cff);
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.create-btn:hover {
+  opacity: 0.9;
 }
 
 .card-area {

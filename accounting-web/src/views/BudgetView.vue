@@ -1,38 +1,175 @@
 <script setup lang="ts">
-const categories = [
-  { name: '正餐', total: 2500, spent: 2493.24 },
-  { name: '日用品', total: 600, spent: 2299.83 },
-  { name: '日常', total: 1000, spent: 759.12 },
-  { name: '会员服务', total: 400, spent: 117.02 },
-  { name: '服饰', total: 800, spent: 827.32 },
-  { name: '交通', total: 600, spent: 1008.1 },
-]
+import { onMounted, ref } from 'vue'
+import { useBudgetStore } from '../stores/budget'
+import { useAccountStore } from '../stores/account'
+import type { BudgetDto, BudgetLimitRequest } from '../types/api'
+
+const budgetStore = useBudgetStore()
+const accountStore = useAccountStore()
+
+onMounted(async () => {
+  await Promise.all([
+    budgetStore.loadBudgets(),
+    accountStore.loadAccounts(),
+  ])
+})
+
+const selectedBudgetId = ref<number | null>(null)
+const showCreateDrawer = ref(false)
+const editingBudget = ref<BudgetDto | null>(null)
+
+function periodLabel(period: string): string {
+  const labels: Record<string, string> = {
+    daily: '每日',
+    'weekly-sun': '每周（周日起）',
+    'weekly-mon': '每周（周一起）',
+    monthly: '每月',
+    yearly: '每年',
+  }
+  return labels[period] ?? period
+}
+
+function onNewBudget() {
+  editingBudget.value = null
+  showCreateDrawer.value = true
+}
+
+function onEditBudget(budget: BudgetDto) {
+  editingBudget.value = budget
+  showCreateDrawer.value = true
+}
+
+function onDeleteBudget(id: number) {
+  if (confirm('确定要删除这个预算表吗？')) {
+    budgetStore.remove(id)
+    if (selectedBudgetId.value === id) {
+      selectedBudgetId.value = null
+    }
+  }
+}
+
+function onDrawerClosed() {
+  showCreateDrawer.value = false
+  editingBudget.value = null
+}
+
+function onBudgetCreated() {
+  showCreateDrawer.value = false
+  editingBudget.value = null
+  budgetStore.loadBudgets()
+}
+
+// Create/Edit form state
+const formName = ref('')
+const formPeriod = ref('monthly')
+const formCommodityId = ref(1)
+const formLimits = ref<BudgetLimitRequest[]>([])
+
+function addLimit() {
+  formLimits.value.push({ account_id: 0, amount: '0' })
+}
+
+function removeLimit(index: number) {
+  formLimits.value.splice(index, 1)
+}
+
+async function submitBudget() {
+  if (!formName.value.trim()) {
+    alert('请输入预算表名称')
+    return
+  }
+  if (formLimits.value.length === 0) {
+    alert('请至少添加一个限额')
+    return
+  }
+
+  const data = {
+    name: formName.value.trim(),
+    period: formPeriod.value,
+    commodity_id: formCommodityId.value,
+    limits: formLimits.value.filter(l => l.account_id > 0),
+  }
+
+  try {
+    if (editingBudget.value) {
+      await budgetStore.update(editingBudget.value.id, data)
+    } else {
+      await budgetStore.create(data)
+    }
+    onBudgetCreated()
+  } catch (e) {
+    alert('保存失败: ' + (e instanceof Error ? e.message : String(e)))
+  }
+}
 </script>
 
 <template>
   <div class="budget">
-    <div class="total-card">
-      <div class="info">
-        <h3>总预算</h3>
-        <p>总额：6,000.00 | 支出：16,320.59</p>
-        <p>有 18,291.24 不计入预算</p>
-      </div>
-      <div class="ring over">
-        <span>超支</span>
-        <strong>10,320.59</strong>
-      </div>
+    <div class="header-actions">
+      <button class="new-budget-btn" @click="onNewBudget">+ 新建预算</button>
     </div>
 
-    <h3 class="section-title">分类预算</h3>
-    <div class="category-list">
-      <div v-for="cat in categories" :key="cat.name" class="category">
-        <div class="meta">
-          <span class="name">{{ cat.name }}</span>
-          <span class="amount">总额：{{ cat.total }} | {{ cat.spent.toFixed(2) }}</span>
+    <div v-if="budgetStore.loading" class="loading">加载中...</div>
+    <div v-else-if="budgetStore.error" class="error">{{ budgetStore.error }}</div>
+    <template v-else>
+      <div v-if="budgetStore.budgets.length === 0" class="empty">暂无预算表</div>
+
+      <div v-for="budget in budgetStore.budgets" :key="budget.id" class="budget-card">
+        <div class="budget-info">
+          <h3>{{ budget.name }}</h3>
+          <p class="budget-meta">{{ periodLabel(budget.period) }}</p>
         </div>
-        <div class="ring" :class="{ over: cat.spent > cat.total }">
-          <span>{{ cat.spent > cat.total ? '超支' : '剩余' }}</span>
-          <strong>{{ Math.abs(cat.total - cat.spent).toFixed(2) }}</strong>
+        <div class="budget-actions">
+          <button class="edit-btn" @click="onEditBudget(budget)">编辑</button>
+          <button class="delete-btn" @click="onDeleteBudget(budget.id)">删除</button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Create/Edit Drawer -->
+    <div v-if="showCreateDrawer" class="drawer-container">
+      <div class="drawer-backdrop" @click="onDrawerClosed" />
+      <div class="drawer">
+        <div class="drawer-header">
+          <span class="drawer-title">{{ editingBudget ? '编辑预算' : '新建预算' }}</span>
+          <button class="drawer-close" @click="onDrawerClosed">×</button>
+        </div>
+
+        <div class="drawer-body">
+          <div class="field">
+            <label>预算表名称</label>
+            <input v-model="formName" type="text" placeholder="输入预算表名称" />
+          </div>
+
+          <div class="field">
+            <label>周期类型</label>
+            <select v-model="formPeriod">
+              <option value="daily">每日</option>
+              <option value="weekly-sun">每周（周日起）</option>
+              <option value="weekly-mon">每周（周一起）</option>
+              <option value="monthly">每月</option>
+              <option value="yearly">每年</option>
+            </select>
+          </div>
+
+          <div class="section-title">限额列表</div>
+
+          <div v-for="(limit, index) in formLimits" :key="index" class="limit-row">
+            <select v-model="limit.account_id">
+              <option :value="0" disabled>选择账户</option>
+              <option v-for="acc in accountStore.accounts" :key="acc.id" :value="acc.id">
+                {{ acc.name }}
+              </option>
+            </select>
+            <input v-model="limit.amount" type="number" step="0.01" placeholder="限额" />
+            <button class="remove-limit-btn" @click="removeLimit(index)">×</button>
+          </div>
+
+          <button class="add-limit-btn" @click="addLimit">+ 添加限额</button>
+
+          <button class="submit-btn" @click="submitBudget">
+            {{ editingBudget ? '保存' : '创建' }}
+          </button>
         </div>
       </div>
     </div>
@@ -44,84 +181,251 @@ const categories = [
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  position: relative;
 }
 
-.total-card {
+.header-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.new-budget-btn {
+  background: var(--accent, #646cff);
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.new-budget-btn:hover {
+  opacity: 0.9;
+}
+
+.loading,
+.error,
+.empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-muted);
+}
+
+.budget-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--card-bg-alt);
-  border-radius: 1rem;
+  background: var(--card-bg-alt, #252525);
+  border-radius: 0.75rem;
   padding: 1rem;
 }
 
-.total-card h3 {
-  margin: 0 0 0.5rem;
+.budget-info h3 {
+  margin: 0 0 0.25rem;
   color: var(--text-heading);
+  font-size: 1rem;
 }
 
-.total-card p {
+.budget-meta {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
 }
 
-.section-title {
-  margin: 0;
+.budget-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.edit-btn,
+.delete-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
   color: var(--text-heading);
 }
 
-.category-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+.edit-btn:hover {
+  border-color: var(--accent, #646cff);
+  color: var(--accent, #646cff);
 }
 
-.category {
+.delete-btn:hover {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+/* Drawer styles */
+.drawer-container {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.drawer {
+  position: relative;
+  max-height: 60vh;
+  max-width: 600px;
+  margin: 0 auto;
+  width: 100%;
+  background: var(--card-bg, #1e1e1e);
+  border-radius: 1rem 1rem 0 0;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.25s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.drawer-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--card-bg-alt);
-  border-radius: 0.75rem;
   padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
 }
 
-.meta {
+.drawer-title {
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.drawer-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.drawer-body {
+  padding: 1rem;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 1rem;
 }
 
-.name {
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.field label {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.field input,
+.field select {
+  background: var(--card-bg-alt, #252525);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
   color: var(--text-heading);
-  font-weight: 500;
+  font-size: 0.875rem;
+  outline: none;
 }
 
-.amount {
+.field input:focus,
+.field select:focus {
+  border-color: var(--accent, #646cff);
+}
+
+.section-title {
+  font-weight: 500;
+  color: var(--text-heading);
+  margin-top: 0.5rem;
+}
+
+.limit-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.limit-row select {
+  flex: 2;
+  background: var(--card-bg-alt, #252525);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  color: var(--text-heading);
+  font-size: 0.8125rem;
+  outline: none;
+}
+
+.limit-row input {
+  flex: 1;
+  background: var(--card-bg-alt, #252525);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  color: var(--text-heading);
+  font-size: 0.8125rem;
+  outline: none;
+}
+
+.remove-limit-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.remove-limit-btn:hover {
+  color: #e74c3c;
+}
+
+.add-limit-btn {
+  background: var(--card-bg-alt, #252525);
+  border: 1px dashed var(--border);
+  border-radius: 0.5rem;
+  padding: 0.5rem;
   color: var(--text-muted);
   font-size: 0.875rem;
+  cursor: pointer;
 }
 
-.ring {
-  width: 4rem;
-  height: 4rem;
-  border-radius: 50%;
-  border: 0.25rem solid #4ade80;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.625rem;
-  color: var(--text-muted);
+.add-limit-btn:hover {
+  border-color: var(--accent, #646cff);
+  color: var(--accent, #646cff);
 }
 
-.ring.over {
-  border-color: #ff7b7b;
-  color: #ff7b7b;
+.submit-btn {
+  background: var(--accent, #646cff);
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 0.5rem;
 }
 
-.ring strong {
-  font-size: 0.75rem;
-  color: var(--text-heading);
+.submit-btn:hover {
+  opacity: 0.9;
 }
 </style>
