@@ -9,7 +9,7 @@ const txStore = useTransactionStore()
 
 const currentYear = ref(0)
 const currentMonth = ref(0)
-const selectedDate = ref<string | null>(null)
+const selectedDate = ref<string>('')
 
 const showFormOverlay = ref(false)
 const editingTxId = ref<number | undefined>(undefined)
@@ -47,16 +47,11 @@ const transactionDates = computed(() => {
 })
 
 const filteredTransactions = computed(() => {
-  if (!selectedDate.value) return txStore.transactions
   return txStore.transactions.filter(tx => tx.date_time.slice(0, 10) === selectedDate.value)
 })
 
 function onSelectDate(date: string) {
-  if (selectedDate.value === date) {
-    selectedDate.value = null
-  } else {
-    selectedDate.value = date
-  }
+  selectedDate.value = date
 }
 
 function onNewTx() {
@@ -98,11 +93,6 @@ function onFormSaved() {
         :selected-date="selectedDate"
         @select-date="onSelectDate"
       />
-
-      <div v-if="selectedDate" class="selected-date-label">
-        {{ selectedDate }} 的交易
-        <button class="clear-date-btn" @click="selectedDate = null">清除</button>
-      </div>
 
       <div v-if="txStore.loading" class="loading">加载中...</div>
       <div v-else-if="txStore.error" class="error">{{ txStore.error }}</div>
@@ -162,30 +152,6 @@ function onFormSaved() {
 
 .new-tx-btn:hover {
   opacity: 0.9;
-}
-
-.selected-date-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: var(--text-heading);
-  font-size: 0.875rem;
-  font-weight: 500;
-  padding: 0.5rem 0.75rem;
-  background: var(--card-bg-alt, #252525);
-  border-radius: 0.5rem;
-}
-
-.clear-date-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.clear-date-btn:hover {
-  color: var(--text-heading);
 }
 
 .loading,

@@ -3,12 +3,12 @@ import { computed, ref } from 'vue'
 
 const props = defineProps<{
   transactionDates?: Set<string>
-  selectedDate?: string | null
+  selectedDate?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'selectDate', date: string): void
-  (e: 'update:selectedDate', date: string | null): void
+  (e: 'update:selectedDate', date: string): void
 }>()
 
 const currentDate = ref(new Date())
@@ -109,11 +109,7 @@ function nextMonth() {
 }
 
 function onDayClick(day: CalendarDay) {
-  if (props.selectedDate === day.date) {
-    emit('update:selectedDate', null)
-  } else {
-    emit('update:selectedDate', day.date)
-  }
+  emit('update:selectedDate', day.date)
   emit('selectDate', day.date)
 }
 </script>
