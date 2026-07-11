@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useBudgetStore } from '../stores/budget'
 import { useAccountStore } from '../stores/account'
+import AccountPicker from '../components/layout/AccountPicker.vue'
 import type { BudgetDto, BudgetLimitRequest } from '../types/api'
 
 const budgetStore = useBudgetStore()
@@ -104,29 +105,32 @@ async function submitBudget() {
 </script>
 
 <template>
-  <div class="budget">
-    <div class="header-actions">
-      <button class="new-budget-btn" @click="onNewBudget">+ 新建预算</button>
-    </div>
-
-    <div v-if="budgetStore.loading" class="loading">加载中...</div>
-    <div v-else-if="budgetStore.error" class="error">{{ budgetStore.error }}</div>
-    <template v-else>
-      <div v-if="budgetStore.budgets.length === 0" class="empty">暂无预算表</div>
-
-      <div v-for="budget in budgetStore.budgets" :key="budget.id" class="budget-card">
-        <div class="budget-info">
-          <h3>{{ budget.name }}</h3>
-          <p class="budget-meta">{{ periodLabel(budget.period) }}</p>
-        </div>
-        <div class="budget-actions">
-          <button class="edit-btn" @click="onEditBudget(budget)">编辑</button>
-          <button class="delete-btn" @click="onDeleteBudget(budget.id)">删除</button>
-        </div>
+  <div class="budget" :class="{ 'no-scroll': showCreateDrawer }">
+    <!-- Show normal budget view when drawer is not displayed -->
+    <template v-if="!showCreateDrawer">
+      <div class="header-actions">
+        <button class="new-budget-btn" @click="onNewBudget">+ 新建预算</button>
       </div>
+
+      <div v-if="budgetStore.loading" class="loading">加载中...</div>
+      <div v-else-if="budgetStore.error" class="error">{{ budgetStore.error }}</div>
+      <template v-else>
+        <div v-if="budgetStore.budgets.length === 0" class="empty">暂无预算表</div>
+
+        <div v-for="budget in budgetStore.budgets" :key="budget.id" class="budget-card">
+          <div class="budget-info">
+            <h3>{{ budget.name }}</h3>
+            <p class="budget-meta">{{ periodLabel(budget.period) }}</p>
+          </div>
+          <div class="budget-actions">
+            <button class="edit-btn" @click="onEditBudget(budget)">编辑</button>
+            <button class="delete-btn" @click="onDeleteBudget(budget.id)">删除</button>
+          </div>
+        </div>
+      </template>
     </template>
 
-    <!-- Create/Edit Drawer -->
+    <!-- Create/Edit Drawer - completely replaces budget view -->
     <div v-if="showCreateDrawer" class="drawer-container">
       <div class="drawer-backdrop" @click="onDrawerClosed" />
       <div class="drawer">
@@ -155,12 +159,11 @@ async function submitBudget() {
           <div class="section-title">限额列表</div>
 
           <div v-for="(limit, index) in formLimits" :key="index" class="limit-row">
-            <select v-model="limit.account_id">
-              <option :value="0" disabled>选择账户</option>
-              <option v-for="acc in accountStore.accounts" :key="acc.id" :value="acc.id">
-                {{ acc.name }}
-              </option>
-            </select>
+            <AccountPicker
+              :model-value="limit.account_id || null"
+              placeholder="选择账户"
+              @update:model-value="(id) => { formLimits[index].account_id = id }"
+            />
             <input v-model="limit.amount" type="number" step="0.01" placeholder="限额" />
             <button class="remove-limit-btn" @click="removeLimit(index)">×</button>
           </div>
@@ -172,6 +175,9 @@ async function submitBudget() {
           </button>
         </div>
       </div>
+
+      <!-- Portal container for AccountPicker Teleport -->
+      <div class="picker-portal"></div>
     </div>
   </div>
 </template>
@@ -182,6 +188,12 @@ async function submitBudget() {
   flex-direction: column;
   gap: 1rem;
   position: relative;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.budget.no-scroll {
+  overflow: hidden;
 }
 
 .header-actions {
@@ -266,7 +278,6 @@ async function submitBudget() {
   z-index: 100;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
 }
 
 .drawer-backdrop {
@@ -277,20 +288,17 @@ async function submitBudget() {
 
 .drawer {
   position: relative;
-  max-height: 60vh;
-  max-width: 600px;
-  margin: 0 auto;
   width: 100%;
+  height: 100%;
   background: var(--card-bg, #1e1e1e);
-  border-radius: 1rem 1rem 0 0;
   display: flex;
   flex-direction: column;
-  animation: slideUp 0.25s ease-out;
+  animation: slideIn 0.2s ease-out;
 }
 
-@keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+@keyframes slideIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .drawer-header {
@@ -299,6 +307,7 @@ async function submitBudget() {
   justify-content: space-between;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .drawer-title {
@@ -316,11 +325,13 @@ async function submitBudget() {
 }
 
 .drawer-body {
-  padding: 1rem;
+  flex: 1;
   overflow-y: auto;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  min-height: 0;
 }
 
 .field {
@@ -362,15 +373,8 @@ async function submitBudget() {
   align-items: center;
 }
 
-.limit-row select {
+.limit-row .account-picker {
   flex: 2;
-  background: var(--card-bg-alt, #252525);
-  border: 1px solid var(--border);
-  border-radius: 0.375rem;
-  padding: 0.375rem 0.5rem;
-  color: var(--text-heading);
-  font-size: 0.8125rem;
-  outline: none;
 }
 
 .limit-row input {
@@ -427,5 +431,23 @@ async function submitBudget() {
 
 .submit-btn:hover {
   opacity: 0.9;
+}
+</style>
+
+<style>
+/* Non-scoped styles for AccountPicker Teleport target */
+.drawer .picker-portal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.drawer .picker-portal > * {
+  pointer-events: auto;
 }
 </style>

@@ -132,10 +132,16 @@ function onFormSaved() {
   position: relative;
   height: 100%;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .calendar-view.no-scroll {
   overflow: hidden;
+}
+
+.calendar-view::-webkit-scrollbar {
+  display: none;
 }
 
 .header-actions {
