@@ -1,11 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import {
-  createMember,
-  deleteMember,
-  fetchMembers,
-  renameMember,
-} from '../api/client'
+import { createMember, deleteMember, fetchMembers, renameMember } from '../api/client'
 import type { MemberDto } from '../types/api'
 
 export const useMemberStore = defineStore('member', () => {
@@ -46,7 +41,7 @@ export const useMemberStore = defineStore('member', () => {
     error.value = null
     try {
       const updated = await renameMember(id, name)
-      const idx = members.value.findIndex((m) => m.id === id)
+      const idx = members.value.findIndex(m => m.id === id)
       if (idx !== -1) {
         members.value[idx] = updated
       }
@@ -60,7 +55,7 @@ export const useMemberStore = defineStore('member', () => {
     error.value = null
     try {
       await deleteMember(id)
-      members.value = members.value.filter((m) => m.id !== id)
+      members.value = members.value.filter(m => m.id !== id)
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     }

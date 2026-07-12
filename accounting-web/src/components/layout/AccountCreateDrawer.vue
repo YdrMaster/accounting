@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { createAccount, fetchAccounts } from '../../api/client'
 import type { AccountDto } from '../../types/api'
 
@@ -31,7 +31,7 @@ onMounted(async () => {
 })
 
 const parentCandidates = computed(() => {
-  return accounts.value.filter((a) => {
+  return accounts.value.filter(a => {
     const rootType = findRootType(a)
     return rootType === accountType.value || a.parent_id === null
   })
@@ -39,7 +39,7 @@ const parentCandidates = computed(() => {
 
 function findRootType(account: AccountDto): string | null {
   if (account.parent_id === null) return account.account_type
-  const parent = accounts.value.find((a) => a.id === account.parent_id)
+  const parent = accounts.value.find(a => a.id === account.parent_id)
   if (!parent) return null
   return findRootType(parent)
 }
@@ -97,21 +97,13 @@ async function handleSubmit() {
           <label>父账户（可选）</label>
           <select v-model="parentId">
             <option :value="null">无（创建为根账户）</option>
-            <option
-              v-for="a in parentCandidates"
-              :key="a.id"
-              :value="a.id"
-            >
+            <option v-for="a in parentCandidates" :key="a.id" :value="a.id">
               {{ a.name }}
             </option>
           </select>
         </div>
 
-        <button
-          class="submit-btn"
-          :disabled="submitting || !name.trim()"
-          @click="handleSubmit"
-        >
+        <button class="submit-btn" :disabled="submitting || !name.trim()" @click="handleSubmit">
           {{ submitting ? '创建中...' : '确认创建' }}
         </button>
       </div>
@@ -149,8 +141,12 @@ async function handleSubmit() {
 }
 
 @keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 .drawer-header {

@@ -66,7 +66,9 @@ function addChannelToLevel(position: number, channelId: number) {
 }
 
 function removeChannelFromLevel(position: number, channelId: number) {
-  const filtered = props.modelValue.filter(n => !(n.position === position && n.channel_id === channelId))
+  const filtered = props.modelValue.filter(
+    n => !(n.position === position && n.channel_id === channelId)
+  )
   emit('update:modelValue', filtered)
 }
 
@@ -88,27 +90,30 @@ function channelName(id: number): string {
     <div v-for="pos in maxPosition + 1" :key="pos - 1" class="level-row">
       <div class="level-label">第 {{ pos }} 级</div>
       <div class="level-channels">
-        <span
-          v-for="chId in getChannelsForLevel(pos - 1)"
-          :key="chId"
-          class="channel-chip"
-        >
+        <span v-for="chId in getChannelsForLevel(pos - 1)" :key="chId" class="channel-chip">
           {{ channelName(chId) }}
-          <button v-if="isLastLevel(pos - 1) && getChannelsForLevel(pos - 1).length > 1" @click="removeChannelFromLevel(pos - 1, chId)">×</button>
+          <button
+            v-if="isLastLevel(pos - 1) && getChannelsForLevel(pos - 1).length > 1"
+            @click="removeChannelFromLevel(pos - 1, chId)"
+          >
+            ×
+          </button>
         </span>
         <select
           v-if="isLastLevel(pos - 1) || getChannelsForLevel(pos - 1).length === 0"
-          @change="e => {
-            const val = Number((e.target as HTMLSelectElement).value)
-            if (val) {
-              if (isLastLevel(pos - 1)) {
-                addChannelToLevel(pos - 1, val)
-              } else {
-                setChannel(pos - 1, val)
+          @change="
+            e => {
+              const val = Number((e.target as HTMLSelectElement).value)
+              if (val) {
+                if (isLastLevel(pos - 1)) {
+                  addChannelToLevel(pos - 1, val)
+                } else {
+                  setChannel(pos - 1, val)
+                }
+                ;(e.target as HTMLSelectElement).value = ''
               }
-              ;(e.target as HTMLSelectElement).value = ''
             }
-          }"
+          "
         >
           <option value="">+ 添加渠道</option>
           <option

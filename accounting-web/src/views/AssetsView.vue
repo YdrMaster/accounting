@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import Decimal from 'decimal.js'
 import { computed, onMounted } from 'vue'
-import { useReportStore } from '../stores/report'
 import { useCommodityStore } from '../stores/commodity'
+import { useReportStore } from '../stores/report'
 
 const reportStore = useReportStore()
 const commodityStore = useCommodityStore()
@@ -40,20 +40,20 @@ const netWorth = computed(() => totalAssets.value.minus(totalLiabilities.value))
 
 const positiveAccounts = computed(() => {
   if (!reportStore.balanceSheet) return []
-  return reportStore.balanceSheet.assets.filter((item) =>
-    item.balances.some((b) => new Decimal(b.amount).gt(0)),
+  return reportStore.balanceSheet.assets.filter(item =>
+    item.balances.some(b => new Decimal(b.amount).gt(0))
   )
 })
 
 const negativeAccounts = computed(() => {
   if (!reportStore.balanceSheet) return []
-  return reportStore.balanceSheet.assets.filter((item) =>
-    item.balances.some((b) => new Decimal(b.amount).lt(0)),
+  return reportStore.balanceSheet.assets.filter(item =>
+    item.balances.some(b => new Decimal(b.amount).lt(0))
   )
 })
 
 function commoditySymbol(id: number): string {
-  return commodityStore.commodities.find((c) => c.id === id)?.symbol ?? `#${id}`
+  return commodityStore.commodities.find(c => c.id === id)?.symbol ?? `#${id}`
 }
 
 function formatAmount(amt: Decimal): string {
@@ -82,15 +82,11 @@ function formatAmount(amt: Decimal): string {
 
       <div v-if="positiveAccounts.length" class="card">
         <h3>资产</h3>
-        <div
-          v-for="item in positiveAccounts"
-          :key="item.account"
-          class="account-item"
-        >
+        <div v-for="item in positiveAccounts" :key="item.account" class="account-item">
           <span class="account-name">{{ item.account }}</span>
           <div class="balances">
             <span
-              v-for="b in item.balances.filter((b) => new Decimal(b.amount).gt(0))"
+              v-for="b in item.balances.filter(b => new Decimal(b.amount).gt(0))"
               :key="b.commodity_id"
               class="balance positive"
             >
@@ -102,15 +98,11 @@ function formatAmount(amt: Decimal): string {
 
       <div v-if="negativeAccounts.length" class="card">
         <h3>负债</h3>
-        <div
-          v-for="item in negativeAccounts"
-          :key="item.account"
-          class="account-item"
-        >
+        <div v-for="item in negativeAccounts" :key="item.account" class="account-item">
           <span class="account-name">{{ item.account }}</span>
           <div class="balances">
             <span
-              v-for="b in item.balances.filter((b) => new Decimal(b.amount).lt(0))"
+              v-for="b in item.balances.filter(b => new Decimal(b.amount).lt(0))"
               :key="b.commodity_id"
               class="balance negative"
             >
@@ -120,10 +112,7 @@ function formatAmount(amt: Decimal): string {
         </div>
       </div>
 
-      <div
-        v-if="!positiveAccounts.length && !negativeAccounts.length"
-        class="empty"
-      >
+      <div v-if="!positiveAccounts.length && !negativeAccounts.length" class="empty">
         暂无资产数据
       </div>
     </template>

@@ -4,8 +4,8 @@ import {
   closeAccount,
   deleteAccount,
   fetchMembers,
-  reopenAccount,
   renameAccount,
+  reopenAccount,
   setAccountOwners,
   updateAccountFields,
 } from '../../api/client'
@@ -34,9 +34,11 @@ const ownerDropdownOpen = ref(false)
 const ownerDropdownRef = ref<HTMLElement | null>(null)
 
 onMounted(() => {
-  fetchMembers().then(m => {
-    members.value = m
-  }).catch(() => {})
+  fetchMembers()
+    .then(m => {
+      members.value = m
+    })
+    .catch(() => {})
   resetDrafts()
   document.addEventListener('mousedown', onDocClick)
 })
@@ -51,11 +53,14 @@ function onDocClick(e: MouseEvent) {
   }
 }
 
-watch(() => props.account.id, () => {
-  resetDrafts()
-  error.value = null
-  success.value = null
-})
+watch(
+  () => props.account.id,
+  () => {
+    resetDrafts()
+    error.value = null
+    success.value = null
+  }
+)
 
 function resetDrafts() {
   draftName.value = props.account.name
@@ -70,11 +75,11 @@ const isSystem = props.account.is_system
 const isClosed = computed(() => props.account.closed_at !== null)
 
 const currentOwners = computed(() =>
-  members.value.filter(m => selectedOwnerIds.value.includes(m.id)),
+  members.value.filter(m => selectedOwnerIds.value.includes(m.id))
 )
 
 const availableMembers = computed(() =>
-  members.value.filter(m => !selectedOwnerIds.value.includes(m.id)),
+  members.value.filter(m => !selectedOwnerIds.value.includes(m.id))
 )
 
 function clampDay(val: number | null): number | null {
@@ -208,119 +213,112 @@ async function doDelete() {
 <template>
   <div class="drawer-container">
     <div class="drawer">
-        <div class="drawer-handle" />
+      <div class="drawer-handle" />
 
-        <div class="drawer-header">
-          <input
-            v-show="editingTitle"
-            ref="titleInputRef"
-            v-model="draftName"
-            class="title-input"
-            @keyup.enter="doRename"
-            @blur="doRename"
-            @keydown.escape="editingTitle = false"
-          />
-          <h2 v-show="!editingTitle" class="drawer-title" :class="{ clickable: !isRoot }" @click="startEditTitle">
-            {{ account.name }}
-          </h2>
-          <button type="button" class="close-btn" @click="emit('close')">&times;</button>
-        </div>
+      <div class="drawer-header">
+        <input
+          v-show="editingTitle"
+          ref="titleInputRef"
+          v-model="draftName"
+          class="title-input"
+          @keyup.enter="doRename"
+          @blur="doRename"
+          @keydown.escape="editingTitle = false"
+        />
+        <h2
+          v-show="!editingTitle"
+          class="drawer-title"
+          :class="{ clickable: !isRoot }"
+          @click="startEditTitle"
+        >
+          {{ account.name }}
+        </h2>
+        <button type="button" class="close-btn" @click="emit('close')">&times;</button>
+      </div>
 
-        <div v-if="error" class="message error-msg">{{ error }}</div>
-        <div v-if="success" class="message success-msg">{{ success }}</div>
+      <div v-if="error" class="message error-msg">{{ error }}</div>
+      <div v-if="success" class="message success-msg">{{ success }}</div>
 
-        <div class="drawer-body">
-          <div v-if="isRoot" class="info-note">根账户，不可编辑</div>
+      <div class="drawer-body">
+        <div v-if="isRoot" class="info-note">根账户，不可编辑</div>
 
-          <template v-else>
-            <div class="field">
-              <label class="field-label">账单日（每月第 N 日）</label>
-              <input
-                v-model.number="draftBillingDay"
-                type="number"
-                min="1"
-                max="31"
-                class="input small"
-                @change="doBillingDay"
-              />
-            </div>
+        <template v-else>
+          <div class="field">
+            <label class="field-label">账单日（每月第 N 日）</label>
+            <input
+              v-model.number="draftBillingDay"
+              type="number"
+              min="1"
+              max="31"
+              class="input small"
+              @change="doBillingDay"
+            />
+          </div>
 
-            <div class="field">
-              <label class="field-label">还款日（每月第 N 日）</label>
-              <input
-                v-model.number="draftRepaymentDay"
-                type="number"
-                min="1"
-                max="31"
-                class="input small"
-                @change="doRepaymentDay"
-              />
-            </div>
+          <div class="field">
+            <label class="field-label">还款日（每月第 N 日）</label>
+            <input
+              v-model.number="draftRepaymentDay"
+              type="number"
+              min="1"
+              max="31"
+              class="input small"
+              @change="doRepaymentDay"
+            />
+          </div>
 
-            <div class="field">
-              <label class="field-label">所有者</label>
-              <div ref="ownerDropdownRef" class="owner-input-tag">
-                <div class="owner-tag-list">
-                  <button
-                    v-for="owner in currentOwners"
-                    :key="owner.id"
-                    type="button"
-                    class="owner-tag"
-                    @click="removeOwner(owner.id)"
-                  >
-                    {{ owner.name }} <span class="tag-remove">&times;</span>
-                  </button>
-                  <button
-                    v-if="availableMembers.length > 0"
-                    type="button"
-                    class="owner-tag add-tag"
-                    @click="ownerDropdownOpen = !ownerDropdownOpen"
-                  >
-                    +
-                  </button>
-                </div>
-                <div v-if="ownerDropdownOpen && availableMembers.length > 0" class="owner-dropdown">
-                  <button
-                    v-for="member in availableMembers"
-                    :key="member.id"
-                    type="button"
-                    class="dropdown-item"
-                    @click="addOwner(member.id); ownerDropdownOpen = false"
-                  >
-                    {{ member.name }}
-                  </button>
-                </div>
+          <div class="field">
+            <label class="field-label">所有者</label>
+            <div ref="ownerDropdownRef" class="owner-input-tag">
+              <div class="owner-tag-list">
+                <button
+                  v-for="owner in currentOwners"
+                  :key="owner.id"
+                  type="button"
+                  class="owner-tag"
+                  @click="removeOwner(owner.id)"
+                >
+                  {{ owner.name }} <span class="tag-remove">&times;</span>
+                </button>
+                <button
+                  v-if="availableMembers.length > 0"
+                  type="button"
+                  class="owner-tag add-tag"
+                  @click="ownerDropdownOpen = !ownerDropdownOpen"
+                >
+                  +
+                </button>
+              </div>
+              <div v-if="ownerDropdownOpen && availableMembers.length > 0" class="owner-dropdown">
+                <button
+                  v-for="member in availableMembers"
+                  :key="member.id"
+                  type="button"
+                  class="dropdown-item"
+                  @click="addOwner(member.id); ownerDropdownOpen = false"
+                >
+                  {{ member.name }}
+                </button>
               </div>
             </div>
+          </div>
 
-            <div class="actions">
-              <button
-                v-if="!isClosed"
-                type="button"
-                class="action-btn warn"
-                @click="doClose"
-              >
-                关闭账户
-              </button>
-              <button
-                v-else
-                type="button"
-                class="action-btn"
-                @click="doReopen"
-              >
-                重开账户
-              </button>
-              <button
-                v-if="!isRoot && !isSystem"
-                type="button"
-                class="action-btn danger"
-                @click="doDelete"
-              >
-                删除账户
-              </button>
-            </div>
-          </template>
-        </div>
+          <div class="actions">
+            <button v-if="!isClosed" type="button" class="action-btn warn" @click="doClose">
+              关闭账户
+            </button>
+            <button v-else type="button" class="action-btn" @click="doReopen">重开账户</button>
+            <button
+              v-if="!isRoot && !isSystem"
+              type="button"
+              class="action-btn danger"
+              @click="doDelete"
+            >
+              删除账户
+            </button>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 </template>
@@ -353,8 +351,12 @@ async function doDelete() {
 }
 
 @keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 .drawer-handle {

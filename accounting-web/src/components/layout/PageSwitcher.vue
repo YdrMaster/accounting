@@ -79,11 +79,12 @@ function updatePosition() {
   const count = Math.min(props.visibleCount, props.labels.length)
   const beforeCount = Math.floor((props.labels.length - count) / 2)
 
-  const visibleWidth = widths.slice(beforeCount, beforeCount + count).reduce((a, b) => a + b, 0)
-    + Math.max(0, count - 1) * gap
+  const visibleWidth =
+    widths.slice(beforeCount, beforeCount + count).reduce((a, b) => a + b, 0) +
+    Math.max(0, count - 1) * gap
 
-  const visibleStartOffset = widths.slice(0, beforeCount).reduce((a, b) => a + b, 0)
-    + Math.max(0, beforeCount) * gap
+  const visibleStartOffset =
+    widths.slice(0, beforeCount).reduce((a, b) => a + b, 0) + Math.max(0, beforeCount) * gap
 
   const rowTranslate = (trackWidth - visibleWidth) / 2 - visibleStartOffset
   rowOffset.value = rowTranslate
@@ -109,25 +110,41 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateRowPosition)
 })
 
-watch(() => props.activeIndex, () => {
-  isTransitioning.value = true
-  updateRowPosition()
-  setTimeout(() => { isTransitioning.value = false }, 300)
-})
+watch(
+  () => props.activeIndex,
+  () => {
+    isTransitioning.value = true
+    updateRowPosition()
+    setTimeout(() => {
+      isTransitioning.value = false
+    }, 300)
+  }
+)
 
-watch(() => props.startIndex, () => {
-  isTransitioning.value = true
-  updateRowPosition()
-  setTimeout(() => { isTransitioning.value = false }, 300)
-})
+watch(
+  () => props.startIndex,
+  () => {
+    isTransitioning.value = true
+    updateRowPosition()
+    setTimeout(() => {
+      isTransitioning.value = false
+    }, 300)
+  }
+)
 
-watch(() => props.labels.length, () => {
-  updateRowPosition()
-})
+watch(
+  () => props.labels.length,
+  () => {
+    updateRowPosition()
+  }
+)
 
-watch(() => props.visibleCount, () => {
-  updateRowPosition()
-})
+watch(
+  () => props.visibleCount,
+  () => {
+    updateRowPosition()
+  }
+)
 
 function onTrackMouseDown(event: MouseEvent) {
   if (props.isMobile) return
@@ -172,14 +189,7 @@ function onLabelClick(originalIndex: number) {
 
 <template>
   <header class="page-switcher">
-    <button
-      v-if="!isMobile"
-      type="button"
-      class="arrow-btn"
-      @click="emit('left')"
-    >
-      ‹
-    </button>
+    <button v-if="!isMobile" type="button" class="arrow-btn" @click="emit('left')">‹</button>
 
     <div
       ref="trackRef"
@@ -199,7 +209,11 @@ function onLabelClick(originalIndex: number) {
         :style="{
           left: highlightStyle.left,
           width: highlightStyle.width,
-          transition: isTransitioning ? 'left 0.3s ease, width 0.3s ease' : (isDragging ? 'none' : 'left 0.3s ease, width 0.3s ease'),
+          transition: isTransitioning
+            ? 'left 0.3s ease, width 0.3s ease'
+            : isDragging
+              ? 'none'
+              : 'left 0.3s ease, width 0.3s ease',
         }"
       />
       <div
@@ -207,7 +221,11 @@ function onLabelClick(originalIndex: number) {
         class="labels-row"
         :style="{
           transform: `translateX(${rowOffset + dragOffset}px)`,
-          transition: isTransitioning ? 'transform 0.3s ease' : (isDragging ? 'none' : 'transform 0.3s ease'),
+          transition: isTransitioning
+            ? 'transform 0.3s ease'
+            : isDragging
+              ? 'none'
+              : 'transform 0.3s ease',
         }"
       >
         <button
@@ -223,22 +241,9 @@ function onLabelClick(originalIndex: number) {
       </div>
     </div>
 
-    <button
-      v-if="!isMobile"
-      type="button"
-      class="arrow-btn"
-      @click="emit('right')"
-    >
-      ›
-    </button>
+    <button v-if="!isMobile" type="button" class="arrow-btn" @click="emit('right')">›</button>
 
-    <button
-      type="button"
-      class="config-btn"
-      @click="emit('openConfig')"
-    >
-      ⚙
-    </button>
+    <button type="button" class="config-btn" @click="emit('openConfig')">⚙</button>
   </header>
 </template>
 

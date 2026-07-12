@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import AccountGrid from './AccountGrid.vue'
 import { useAccountStore } from '../../stores/account'
 import type { AccountDto } from '../../types/api'
 import { compileRows, type GridRow } from '../../utils/accountGrid'
+import AccountGrid from './AccountGrid.vue'
 
 const emit = defineEmits<{
   close: []
@@ -76,12 +76,12 @@ function onColumnsChange(type: string, columns: number) {
 function rowsForType(type: string): GridRow[] {
   const roots = getChildrenOfType(type)
   const columns = columnsByType.value[type] ?? 2
-  return compileRows(roots, expandedPath.value, columns, (id) => store.getChildren(id))
+  return compileRows(roots, expandedPath.value, columns, id => store.getChildren(id))
 }
 
 const selectedAccount = computed(() => {
   if (selectedAccountId.value === null) return null
-  return store.accounts.find((a) => a.id === selectedAccountId.value) ?? null
+  return store.accounts.find(a => a.id === selectedAccountId.value) ?? null
 })
 
 function onConfirm() {
@@ -107,18 +107,12 @@ function onConfirm() {
         :rows="rowsForType(type)"
         :selected-account-id="selectedAccountId"
         @click="handleAccountClick"
-        @columns-change="(columns) => onColumnsChange(type, columns)"
+        @columns-change="columns => onColumnsChange(type, columns)"
       />
     </div>
 
     <div class="picker-footer">
-      <button
-        class="confirm-btn"
-        :disabled="!selectedAccount"
-        @click="onConfirm"
-      >
-        确认选择
-      </button>
+      <button class="confirm-btn" :disabled="!selectedAccount" @click="onConfirm">确认选择</button>
     </div>
   </div>
 </template>

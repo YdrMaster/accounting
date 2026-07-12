@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
-import AccountPicker from './AccountPicker.vue'
-import { useMemberStore } from '../../stores/member'
 import { useChannelStore } from '../../stores/channel'
+import { useMemberStore } from '../../stores/member'
 import { useTagStore } from '../../stores/tag'
 import type { ChannelDto, MemberDto, TagDto } from '../../types/api'
+import AccountPicker from './AccountPicker.vue'
 
 const emit = defineEmits<{
   close: []
@@ -18,11 +18,7 @@ type Tab = 'member' | 'channel' | 'tag'
 const activeTab = ref<Tab>('member')
 
 onMounted(async () => {
-  await Promise.all([
-    memberStore.load(),
-    channelStore.load(),
-    tagStore.load(),
-  ])
+  await Promise.all([memberStore.load(), channelStore.load(), tagStore.load()])
 })
 
 // ─── 成员 ───
@@ -97,12 +93,14 @@ async function removeTag(id: number) {
 const newChannelName = ref('')
 const expandedChannelId = ref<number | null>(null)
 
-watch(() => channelStore.channels, (channels) => {
-  if (expandedChannelId.value !== null
-    && !channels.some(c => c.id === expandedChannelId.value)) {
-    expandedChannelId.value = null
+watch(
+  () => channelStore.channels,
+  channels => {
+    if (expandedChannelId.value !== null && !channels.some(c => c.id === expandedChannelId.value)) {
+      expandedChannelId.value = null
+    }
   }
-})
+)
 
 function toggleChannel(id: number) {
   expandedChannelId.value = expandedChannelId.value === id ? null : id
@@ -179,11 +177,7 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
         <!-- 成员 tab -->
         <div v-if="activeTab === 'member'" class="list-section">
           <div v-if="memberStore.error" class="store-error">{{ memberStore.error }}</div>
-          <div
-            v-for="member in memberStore.members"
-            :key="member.id"
-            class="list-item"
-          >
+          <div v-for="member in memberStore.members" :key="member.id" class="list-item">
             <input
               v-if="renamingMemberId === member.id"
               ref="memberInputRef"
@@ -193,18 +187,10 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
               @blur="commitRenameMember"
               @keydown.escape="renamingMemberId = null"
             />
-            <span
-              v-else
-              class="item-name clickable"
-              @click="startRenameMember(member)"
-            >
+            <span v-else class="item-name clickable" @click="startRenameMember(member)">
               {{ member.name }}
             </span>
-            <button
-              type="button"
-              class="delete-btn"
-              @click="removeMember(member.id)"
-            >
+            <button type="button" class="delete-btn" @click="removeMember(member.id)">
               &times;
             </button>
           </div>
@@ -222,24 +208,13 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
         <!-- 渠道 tab -->
         <div v-if="activeTab === 'channel'" class="list-section">
           <div v-if="channelStore.error" class="store-error">{{ channelStore.error }}</div>
-          <div
-            v-for="channel in channelStore.channels"
-            :key="channel.id"
-            class="channel-card"
-          >
-            <div
-              class="channel-header"
-              @click="toggleChannel(channel.id)"
-            >
+          <div v-for="channel in channelStore.channels" :key="channel.id" class="channel-card">
+            <div class="channel-header" @click="toggleChannel(channel.id)">
               <span class="expand-icon">
                 {{ expandedChannelId === channel.id ? '▾' : '▸' }}
               </span>
               <span class="item-name">{{ channel.name }}</span>
-              <button
-                type="button"
-                class="delete-btn"
-                @click.stop="removeChannel(channel.id)"
-              >
+              <button type="button" class="delete-btn" @click.stop="removeChannel(channel.id)">
                 &times;
               </button>
             </div>
@@ -249,7 +224,7 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
                 <input
                   :value="channel.name"
                   class="field-input"
-                  @change="(e) => onChannelNameChange(channel, (e.target as HTMLInputElement).value)"
+                  @change="e => onChannelNameChange(channel, (e.target as HTMLInputElement).value)"
                 />
               </div>
               <div class="field">
@@ -258,7 +233,7 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
                   :value="channel.description || ''"
                   class="field-input"
                   placeholder="输入描述..."
-                  @change="(e) => onChannelDescChange(channel, (e.target as HTMLInputElement).value)"
+                  @change="e => onChannelDescChange(channel, (e.target as HTMLInputElement).value)"
                 />
               </div>
               <div class="field">
@@ -266,7 +241,7 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
                 <AccountPicker
                   :model-value="channel.account_id"
                   placeholder="未关联"
-                  @update:model-value="(id) => onChannelAccountChange(channel, id)"
+                  @update:model-value="id => onChannelAccountChange(channel, id)"
                 />
               </div>
             </div>
@@ -286,11 +261,7 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
         <!-- 标签 tab -->
         <div v-if="activeTab === 'tag'" class="list-section">
           <div v-if="tagStore.error" class="store-error">{{ tagStore.error }}</div>
-          <div
-            v-for="tag in tagStore.tags"
-            :key="tag.id"
-            class="list-item"
-          >
+          <div v-for="tag in tagStore.tags" :key="tag.id" class="list-item">
             <div class="item-content">
               <input
                 v-if="renamingTagId === tag.id"
@@ -363,8 +334,12 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
 }
 
 @keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 .drawer-handle {
@@ -413,7 +388,9 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
   font-size: 0.875rem;
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .tab-btn.active {

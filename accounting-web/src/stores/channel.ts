@@ -1,11 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import {
-  createChannel,
-  deleteChannel,
-  fetchChannels,
-  updateChannel,
-} from '../api/client'
+import { createChannel, deleteChannel, fetchChannels, updateChannel } from '../api/client'
 import type { ChannelDto } from '../types/api'
 
 export const useChannelStore = defineStore('channel', () => {
@@ -27,11 +22,7 @@ export const useChannelStore = defineStore('channel', () => {
     }
   }
 
-  async function create(data: {
-    name: string
-    description?: string
-    account_id?: number
-  }) {
+  async function create(data: { name: string; description?: string; account_id?: number }) {
     error.value = null
     try {
       const id = await createChannel(data)
@@ -44,12 +35,12 @@ export const useChannelStore = defineStore('channel', () => {
 
   async function update(
     id: number,
-    data: { name?: string; description?: string; account_id?: number },
+    data: { name?: string; description?: string; account_id?: number }
   ) {
     error.value = null
     try {
       await updateChannel(id, data)
-      const idx = channels.value.findIndex((c) => c.id === id)
+      const idx = channels.value.findIndex(c => c.id === id)
       if (idx !== -1) {
         const current = channels.value[idx]
         channels.value[idx] = {
@@ -68,7 +59,7 @@ export const useChannelStore = defineStore('channel', () => {
     error.value = null
     try {
       await deleteChannel(id)
-      channels.value = channels.value.filter((c) => c.id !== id)
+      channels.value = channels.value.filter(c => c.id !== id)
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     }

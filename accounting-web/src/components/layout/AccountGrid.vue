@@ -83,7 +83,9 @@ watch(
   background: var(--paper-bg);
   border-radius: 0.75rem;
   z-index: -1;
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.25), 0 -1px 0 rgba(255, 255, 255, 0.04) inset;
+  box-shadow:
+    0 -2px 8px rgba(0, 0, 0, 0.25),
+    0 -1px 0 rgba(255, 255, 255, 0.04) inset;
 }
 
 .account-grid {

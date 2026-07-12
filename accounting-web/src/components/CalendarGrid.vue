@@ -133,9 +133,9 @@ function onDayClick(day: CalendarDay) {
         class="day-cell"
         :class="{
           'other-month': !day.isCurrentMonth,
-          'today': day.isToday,
+          today: day.isToday,
           'has-transaction': day.hasTransaction,
-          'selected': day.isSelected,
+          selected: day.isSelected,
         }"
         @click="onDayClick(day)"
       >

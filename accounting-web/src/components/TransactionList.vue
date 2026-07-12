@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import Decimal from 'decimal.js'
 import { computed } from 'vue'
-import TransactionCard from './TransactionCard.vue'
 import type { TransactionDto } from '../types/api'
+import TransactionCard from './TransactionCard.vue'
 
 const props = defineProps<{
   transactions: TransactionDto[]
@@ -55,19 +55,13 @@ const dayGroups = computed<DayGroup[]>(() => {
 })
 
 function computeAmount(tx: TransactionDto): Decimal {
-  const assetPostings = tx.postings.filter((p) => p.account_type === 'asset')
-  const sum = assetPostings.reduce(
-    (acc, p) => acc.plus(new Decimal(p.amount)),
-    new Decimal(0),
-  )
+  const assetPostings = tx.postings.filter(p => p.account_type === 'asset')
+  const sum = assetPostings.reduce((acc, p) => acc.plus(new Decimal(p.amount)), new Decimal(0))
   if (!sum.isZero()) return sum
-  return assetPostings.reduce(
-    (acc, p) => {
-      const a = new Decimal(p.amount)
-      return a.gt(0) ? acc.plus(a) : acc
-    },
-    new Decimal(0),
-  )
+  return assetPostings.reduce((acc, p) => {
+    const a = new Decimal(p.amount)
+    return a.gt(0) ? acc.plus(a) : acc
+  }, new Decimal(0))
 }
 </script>
 

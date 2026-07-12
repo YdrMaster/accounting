@@ -84,7 +84,7 @@ export async function deleteAccount(id: number): Promise<void> {
 export async function updateAccountFields(
   id: number,
   billingDay: number | null,
-  repaymentDay: number | null,
+  repaymentDay: number | null
 ): Promise<void> {
   const res = await fetch(`${BASE_URL}/accounts/${id}/fields`, {
     method: 'PUT',
@@ -113,7 +113,7 @@ export async function createAccount(data: CreateAccountRequest): Promise<number>
 // ─── 交易 CRUD ───
 
 export async function fetchTransactions(
-  params?: Record<string, string>,
+  params?: Record<string, string>
 ): Promise<TransactionDto[]> {
   const qs = params ? '?' + new URLSearchParams(params).toString() : ''
   return apiFetch<TransactionDto[]>(`/transactions${qs}`)
@@ -136,10 +136,7 @@ export async function createTransaction(data: CreateTransactionData): Promise<nu
   return res.json() as Promise<number>
 }
 
-export async function updateTransaction(
-  id: number,
-  data: CreateTransactionData,
-): Promise<void> {
+export async function updateTransaction(id: number, data: CreateTransactionData): Promise<void> {
   const res = await fetch(`${BASE_URL}/transactions/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -175,10 +172,7 @@ export async function fetchBudgetDetail(id: number): Promise<BudgetDetailDto> {
   return apiFetch<BudgetDetailDto>(`/budgets/${id}`)
 }
 
-export async function fetchBudgetStatus(
-  id: number,
-  date?: string,
-): Promise<BudgetStatusDto> {
+export async function fetchBudgetStatus(id: number, date?: string): Promise<BudgetStatusDto> {
   const qs = date ? `?date=${date}` : ''
   return apiFetch<BudgetStatusDto>(`/budgets/${id}/status${qs}`)
 }
@@ -196,10 +190,7 @@ export async function createBudget(data: CreateBudgetRequest): Promise<BudgetDto
   return res.json() as Promise<BudgetDto>
 }
 
-export async function updateBudget(
-  id: number,
-  data: CreateBudgetRequest,
-): Promise<void> {
+export async function updateBudget(id: number, data: CreateBudgetRequest): Promise<void> {
   const res = await fetch(`${BASE_URL}/budgets/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -248,7 +239,7 @@ export async function createChannel(data: {
 
 export async function updateChannel(
   id: number,
-  data: { name?: string; description?: string; account_id?: number },
+  data: { name?: string; description?: string; account_id?: number }
 ): Promise<void> {
   const res = await fetch(`${BASE_URL}/channels/${id}`, {
     method: 'PUT',
@@ -273,10 +264,7 @@ export async function fetchTags(): Promise<TagDto[]> {
   return apiFetch<TagDto[]>('/tags')
 }
 
-export async function createTag(data: {
-  name: string
-  description?: string
-}): Promise<TagDto> {
+export async function createTag(data: { name: string; description?: string }): Promise<TagDto> {
   const res = await fetch(`${BASE_URL}/tags`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -291,7 +279,7 @@ export async function createTag(data: {
 
 export async function updateTag(
   id: number,
-  data: { name?: string; description?: string },
+  data: { name?: string; description?: string }
 ): Promise<TagDto> {
   const res = await fetch(`${BASE_URL}/tags/${id}`, {
     method: 'PUT',
@@ -326,10 +314,7 @@ export async function createMember(name: string): Promise<MemberDto> {
   return res.json() as Promise<MemberDto>
 }
 
-export async function renameMember(
-  id: number,
-  name: string,
-): Promise<MemberDto> {
+export async function renameMember(id: number, name: string): Promise<MemberDto> {
   const res = await fetch(`${BASE_URL}/members/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

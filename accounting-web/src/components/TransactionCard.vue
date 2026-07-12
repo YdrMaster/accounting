@@ -19,46 +19,37 @@ function toggleExpand() {
 }
 
 function computeAmount(): Decimal {
-  const assetPostings = props.tx.postings.filter((p) => p.account_type === 'asset')
-  const sum = assetPostings.reduce(
-    (acc, p) => acc.plus(new Decimal(p.amount)),
-    new Decimal(0),
-  )
+  const assetPostings = props.tx.postings.filter(p => p.account_type === 'asset')
+  const sum = assetPostings.reduce((acc, p) => acc.plus(new Decimal(p.amount)), new Decimal(0))
   if (!sum.isZero()) return sum
-  return assetPostings.reduce(
-    (acc, p) => {
-      const a = new Decimal(p.amount)
-      return a.gt(0) ? acc.plus(a) : acc
-    },
-    new Decimal(0),
-  )
+  return assetPostings.reduce((acc, p) => {
+    const a = new Decimal(p.amount)
+    return a.gt(0) ? acc.plus(a) : acc
+  }, new Decimal(0))
 }
 
 const amount = computed(() => computeAmount())
 
 function isTransfer(): boolean {
-  return !props.tx.postings.some(
-    (p) => p.account_type === 'income' || p.account_type === 'expense',
-  )
+  return !props.tx.postings.some(p => p.account_type === 'income' || p.account_type === 'expense')
 }
 
 function isPureImport(): boolean {
   return (
-    props.tx.postings.length > 0 &&
-    props.tx.postings.every((p) => p.account.includes(':Import:'))
+    props.tx.postings.length > 0 && props.tx.postings.every(p => p.account.includes(':Import:'))
   )
 }
 
 function getIncomeExpenseAccounts(): string[] {
   return props.tx.postings
-    .filter((p) => p.account_type === 'income' || p.account_type === 'expense')
-    .map((p) => shortAccountName(p.account))
+    .filter(p => p.account_type === 'income' || p.account_type === 'expense')
+    .map(p => shortAccountName(p.account))
 }
 
 function getAssetAccounts(): string[] {
   return props.tx.postings
-    .filter((p) => p.account_type === 'asset')
-    .map((p) => shortAccountName(p.account))
+    .filter(p => p.account_type === 'asset')
+    .map(p => shortAccountName(p.account))
 }
 
 function shortAccountName(path: string): string {
@@ -152,9 +143,8 @@ function onDblClick() {
               negative: new Decimal(posting.amount).lt(0),
             }"
           >
-            <span v-if="new Decimal(posting.amount).gt(0)">+</span>{{
-              formatAmount(new Decimal(posting.amount))
-            }}
+            <span v-if="new Decimal(posting.amount).gt(0)">+</span
+            >{{ formatAmount(new Decimal(posting.amount)) }}
           </span>
         </div>
       </div>

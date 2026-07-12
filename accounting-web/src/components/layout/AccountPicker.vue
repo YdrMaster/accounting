@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import AccountPickerOverlay from './AccountPickerOverlay.vue'
 import type { AccountDto } from '../../types/api'
+import AccountPickerOverlay from './AccountPickerOverlay.vue'
 
 defineProps<{
   modelValue: number | null
@@ -36,11 +36,7 @@ function onSelect(account: AccountDto) {
     </button>
 
     <Teleport to=".picker-portal">
-      <AccountPickerOverlay
-        v-if="showOverlay"
-        @close="onClose"
-        @select="onSelect"
-      />
+      <AccountPickerOverlay v-if="showOverlay" @close="onClose" @select="onSelect" />
     </Teleport>
   </div>
 </template>

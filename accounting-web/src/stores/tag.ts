@@ -33,14 +33,11 @@ export const useTagStore = defineStore('tag', () => {
     }
   }
 
-  async function update(
-    id: number,
-    data: { name?: string; description?: string },
-  ) {
+  async function update(id: number, data: { name?: string; description?: string }) {
     error.value = null
     try {
       const updated = await updateTag(id, data)
-      const idx = tags.value.findIndex((t) => t.id === id)
+      const idx = tags.value.findIndex(t => t.id === id)
       if (idx !== -1) {
         tags.value[idx] = updated
       }
@@ -54,7 +51,7 @@ export const useTagStore = defineStore('tag', () => {
     error.value = null
     try {
       await deleteTag(id)
-      tags.value = tags.value.filter((t) => t.id !== id)
+      tags.value = tags.value.filter(t => t.id !== id)
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     }

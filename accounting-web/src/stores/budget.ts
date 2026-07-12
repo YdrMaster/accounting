@@ -1,19 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import {
-  fetchBudgets,
-  fetchBudgetDetail,
-  fetchBudgetStatus,
   createBudget,
-  updateBudget,
   deleteBudget,
+  fetchBudgetDetail,
+  fetchBudgets,
+  fetchBudgetStatus,
+  updateBudget,
 } from '../api/client'
-import type {
-  BudgetDto,
-  BudgetDetailDto,
-  BudgetStatusDto,
-  CreateBudgetRequest,
-} from '../types/api'
+import type { BudgetDetailDto, BudgetDto, BudgetStatusDto, CreateBudgetRequest } from '../types/api'
 
 export const useBudgetStore = defineStore('budget', () => {
   const budgets = ref<BudgetDto[]>([])
@@ -71,7 +66,7 @@ export const useBudgetStore = defineStore('budget', () => {
 
   async function remove(id: number): Promise<void> {
     await deleteBudget(id)
-    budgets.value = budgets.value.filter((b) => b.id !== id)
+    budgets.value = budgets.value.filter(b => b.id !== id)
     if (currentDetail.value?.budget.id === id) {
       currentDetail.value = null
     }

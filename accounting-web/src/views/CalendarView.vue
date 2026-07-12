@@ -1,49 +1,25 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useTransactionStore } from '../stores/transaction'
 import CalendarGrid from '../components/CalendarGrid.vue'
 import TransactionList from '../components/TransactionList.vue'
 import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.vue'
+import { todayStr } from '../utils/date'
+import { useTransactionStore } from '../stores/transaction'
 
 const txStore = useTransactionStore()
 
-const currentYear = ref(0)
-const currentMonth = ref(0)
 const selectedDate = ref<string>('')
 
 const showFormOverlay = ref(false)
 const editingTxId = ref<number | undefined>(undefined)
 
 onMounted(async () => {
-  const now = new Date()
-  currentYear.value = now.getFullYear()
-  currentMonth.value = now.getMonth() + 1
-  await txStore.loadMonth(currentYear.value, currentMonth.value)
-  // If current month has no data, auto-load previous month
-  const currentData = txStore.getMonthTransactions(currentYear.value, currentMonth.value)
-  if (currentData.length === 0) {
-    if (currentMonth.value === 1) {
-      currentYear.value = currentYear.value - 1
-      currentMonth.value = 12
-    } else {
-      currentMonth.value = currentMonth.value - 1
-    }
-    await txStore.loadMonth(currentYear.value, currentMonth.value)
-    // Select last day of loaded month
-    const lastDay = new Date(currentYear.value, currentMonth.value, 0).getDate()
-    selectedDate.value = `${currentYear.value}-${String(currentMonth.value).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+  await txStore.loadInitial(todayStr(), 100)
+  if (txStore.loadedRange) {
+    selectedDate.value = txStore.loadedRange.to
   } else {
-    // Default to today's date selected
-    selectedDate.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    selectedDate.value = todayStr()
   }
-})
-
-const transactionDates = computed(() => {
-  const dates = new Set<string>()
-  for (const tx of txStore.transactions) {
-    dates.add(tx.date_time.slice(0, 10))
-  }
-  return dates
 })
 
 const filteredTransactions = computed(() => {
@@ -52,6 +28,7 @@ const filteredTransactions = computed(() => {
 
 function onSelectDate(date: string) {
   selectedDate.value = date
+  txStore.loadDay(date)
 }
 
 function onNewTx() {
@@ -76,35 +53,31 @@ function onFormClosed() {
 }
 
 function onFormSaved() {
-  txStore.loadMonth(currentYear.value, currentMonth.value, true)
+  // Data is already updated via create/update in store
 }
 </script>
 
 <template>
   <div class="calendar-view" :class="{ 'no-scroll': showFormOverlay }">
-    <!-- Show normal calendar view when form is not displayed -->
     <template v-if="!showFormOverlay">
       <div class="header-actions">
         <button class="new-tx-btn" @click="onNewTx">+ 新建交易</button>
       </div>
 
       <CalendarGrid
-        :transaction-dates="transactionDates"
+        :transaction-dates="txStore.transactionDates"
         :selected-date="selectedDate"
         @select-date="onSelectDate"
       />
 
-      <div v-if="txStore.loading" class="loading">加载中...</div>
+      <div v-if="txStore.loading && filteredTransactions.length === 0" class="loading">
+        加载中...
+      </div>
       <div v-else-if="txStore.error" class="error">{{ txStore.error }}</div>
 
-      <TransactionList
-        :transactions="filteredTransactions"
-        @edit="onEditTx"
-        @delete="onDeleteTx"
-      />
+      <TransactionList :transactions="filteredTransactions" @edit="onEditTx" @delete="onDeleteTx" />
     </template>
 
-    <!-- Show form overlay when editing/creating - completely replaces calendar view -->
     <TransactionFormOverlay
       v-if="showFormOverlay"
       :edit-id="editingTxId"

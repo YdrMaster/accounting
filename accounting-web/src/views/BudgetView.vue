@@ -1,18 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useBudgetStore } from '../stores/budget'
-import { useAccountStore } from '../stores/account'
 import AccountPicker from '../components/layout/AccountPicker.vue'
+import { useAccountStore } from '../stores/account'
+import { useBudgetStore } from '../stores/budget'
 import type { BudgetDto, BudgetLimitRequest } from '../types/api'
 
 const budgetStore = useBudgetStore()
 const accountStore = useAccountStore()
 
 onMounted(async () => {
-  await Promise.all([
-    budgetStore.loadBudgets(),
-    accountStore.loadAccounts(),
-  ])
+  await Promise.all([budgetStore.loadBudgets(), accountStore.loadAccounts()])
 })
 
 const selectedBudgetId = ref<number | null>(null)
@@ -162,7 +159,11 @@ async function submitBudget() {
             <AccountPicker
               :model-value="limit.account_id || null"
               placeholder="选择账户"
-              @update:model-value="(id) => { formLimits[index].account_id = id }"
+              @update:model-value="
+                id => {
+                  formLimits[index].account_id = id
+                }
+              "
             />
             <input v-model="limit.amount" type="number" step="0.01" placeholder="限额" />
             <button class="remove-limit-btn" @click="removeLimit(index)">×</button>
@@ -297,8 +298,12 @@ async function submitBudget() {
 }
 
 @keyframes slideIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .drawer-header {

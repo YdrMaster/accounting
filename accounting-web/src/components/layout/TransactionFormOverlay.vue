@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
 import Decimal from 'decimal.js'
+import { computed, onMounted, ref } from 'vue'
+import { fetchTransaction } from '../../api/client'
+import { useChannelStore } from '../../stores/channel'
+import { useCommodityStore } from '../../stores/commodity'
+import { useMemberStore } from '../../stores/member'
+import { useTagStore } from '../../stores/tag'
+import { useTransactionStore } from '../../stores/transaction'
+import type { ChannelPathNodeInput, CreateTransactionData } from '../../types/api'
 import AccountPicker from './AccountPicker.vue'
 import ChannelPathInput from './ChannelPathInput.vue'
-import { useTransactionStore } from '../../stores/transaction'
-import { useMemberStore } from '../../stores/member'
-import { useCommodityStore } from '../../stores/commodity'
-import { useChannelStore } from '../../stores/channel'
-import { useTagStore } from '../../stores/tag'
-import { fetchTransaction } from '../../api/client'
-import type { CreateTransactionData, ChannelPathNodeInput } from '../../types/api'
 
 const props = defineProps<{
   editId?: number
@@ -62,7 +62,7 @@ interface PostingDraft {
 const postings = ref<PostingDraft[]>([])
 
 const isEdit = computed(() => !!props.editId)
-const formTitle = computed(() => isEdit.value ? '编辑交易' : '新建交易')
+const formTitle = computed(() => (isEdit.value ? '编辑交易' : '新建交易'))
 
 function formatDateTime(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -209,13 +209,15 @@ async function handleSubmit() {
             <input
               type="text"
               placeholder="添加标签"
-              @keydown.enter="e => {
-                const input = e.target as HTMLInputElement
-                if (input.value.trim()) {
-                  selectedTags.push(input.value.trim())
-                  input.value = ''
+              @keydown.enter="
+                e => {
+                  const input = e.target as HTMLInputElement
+                  if (input.value.trim()) {
+                    selectedTags.push(input.value.trim())
+                    input.value = ''
+                  }
                 }
-              }"
+              "
             />
           </div>
         </div>
@@ -232,7 +234,7 @@ async function handleSubmit() {
             <label>账户</label>
             <AccountPicker
               :model-value="posting.accountId"
-              @update:model-value="(id) => onAccountSelect(index, id, `账户 #${id}`)"
+              @update:model-value="id => onAccountSelect(index, id, `账户 #${id}`)"
             />
           </div>
 
@@ -318,8 +320,12 @@ async function handleSubmit() {
 }
 
 @keyframes slideIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .form-header {
