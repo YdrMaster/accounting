@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import Decimal from 'decimal.js'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { TransactionDto } from '../types/api'
 import TransactionCard from './TransactionCard.vue'
+
+const { t, tm } = useI18n()
 
 const props = defineProps<{
   transactions: TransactionDto[]
@@ -21,9 +24,8 @@ interface DayGroup {
   transactions: TransactionDto[]
 }
 
-const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-
 const dayGroups = computed<DayGroup[]>(() => {
+  const weekdays = tm('txList.weekdays') as string[]
   const groups = new Map<string, TransactionDto[]>()
   for (const tx of props.transactions) {
     const dateStr = tx.date_time.slice(0, 10)
@@ -45,7 +47,7 @@ const dayGroups = computed<DayGroup[]>(() => {
     }
     result.push({
       dateLabel: `${month}.${day}`,
-      weekday: WEEKDAYS[d.getDay()],
+      weekday: weekdays[d.getDay()],
       income: dayIncome.toFixed(2),
       expense: dayExpense.toFixed(2),
       transactions: txs,
@@ -67,11 +69,13 @@ function computeAmount(tx: TransactionDto): Decimal {
 
 <template>
   <div class="transaction-list">
-    <div v-if="transactions.length === 0" class="empty">暂无交易记录</div>
+    <div v-if="transactions.length === 0" class="empty">{{ t('txList.empty') }}</div>
     <div v-for="group in dayGroups" :key="group.dateLabel" class="day-group">
       <div class="day-header">
         <span>{{ group.dateLabel }} {{ group.weekday }}</span>
-        <span class="day-summary">收：¥{{ group.income }} 支：¥{{ group.expense }}</span>
+        <span class="day-summary">{{
+          t('txList.daySummary', { income: group.income, expense: group.expense })
+        }}</span>
       </div>
       <TransactionCard
         v-for="tx in group.transactions"

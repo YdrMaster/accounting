@@ -81,12 +81,9 @@ pub struct MemberRow {
     pub name: String,
 }
 
-impl From<&accounting::member::Member> for MemberRow {
-    fn from(m: &accounting::member::Member) -> Self {
-        Self {
-            id: m.id.0,
-            name: m.name.clone(),
-        }
+impl MemberRow {
+    pub fn new(m: &accounting::member::Member, name: String) -> Self {
+        Self { id: m.id.0, name }
     }
 }
 
@@ -99,12 +96,12 @@ pub struct CommodityRow {
     pub precision: u8,
 }
 
-impl From<&accounting::commodity::Commodity> for CommodityRow {
-    fn from(c: &accounting::commodity::Commodity) -> Self {
+impl CommodityRow {
+    pub fn new(c: &accounting::commodity::Commodity, name: String) -> Self {
         Self {
             id: c.id.0,
             symbol: c.symbol.clone(),
-            name: c.name.clone(),
+            name,
             precision: c.precision,
         }
     }
@@ -119,11 +116,11 @@ pub struct TagRow {
     pub is_system: bool,
 }
 
-impl From<&accounting::tag::Tag> for TagRow {
-    fn from(t: &accounting::tag::Tag) -> Self {
+impl TagRow {
+    pub fn new(t: &accounting::tag::Tag, name: String) -> Self {
         Self {
             id: t.id.0,
-            name: t.name.clone(),
+            name,
             description: t.description.clone().unwrap_or_default(),
             is_system: t.is_system,
         }
@@ -142,10 +139,10 @@ pub struct AccountRow {
 }
 
 impl AccountRow {
-    pub fn new(a: &accounting::account::Account, account_type: String) -> Self {
+    pub fn new(a: &accounting::account::Account, name: String, account_type: String) -> Self {
         Self {
             id: a.id.0,
-            name: a.name.clone(),
+            name,
             account_type,
             parent_id: a.parent_id.map(|id| id.0.to_string()).unwrap_or_default(),
             closed_at: a.closed_at.map(|d| d.to_string()).unwrap_or_default(),
@@ -210,7 +207,7 @@ impl From<&accounting::posting::Posting> for PostingRow {
 /// 余额表格行
 #[derive(Tabled, Serialize)]
 pub struct BalanceRow {
-    pub commodity_id: i64,
+    pub commodity: String,
     pub amount: String,
 }
 

@@ -7,8 +7,6 @@ pub struct Commodity {
     pub id: CommodityId,
     /// 符号，如 CNY、USD
     pub symbol: String,
-    /// 商品名称
-    pub name: String,
     /// 小数精度
     pub precision: u8,
     /// 创建日期
@@ -25,7 +23,6 @@ mod tests {
         let c = Commodity {
             id: CommodityId(1),
             symbol: "CNY".to_string(),
-            name: "人民币".to_string(),
             precision: 2,
             created_at: None,
         };

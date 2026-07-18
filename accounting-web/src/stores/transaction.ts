@@ -22,7 +22,8 @@ export const useTransactionStore = defineStore('transaction', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  const byDateDesc = (a: TransactionDto, b: TransactionDto) => b.date_time.localeCompare(a.date_time)
+  const byDateDesc = (a: TransactionDto, b: TransactionDto) =>
+    b.date_time.localeCompare(a.date_time)
 
   const allTransactions = computed(() => {
     const seen = new Set<number>()
@@ -48,7 +49,8 @@ export const useTransactionStore = defineStore('transaction', () => {
     if (outside.length > 0) {
       outside.sort(byDateDesc)
       const merged: TransactionDto[] = []
-      let i = 0, j = 0
+      let i = 0,
+        j = 0
       while (i < result.length && j < outside.length) {
         if (result[i].date_time >= outside[j].date_time) {
           merged.push(result[i++])
@@ -74,7 +76,11 @@ export const useTransactionStore = defineStore('transaction', () => {
     return dates
   })
 
-  async function expandSameDay(toDate: string, initialData: TransactionDto[], initialLimit: number): Promise<TransactionDto[]> {
+  async function expandSameDay(
+    toDate: string,
+    initialData: TransactionDto[],
+    initialLimit: number
+  ): Promise<TransactionDto[]> {
     let currentLimit = initialLimit * 2
     let data = initialData
     while (data.length > 0) {
@@ -109,7 +115,10 @@ export const useTransactionStore = defineStore('transaction', () => {
         return
       }
       transactions.value = finalData
-      loadedRange.value = { from: dateOf(finalData[finalData.length - 1]), to: dateOf(finalData[0]) }
+      loadedRange.value = {
+        from: dateOf(finalData[finalData.length - 1]),
+        to: dateOf(finalData[0]),
+      }
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
@@ -133,7 +142,10 @@ export const useTransactionStore = defineStore('transaction', () => {
         const expanded = await expandSameDay(prevDayStr, data, 100)
         if (expanded.length > 0) {
           transactions.value.push(...expanded)
-          loadedRange.value = { from: dateOf(expanded[expanded.length - 1]), to: loadedRange.value.to }
+          loadedRange.value = {
+            from: dateOf(expanded[expanded.length - 1]),
+            to: loadedRange.value.to,
+          }
         }
       } else {
         transactions.value.push(...data)
@@ -181,7 +193,8 @@ export const useTransactionStore = defineStore('transaction', () => {
     if (idx !== -1) {
       transactions.value.splice(idx, 1)
     }
-    let lo = 0, hi = transactions.value.length
+    let lo = 0,
+      hi = transactions.value.length
     while (lo < hi) {
       const mid = (lo + hi) >>> 1
       if (transactions.value[mid].date_time > tx.date_time) lo = mid + 1

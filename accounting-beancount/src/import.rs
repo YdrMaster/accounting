@@ -3,6 +3,7 @@ use crate::parser;
 use accounting::attachment::Attachment;
 use accounting::channel_path::ChannelPathNode;
 use accounting::id::*;
+use accounting::name::lang;
 use accounting::posting::Posting;
 use accounting::transaction::{Transaction, TransactionKind};
 use accounting_sql::SqliteDatabase;
@@ -45,8 +46,10 @@ pub async fn import(
     let mut transaction_id_map: HashMap<i64, TransactionId> = HashMap::new();
 
     for c in &data.commodities {
+        // beancount 文件中的名字语言不可知：自动创建的名字一律标注为 und；
+        // 已有实体按名字表命中（任意语言名字命中即中，repo 已支持）
         let new_id = db
-            .commodity_upsert_by_symbol(&c.symbol, &c.name, c.precision)
+            .commodity_upsert_by_symbol(&c.symbol, &c.symbol, c.precision, lang::UND)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
         commodity_id_map.insert(c.internal_id, new_id);
@@ -57,7 +60,7 @@ pub async fn import(
         let (actual_path, _account_type) = resolve_account_path(&a.path, &a.account_type);
 
         let new_id = db
-            .account_get_or_create_by_path(&actual_path)
+            .account_get_or_create_by_path(&actual_path, lang::UND)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
 
@@ -71,7 +74,7 @@ pub async fn import(
 
     for m in &data.members {
         let new_id = db
-            .member_get_or_create_by_name(&m.name)
+            .member_get_or_create_by_name(&m.name, lang::UND)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
         member_id_map.insert(m.internal_id, new_id);
@@ -80,7 +83,7 @@ pub async fn import(
 
     for ch in &data.channels {
         let new_id = db
-            .channel_upsert_by_name(&ch.name, ch.description.as_deref(), None)
+            .channel_upsert_by_name(&ch.name, ch.description.as_deref(), None, lang::UND)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
         channel_id_map.insert(ch.internal_id, new_id);
@@ -287,7 +290,7 @@ async fn resolve_account_id(
     }
 
     let id = db
-        .account_get_or_create_by_path(path)
+        .account_get_or_create_by_path(path, lang::UND)
         .await
         .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
     Ok(id)
@@ -308,7 +311,7 @@ async fn resolve_commodity_id(
     }
 
     let id = db
-        .commodity_upsert_by_symbol(symbol, symbol, 2)
+        .commodity_upsert_by_symbol(symbol, symbol, 2, lang::UND)
         .await
         .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
     Ok(id)
@@ -321,7 +324,7 @@ async fn resolve_tags(
     let mut tag_ids = Vec::new();
     for name in tag_names {
         let tag = db
-            .tag_upsert_by_name(name, None)
+            .tag_upsert_by_name(name, None, lang::UND)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
         tag_ids.push(tag);

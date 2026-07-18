@@ -25,11 +25,15 @@ pub struct ConfigImportArgs {
 }
 
 impl ConfigCmd {
-    pub async fn run(self, db: SqliteDatabase) -> Result<(), accounting::error::AccountingError> {
+    pub async fn run(
+        self,
+        db: SqliteDatabase,
+        lang: &str,
+    ) -> Result<(), accounting::error::AccountingError> {
         match self {
             ConfigCmd::Export(args) => {
                 let service = ConfigService::new(db);
-                let config = service.export().await?;
+                let config = service.export(lang).await?;
                 let yaml = serde_yaml::to_string(&config)
                     .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
                 std::fs::write(&args.file, yaml)

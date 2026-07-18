@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import CalendarGrid from '../components/CalendarGrid.vue'
 import TransactionList from '../components/TransactionList.vue'
 import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.vue'
-import { todayStr } from '../utils/date'
 import { useTransactionStore } from '../stores/transaction'
+import { todayStr } from '../utils/date'
 
 const txStore = useTransactionStore()
+const { t } = useI18n()
 
 const selectedDate = ref<string>('')
 
@@ -42,7 +44,7 @@ function onEditTx(id: number) {
 }
 
 function onDeleteTx(id: number) {
-  if (confirm('确定要删除这条交易吗？')) {
+  if (confirm(t('calendar.confirmDelete'))) {
     txStore.remove(id)
   }
 }
@@ -61,7 +63,7 @@ function onFormSaved() {
   <div class="calendar-view" :class="{ 'no-scroll': showFormOverlay }">
     <template v-if="!showFormOverlay">
       <div class="header-actions">
-        <button class="new-tx-btn" @click="onNewTx">+ 新建交易</button>
+        <button class="new-tx-btn" @click="onNewTx">+ {{ t('calendar.newTransaction') }}</button>
       </div>
 
       <CalendarGrid
@@ -71,7 +73,7 @@ function onFormSaved() {
       />
 
       <div v-if="txStore.loading && filteredTransactions.length === 0" class="loading">
-        加载中...
+        {{ t('common.loading') }}
       </div>
       <div v-else-if="txStore.error" class="error">{{ txStore.error }}</div>
 

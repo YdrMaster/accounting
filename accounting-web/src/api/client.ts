@@ -1,7 +1,14 @@
+import { i18n } from '../i18n'
+
 const BASE_URL = '/api'
 
+function apiUrl(path: string): string {
+  const sep = path.includes('?') ? '&' : '?'
+  return `${BASE_URL}${path}${sep}lang=${encodeURIComponent(i18n.global.locale.value)}`
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, init)
+  const res = await fetch(apiUrl(path), init)
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -34,7 +41,7 @@ export async function fetchMembers(): Promise<MemberDto[]> {
 }
 
 export async function renameAccount(id: number, name: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/accounts/${id}/rename`, {
+  const res = await fetch(apiUrl(`/accounts/${id}/rename`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -46,7 +53,7 @@ export async function renameAccount(id: number, name: string): Promise<void> {
 }
 
 export async function setAccountOwners(id: number, ownerIds: number[]): Promise<void> {
-  const res = await fetch(`${BASE_URL}/accounts/${id}/owner`, {
+  const res = await fetch(apiUrl(`/accounts/${id}/owner`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ owner_ids: ownerIds }),
@@ -58,7 +65,7 @@ export async function setAccountOwners(id: number, ownerIds: number[]): Promise<
 }
 
 export async function closeAccount(id: number): Promise<void> {
-  const res = await fetch(`${BASE_URL}/accounts/${id}/close`, { method: 'PUT' })
+  const res = await fetch(apiUrl(`/accounts/${id}/close`), { method: 'PUT' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -66,7 +73,7 @@ export async function closeAccount(id: number): Promise<void> {
 }
 
 export async function reopenAccount(id: number): Promise<void> {
-  const res = await fetch(`${BASE_URL}/accounts/${id}/open`, { method: 'PUT' })
+  const res = await fetch(apiUrl(`/accounts/${id}/open`), { method: 'PUT' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -74,7 +81,7 @@ export async function reopenAccount(id: number): Promise<void> {
 }
 
 export async function deleteAccount(id: number): Promise<void> {
-  const res = await fetch(`${BASE_URL}/accounts/${id}`, { method: 'DELETE' })
+  const res = await fetch(apiUrl(`/accounts/${id}`), { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -86,7 +93,7 @@ export async function updateAccountFields(
   billingDay: number | null,
   repaymentDay: number | null
 ): Promise<void> {
-  const res = await fetch(`${BASE_URL}/accounts/${id}/fields`, {
+  const res = await fetch(apiUrl(`/accounts/${id}/fields`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ billing_day: billingDay, repayment_day: repaymentDay }),
@@ -98,7 +105,7 @@ export async function updateAccountFields(
 }
 
 export async function createAccount(data: CreateAccountRequest): Promise<number> {
-  const res = await fetch(`${BASE_URL}/accounts`, {
+  const res = await fetch(apiUrl(`/accounts`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -124,7 +131,7 @@ export async function fetchTransaction(id: number): Promise<TransactionDto> {
 }
 
 export async function createTransaction(data: CreateTransactionData): Promise<number> {
-  const res = await fetch(`${BASE_URL}/transactions`, {
+  const res = await fetch(apiUrl(`/transactions`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -137,7 +144,7 @@ export async function createTransaction(data: CreateTransactionData): Promise<nu
 }
 
 export async function updateTransaction(id: number, data: CreateTransactionData): Promise<void> {
-  const res = await fetch(`${BASE_URL}/transactions/${id}`, {
+  const res = await fetch(apiUrl(`/transactions/${id}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -149,7 +156,7 @@ export async function updateTransaction(id: number, data: CreateTransactionData)
 }
 
 export async function deleteTransaction(id: number): Promise<void> {
-  const res = await fetch(`${BASE_URL}/transactions/${id}`, { method: 'DELETE' })
+  const res = await fetch(apiUrl(`/transactions/${id}`), { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -178,7 +185,7 @@ export async function fetchBudgetStatus(id: number, date?: string): Promise<Budg
 }
 
 export async function createBudget(data: CreateBudgetRequest): Promise<BudgetDto> {
-  const res = await fetch(`${BASE_URL}/budgets`, {
+  const res = await fetch(apiUrl(`/budgets`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -191,7 +198,7 @@ export async function createBudget(data: CreateBudgetRequest): Promise<BudgetDto
 }
 
 export async function updateBudget(id: number, data: CreateBudgetRequest): Promise<void> {
-  const res = await fetch(`${BASE_URL}/budgets/${id}`, {
+  const res = await fetch(apiUrl(`/budgets/${id}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -203,7 +210,7 @@ export async function updateBudget(id: number, data: CreateBudgetRequest): Promi
 }
 
 export async function deleteBudget(id: number): Promise<void> {
-  const res = await fetch(`${BASE_URL}/budgets/${id}`, { method: 'DELETE' })
+  const res = await fetch(apiUrl(`/budgets/${id}`), { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -225,7 +232,7 @@ export async function createChannel(data: {
   description?: string
   account_id?: number
 }): Promise<number> {
-  const res = await fetch(`${BASE_URL}/channels`, {
+  const res = await fetch(apiUrl(`/channels`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -241,7 +248,7 @@ export async function updateChannel(
   id: number,
   data: { name?: string; description?: string; account_id?: number }
 ): Promise<void> {
-  const res = await fetch(`${BASE_URL}/channels/${id}`, {
+  const res = await fetch(apiUrl(`/channels/${id}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -253,7 +260,7 @@ export async function updateChannel(
 }
 
 export async function deleteChannel(id: number): Promise<void> {
-  const res = await fetch(`${BASE_URL}/channels/${id}`, { method: 'DELETE' })
+  const res = await fetch(apiUrl(`/channels/${id}`), { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -265,7 +272,7 @@ export async function fetchTags(): Promise<TagDto[]> {
 }
 
 export async function createTag(data: { name: string; description?: string }): Promise<TagDto> {
-  const res = await fetch(`${BASE_URL}/tags`, {
+  const res = await fetch(apiUrl(`/tags`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -281,7 +288,7 @@ export async function updateTag(
   id: number,
   data: { name?: string; description?: string }
 ): Promise<TagDto> {
-  const res = await fetch(`${BASE_URL}/tags/${id}`, {
+  const res = await fetch(apiUrl(`/tags/${id}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -294,7 +301,7 @@ export async function updateTag(
 }
 
 export async function deleteTag(id: number): Promise<void> {
-  const res = await fetch(`${BASE_URL}/tags/${id}`, { method: 'DELETE' })
+  const res = await fetch(apiUrl(`/tags/${id}`), { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -302,7 +309,7 @@ export async function deleteTag(id: number): Promise<void> {
 }
 
 export async function createMember(name: string): Promise<MemberDto> {
-  const res = await fetch(`${BASE_URL}/members`, {
+  const res = await fetch(apiUrl(`/members`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -315,7 +322,7 @@ export async function createMember(name: string): Promise<MemberDto> {
 }
 
 export async function renameMember(id: number, name: string): Promise<MemberDto> {
-  const res = await fetch(`${BASE_URL}/members/${id}`, {
+  const res = await fetch(apiUrl(`/members/${id}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -328,7 +335,7 @@ export async function renameMember(id: number, name: string): Promise<MemberDto>
 }
 
 export async function deleteMember(id: number): Promise<void> {
-  const res = await fetch(`${BASE_URL}/members/${id}`, { method: 'DELETE' })
+  const res = await fetch(apiUrl(`/members/${id}`), { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)

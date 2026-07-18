@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Decimal from 'decimal.js'
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { fetchTransaction } from '../../api/client'
 import { useChannelStore } from '../../stores/channel'
 import { useCommodityStore } from '../../stores/commodity'
@@ -25,6 +26,8 @@ const memberStore = useMemberStore()
 const commodityStore = useCommodityStore()
 const channelStore = useChannelStore()
 const tagStore = useTagStore()
+
+const { t } = useI18n()
 
 onMounted(async () => {
   await Promise.all([
@@ -62,7 +65,7 @@ interface PostingDraft {
 const postings = ref<PostingDraft[]>([])
 
 const isEdit = computed(() => !!props.editId)
-const formTitle = computed(() => (isEdit.value ? '编辑交易' : '新建交易'))
+const formTitle = computed(() => (isEdit.value ? t('txForm.editTitle') : t('txForm.createTitle')))
 
 function formatDateTime(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -165,7 +168,7 @@ async function handleSubmit() {
     emit('close')
   } catch (e) {
     console.error('Failed to save transaction:', e)
-    alert('保存失败: ' + (e instanceof Error ? e.message : String(e)))
+    alert(t('txForm.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
   }
 }
 </script>
@@ -180,19 +183,19 @@ async function handleSubmit() {
 
       <div class="form-body">
         <div class="field">
-          <label>日期时间</label>
+          <label>{{ t('txForm.dateTime') }}</label>
           <input v-model="dateTime" type="datetime-local" step="1" />
         </div>
 
         <div class="field">
-          <label>备注</label>
-          <textarea v-model="description" rows="2" placeholder="可选"></textarea>
+          <label>{{ t('txForm.description') }}</label>
+          <textarea v-model="description" rows="2" :placeholder="t('txForm.optional')"></textarea>
         </div>
 
         <div class="field">
-          <label>成员</label>
+          <label>{{ t('txForm.member') }}</label>
           <select v-model="memberId">
-            <option :value="null" disabled>选择成员</option>
+            <option :value="null" disabled>{{ t('txForm.memberPlaceholder') }}</option>
             <option v-for="m in memberStore.members" :key="m.id" :value="m.id">
               {{ m.name }}
             </option>
@@ -200,15 +203,15 @@ async function handleSubmit() {
         </div>
 
         <div class="field">
-          <label>标签</label>
+          <label>{{ t('txForm.tags') }}</label>
           <div class="tag-input">
             <span v-for="tag in selectedTags" :key="tag" class="tag-chip">
               {{ tag }}
-              <button @click="selectedTags = selectedTags.filter(t => t !== tag)">×</button>
+              <button @click="selectedTags = selectedTags.filter(item => item !== tag)">×</button>
             </span>
             <input
               type="text"
-              placeholder="添加标签"
+              :placeholder="t('txForm.tagPlaceholder')"
               @keydown.enter="
                 e => {
                   const input = e.target as HTMLInputElement
@@ -223,23 +226,25 @@ async function handleSubmit() {
         </div>
 
         <div class="field">
-          <label>渠道链路</label>
+          <label>{{ t('txForm.channelPath') }}</label>
           <ChannelPathInput v-model="channelPaths" />
         </div>
 
-        <div class="section-title">分录</div>
+        <div class="section-title">{{ t('txForm.postings') }}</div>
 
         <div v-for="(posting, index) in postings" :key="index" class="posting-row">
           <div class="posting-field">
-            <label>账户</label>
+            <label>{{ t('txForm.account') }}</label>
             <AccountPicker
               :model-value="posting.accountId"
-              @update:model-value="id => onAccountSelect(index, id, `账户 #${id}`)"
+              @update:model-value="
+                id => onAccountSelect(index, id, t('txForm.accountNumber', { id }))
+              "
             />
           </div>
 
           <div class="posting-field">
-            <label>币种</label>
+            <label>{{ t('txForm.commodity') }}</label>
             <select v-model="posting.commodity">
               <option v-for="c in commodityStore.commodities" :key="c.id" :value="c.symbol">
                 {{ c.symbol }}
@@ -248,14 +253,14 @@ async function handleSubmit() {
           </div>
 
           <div class="posting-field">
-            <label>金额</label>
+            <label>{{ t('txForm.amount') }}</label>
             <input v-model="posting.amount" type="number" step="0.01" placeholder="0.00" />
           </div>
 
           <div class="posting-field checkbox-field">
             <label>
               <input v-model="posting.isReimbursable" type="checkbox" />
-              报销
+              {{ t('txForm.reimbursable') }}
             </label>
           </div>
 
@@ -264,13 +269,13 @@ async function handleSubmit() {
           </button>
         </div>
 
-        <button class="add-posting-btn" @click="addPosting">+ 添加分录</button>
+        <button class="add-posting-btn" @click="addPosting">{{ t('txForm.addPosting') }}</button>
       </div>
 
       <div class="form-footer">
-        <button class="cancel-btn" @click="emit('close')">取消</button>
+        <button class="cancel-btn" @click="emit('close')">{{ t('common.cancel') }}</button>
         <button class="submit-btn" :disabled="!canSubmit" @click="handleSubmit">
-          {{ isEdit ? '保存' : '确认' }}
+          {{ isEdit ? t('common.save') : t('common.confirm') }}
         </button>
       </div>
     </div>

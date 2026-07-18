@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t, tm } = useI18n()
 
 const props = defineProps<{
   transactionDates?: Set<string>
@@ -17,10 +20,10 @@ const currentYear = computed(() => currentDate.value.getFullYear())
 const currentMonth = computed(() => currentDate.value.getMonth() + 1)
 
 const monthLabel = computed(() => {
-  return `${currentYear.value}年${currentMonth.value}月`
+  return t('calendarGrid.monthLabel', { year: currentYear.value, month: currentMonth.value })
 })
 
-const weekdays = ['一', '二', '三', '四', '五', '六', '日']
+const weekdays = computed(() => tm('calendarGrid.weekdays') as string[])
 
 interface CalendarDay {
   date: string

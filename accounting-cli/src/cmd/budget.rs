@@ -77,12 +77,13 @@ impl BudgetCmd {
         &self,
         db: &SqliteDatabase,
         _format: &OutputFormat,
+        lang: &str,
     ) -> Result<(), AccountingError> {
         match self {
-            BudgetCmd::Create(args) => self::create(db, args).await,
-            BudgetCmd::List => self::list(db).await,
-            BudgetCmd::Show(args) => self::show(db, args).await,
-            BudgetCmd::Update(args) => self::update(db, args).await,
+            BudgetCmd::Create(args) => self::create(db, args, lang).await,
+            BudgetCmd::List => self::list(db, lang).await,
+            BudgetCmd::Show(args) => self::show(db, args, lang).await,
+            BudgetCmd::Update(args) => self::update(db, args, lang).await,
             BudgetCmd::Delete(args) => self::delete(db, args).await,
         }
     }
@@ -128,21 +129,36 @@ async fn parse_limits(
     Ok(limits)
 }
 
-async fn create(db: &SqliteDatabase, args: &BudgetCreateArgs) -> Result<(), AccountingError> {
+async fn create(
+    db: &SqliteDatabase,
+    args: &BudgetCreateArgs,
+    lang: &str,
+) -> Result<(), AccountingError> {
     let period = parse_period(&args.period)?;
     let limits = parse_limits(db, &args.limits).await?;
     let commodity_id = resolve_commodity(db, &args.commodity).await?;
 
     let service = accounting_service::report::budget::BudgetService::new(db.clone());
     let id = service
-        .create_budget(&args.name, period, commodity_id, &limits)
+        .create_budget(&args.name, period, commodity_id, &limits, lang)
         .await?;
 
     println!("{}", t!("budget_created", id = id.0));
     Ok(())
 }
 
-async fn list(db: &SqliteDatabase) -> Result<(), AccountingError> {
+/// 批量解析预算显示名（回退链内置）
+async fn budget_name_map(
+    db: &SqliteDatabase,
+    ids: &[accounting::id::BudgetId],
+    lang: &str,
+) -> Result<std::collections::HashMap<accounting::id::BudgetId, String>, AccountingError> {
+    db.budget_display_names(ids, lang)
+        .await
+        .map_err(|e| AccountingError::DatabaseError(e.to_string()))
+}
+
+async fn list(db: &SqliteDatabase, lang: &str) -> Result<(), AccountingError> {
     let service = accounting_service::report::budget::BudgetService::new(db.clone());
     let budgets = service.list_budgets().await?;
 
@@ -151,17 +167,27 @@ async fn list(db: &SqliteDatabase) -> Result<(), AccountingError> {
         return Ok(());
     }
 
+    let ids: Vec<accounting::id::BudgetId> = budgets.iter().map(|b| b.id).collect();
+    let names = budget_name_map(db, &ids, lang).await?;
+
     println!("{:<5} {:<20} {:<20} Commodity", "ID", "Name", "Period");
     for b in &budgets {
         println!(
             "{:<5} {:<20} {:<20} {}",
-            b.id.0, b.name, b.period, b.commodity_id.0
+            b.id.0,
+            names.get(&b.id).cloned().unwrap_or_default(),
+            b.period,
+            b.commodity_id.0
         );
     }
     Ok(())
 }
 
-async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), AccountingError> {
+async fn show(
+    db: &SqliteDatabase,
+    args: &BudgetShowArgs,
+    lang: &str,
+) -> Result<(), AccountingError> {
     let date = match &args.date {
         Some(d) => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|_| {
             AccountingError::InvalidDate(format!("{}", t!("invalid_date_only_format", value = d)))
@@ -173,7 +199,10 @@ async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), Accounti
     let service = accounting_service::report::budget::BudgetService::new(db.clone());
     let status = service.get_budget_status(budget_id, date).await?;
 
-    println!("{}", t!("budget_name", name = status.budget.name));
+    let names = budget_name_map(db, &[budget_id], lang).await?;
+    let budget_name = names.get(&budget_id).cloned().unwrap_or_default();
+
+    println!("{}", t!("budget_name", name = budget_name));
     println!(
         "{}",
         t!(
@@ -186,12 +215,8 @@ async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), Accounti
     println!();
 
     // Get account names for display
-    let accounts = db
-        .account_list()
-        .await
-        .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-    let accounts_by_id: std::collections::HashMap<AccountId, accounting::account::Account> =
-        accounts.into_iter().map(|a| (a.id, a)).collect();
+    let (accounts_by_id, account_names) =
+        crate::cmd::resolver::account_display_maps(db, lang).await?;
 
     println!(
         "{:<30} {:>12} {:>12} {:>12} {:>8}",
@@ -200,7 +225,7 @@ async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), Accounti
     for item in &status.items {
         let account_name = accounts_by_id
             .get(&item.account_id)
-            .map(|a| a.display_path(&accounts_by_id))
+            .map(|a| a.display_path(&accounts_by_id, &account_names))
             .unwrap_or_else(|| item.account_id.to_string());
 
         let warning = if item.remaining < Decimal::ZERO {
@@ -223,12 +248,29 @@ async fn show(db: &SqliteDatabase, args: &BudgetShowArgs) -> Result<(), Accounti
     Ok(())
 }
 
-async fn update(db: &SqliteDatabase, args: &BudgetUpdateArgs) -> Result<(), AccountingError> {
+async fn update(
+    db: &SqliteDatabase,
+    args: &BudgetUpdateArgs,
+    lang: &str,
+) -> Result<(), AccountingError> {
     let budget_id = resolve_budget(db, &args.name).await?;
     let service = accounting_service::report::budget::BudgetService::new(db.clone());
     let detail = service.get_budget_detail(budget_id).await?;
 
-    let name = args.new_name.as_deref().unwrap_or(&detail.budget.name);
+    // 未指定新名称时沿用当前显示名（回退链取 lang 最优名字）
+    let name = match args.new_name {
+        Some(ref n) => n.clone(),
+        None => budget_name_map(db, &[budget_id], lang)
+            .await?
+            .get(&budget_id)
+            .cloned()
+            .ok_or_else(|| {
+                AccountingError::InvalidTransaction(format!(
+                    "{}",
+                    t!("budget_not_found", name = args.name)
+                ))
+            })?,
+    };
     let period = match &args.period {
         Some(p) => parse_period(p)?,
         None => detail.budget.period,
@@ -249,7 +291,7 @@ async fn update(db: &SqliteDatabase, args: &BudgetUpdateArgs) -> Result<(), Acco
     };
 
     service
-        .update_budget(budget_id, name, period, commodity_id, &limits)
+        .update_budget(budget_id, &name, period, commodity_id, &limits, lang)
         .await?;
 
     println!("{}", t!("budget_updated"));

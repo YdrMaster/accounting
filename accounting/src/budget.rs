@@ -9,8 +9,6 @@ use std::collections::HashSet;
 pub struct Budget {
     /// 预算表唯一标识符
     pub id: BudgetId,
-    /// 预算表名称，如"月度生活预算"
-    pub name: String,
     /// 预算周期
     pub period: FinancePeriod,
     /// 限额统一币种（所有限额折算到此币种）
@@ -162,7 +160,6 @@ mod tests {
             AccountId(id),
             Account {
                 id: AccountId(id),
-                name: format!("Account{}", id),
                 parent_id: None,
                 closed_at: None,
                 is_system: false,

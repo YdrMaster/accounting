@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { setLocale, type AppLocale } from '../../i18n'
+import { useAccountStore } from '../../stores/account'
 import { useChannelStore } from '../../stores/channel'
 import { useMemberStore } from '../../stores/member'
 import { useTagStore } from '../../stores/tag'
@@ -10,12 +13,31 @@ const emit = defineEmits<{
   close: []
 }>()
 
+const { t, locale } = useI18n()
+
 const memberStore = useMemberStore()
 const channelStore = useChannelStore()
 const tagStore = useTagStore()
+const accountStore = useAccountStore()
 
-type Tab = 'member' | 'channel' | 'tag'
+type Tab = 'member' | 'channel' | 'tag' | 'language'
 const activeTab = ref<Tab>('member')
+
+const languageOptions: { value: AppLocale; labelKey: string }[] = [
+  { value: 'zh-CN', labelKey: 'language.zh-CN' },
+  { value: 'en', labelKey: 'language.en' },
+]
+
+async function switchLanguage(lang: AppLocale) {
+  if (locale.value === lang) return
+  setLocale(lang)
+  await Promise.all([
+    accountStore.loadAccounts(),
+    memberStore.load(),
+    channelStore.load(),
+    tagStore.load(),
+  ])
+}
 
 onMounted(async () => {
   await Promise.all([memberStore.load(), channelStore.load(), tagStore.load()])
@@ -142,7 +164,7 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
       <div class="drawer-handle" />
 
       <div class="drawer-header">
-        <h2 class="drawer-title">配置</h2>
+        <h2 class="drawer-title">{{ t('config.title') }}</h2>
         <button type="button" class="close-btn" @click="emit('close')">&times;</button>
       </div>
 
@@ -153,7 +175,7 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
           :class="{ active: activeTab === 'member' }"
           @click="activeTab = 'member'"
         >
-          成员
+          {{ t('config.tabs.member') }}
         </button>
         <button
           type="button"
@@ -161,7 +183,7 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
           :class="{ active: activeTab === 'channel' }"
           @click="activeTab = 'channel'"
         >
-          渠道
+          {{ t('config.tabs.channel') }}
         </button>
         <button
           type="button"
@@ -169,7 +191,15 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
           :class="{ active: activeTab === 'tag' }"
           @click="activeTab = 'tag'"
         >
-          标签
+          {{ t('config.tabs.tag') }}
+        </button>
+        <button
+          type="button"
+          class="tab-btn"
+          :class="{ active: activeTab === 'language' }"
+          @click="activeTab = 'language'"
+        >
+          {{ t('config.tabs.language') }}
         </button>
       </div>
 
@@ -198,10 +228,10 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
             <input
               v-model="newMemberName"
               class="inline-input"
-              placeholder="输入新名称..."
+              :placeholder="t('config.newNamePlaceholder')"
               @keyup.enter="addMember"
             />
-            <button type="button" class="add-btn" @click="addMember">添加</button>
+            <button type="button" class="add-btn" @click="addMember">{{ t('common.add') }}</button>
           </div>
         </div>
 
@@ -220,7 +250,7 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
             </div>
             <div v-if="expandedChannelId === channel.id" class="channel-body">
               <div class="field">
-                <label class="field-label">名称</label>
+                <label class="field-label">{{ t('common.name') }}</label>
                 <input
                   :value="channel.name"
                   class="field-input"
@@ -228,19 +258,19 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
                 />
               </div>
               <div class="field">
-                <label class="field-label">描述</label>
+                <label class="field-label">{{ t('common.description') }}</label>
                 <input
                   :value="channel.description || ''"
                   class="field-input"
-                  placeholder="输入描述..."
+                  :placeholder="t('config.channelDescPlaceholder')"
                   @change="e => onChannelDescChange(channel, (e.target as HTMLInputElement).value)"
                 />
               </div>
               <div class="field">
-                <label class="field-label">关联账户</label>
+                <label class="field-label">{{ t('config.linkedAccount') }}</label>
                 <AccountPicker
                   :model-value="channel.account_id"
-                  placeholder="未关联"
+                  :placeholder="t('config.notLinked')"
                   @update:model-value="id => onChannelAccountChange(channel, id)"
                 />
               </div>
@@ -250,10 +280,10 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
             <input
               v-model="newChannelName"
               class="inline-input"
-              placeholder="输入新名称..."
+              :placeholder="t('config.newNamePlaceholder')"
               @keyup.enter="addChannel"
             />
-            <button type="button" class="add-btn" @click="addChannel">添加</button>
+            <button type="button" class="add-btn" @click="addChannel">{{ t('common.add') }}</button>
           </div>
           <div class="picker-portal" />
         </div>
@@ -295,10 +325,28 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
             <input
               v-model="newTagName"
               class="inline-input"
-              placeholder="输入新名称..."
+              :placeholder="t('config.newNamePlaceholder')"
               @keyup.enter="addTag"
             />
-            <button type="button" class="add-btn" @click="addTag">添加</button>
+            <button type="button" class="add-btn" @click="addTag">{{ t('common.add') }}</button>
+          </div>
+        </div>
+        <!-- 语言 tab -->
+        <div v-if="activeTab === 'language'" class="list-section">
+          <div class="field">
+            <label class="field-label">{{ t('language.label') }}</label>
+            <div class="lang-options">
+              <button
+                v-for="option in languageOptions"
+                :key="option.value"
+                type="button"
+                class="lang-btn"
+                :class="{ active: locale === option.value }"
+                @click="switchLanguage(option.value)"
+              >
+                {{ t(option.labelKey) }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -582,5 +630,27 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
 
 .picker-portal > * {
   pointer-events: auto;
+}
+
+.lang-options {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lang-btn {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-heading);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.lang-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
 }
 </style>

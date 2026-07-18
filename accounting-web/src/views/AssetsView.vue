@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import Decimal from 'decimal.js'
 import { computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useCommodityStore } from '../stores/commodity'
 import { useReportStore } from '../stores/report'
 
 const reportStore = useReportStore()
 const commodityStore = useCommodityStore()
+const { t } = useI18n()
 
 onMounted(() => {
   reportStore.loadBalanceSheet()
@@ -68,20 +70,20 @@ function formatAmount(amt: Decimal): string {
 
 <template>
   <div class="assets">
-    <div v-if="reportStore.loading" class="loading">加载中...</div>
+    <div v-if="reportStore.loading" class="loading">{{ t('common.loading') }}</div>
     <div v-else-if="reportStore.error" class="error">{{ reportStore.error }}</div>
     <template v-else>
       <div class="net-worth">
-        <p class="label">净资产</p>
+        <p class="label">{{ t('assets.netWorth') }}</p>
         <p class="amount">¥{{ formatAmount(netWorth) }}</p>
         <div class="row">
-          <span>总资产 ¥{{ formatAmount(totalAssets) }}</span>
-          <span>总负债 -¥{{ formatAmount(totalLiabilities) }}</span>
+          <span>{{ t('assets.totalAssets') }} ¥{{ formatAmount(totalAssets) }}</span>
+          <span>{{ t('assets.totalLiabilities') }} -¥{{ formatAmount(totalLiabilities) }}</span>
         </div>
       </div>
 
       <div v-if="positiveAccounts.length" class="card">
-        <h3>资产</h3>
+        <h3>{{ t('nav.assets') }}</h3>
         <div v-for="item in positiveAccounts" :key="item.account" class="account-item">
           <span class="account-name">{{ item.account }}</span>
           <div class="balances">
@@ -97,7 +99,7 @@ function formatAmount(amt: Decimal): string {
       </div>
 
       <div v-if="negativeAccounts.length" class="card">
-        <h3>负债</h3>
+        <h3>{{ t('assets.liabilities') }}</h3>
         <div v-for="item in negativeAccounts" :key="item.account" class="account-item">
           <span class="account-name">{{ item.account }}</span>
           <div class="balances">
@@ -113,7 +115,7 @@ function formatAmount(amt: Decimal): string {
       </div>
 
       <div v-if="!positiveAccounts.length && !negativeAccounts.length" class="empty">
-        暂无资产数据
+        {{ t('assets.noData') }}
       </div>
     </template>
   </div>

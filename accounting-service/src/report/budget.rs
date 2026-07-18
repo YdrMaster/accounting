@@ -58,12 +58,15 @@ impl BudgetService {
     }
 
     /// 创建预算表
+    ///
+    /// 预算名按 `lang` 语言写入名字表。
     pub async fn create_budget(
         &self,
         name: &str,
         period: FinancePeriod,
         commodity_id: CommodityId,
         limits: &[(AccountId, Decimal)],
+        lang: &str,
     ) -> Result<BudgetId, AccountingError> {
         let accounts = self.load_accounts().await?;
         let commodity_ids = self.load_commodity_ids().await?;
@@ -75,12 +78,14 @@ impl BudgetService {
         }
 
         self.db
-            .budget_create(name, period, commodity_id, limits)
+            .budget_create(name, period, commodity_id, limits, lang)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
 
     /// 更新预算表
+    ///
+    /// 预算名按 `lang` 语言更新名字表。
     pub async fn update_budget(
         &self,
         budget_id: BudgetId,
@@ -88,6 +93,7 @@ impl BudgetService {
         period: FinancePeriod,
         commodity_id: CommodityId,
         limits: &[(AccountId, Decimal)],
+        lang: &str,
     ) -> Result<(), AccountingError> {
         let existing = self
             .db
@@ -106,7 +112,7 @@ impl BudgetService {
             .map_err(|e| AccountingError::InvalidTransaction(e.to_string()))?;
 
         self.db
-            .budget_update(budget_id, name, period, commodity_id, limits)
+            .budget_update(budget_id, name, period, commodity_id, limits, lang)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
@@ -221,19 +227,14 @@ impl BudgetService {
         })
     }
 
+    /// 查找"不计预算"系统标签 ID（按系统名单次查询；该标签双语名字挂在同一实体上）
     async fn get_exclude_budget_tag_ids(&self) -> Result<Vec<TagId>, AccountingError> {
-        let tags = self
+        let tag = self
             .db
-            .tag_list()
+            .tag_get_by_name("exclude-from-budget")
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-
-        let exclude_names = ["exclude-from-budget", "不计预算"];
-        Ok(tags
-            .iter()
-            .filter(|t| exclude_names.contains(&t.name.as_str()))
-            .map(|t| t.id)
-            .collect())
+        Ok(tag.map(|t| vec![t.id]).unwrap_or_default())
     }
 
     async fn load_accounts(
@@ -261,14 +262,12 @@ impl BudgetService {
 mod tests {
     use super::*;
     use accounting::account::Account;
-    use accounting::id::MemberId;
-    use accounting::member::Member;
     use accounting_sql::SqliteDatabase;
     use std::str::FromStr;
 
     async fn setup() -> BudgetService {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
 
         let expenses_id = db
             .account_get_by_name("Expenses")
@@ -276,37 +275,39 @@ mod tests {
             .unwrap()
             .unwrap()
             .id;
-        let food = Account {
+        let bare = |parent| Account {
             id: AccountId(0),
-            name: "Food".to_string(),
-            parent_id: Some(expenses_id),
+            parent_id: Some(parent),
             closed_at: None,
             is_system: false,
             billing_day: None,
             repayment_day: None,
         };
-        db.account_create_with_closure(&food).await.unwrap();
-
-        let transport = Account {
-            id: AccountId(0),
-            name: "Transport".to_string(),
-            parent_id: Some(expenses_id),
-            closed_at: None,
-            is_system: false,
-            billing_day: None,
-            repayment_day: None,
-        };
-        db.account_create_with_closure(&transport).await.unwrap();
+        db.account_create_with_name(&bare(expenses_id), "Food", "en")
+            .await
+            .unwrap();
+        db.account_create_with_name(&bare(expenses_id), "Transport", "en")
+            .await
+            .unwrap();
 
         BudgetService::new(db)
+    }
+
+    async fn account_id_by_path(service: &BudgetService, path: &str) -> AccountId {
+        service
+            .db
+            .account_get_by_name(path)
+            .await
+            .unwrap()
+            .unwrap()
+            .id
     }
 
     #[tokio::test]
     async fn test_create_and_list_budget() {
         let service = setup().await;
-        let accounts = service.db.account_list().await.unwrap();
-        let food = accounts.iter().find(|a| a.name == "Food").unwrap();
-        let transport = accounts.iter().find(|a| a.name == "Transport").unwrap();
+        let food_id = account_id_by_path(&service, "Expenses:Food").await;
+        let transport_id = account_id_by_path(&service, "Expenses:Transport").await;
 
         let id = service
             .create_budget(
@@ -314,9 +315,10 @@ mod tests {
                 FinancePeriod::Monthly,
                 CommodityId(1),
                 &[
-                    (food.id, Decimal::from_str("2000").unwrap()),
-                    (transport.id, Decimal::from_str("500").unwrap()),
+                    (food_id, Decimal::from_str("2000").unwrap()),
+                    (transport_id, Decimal::from_str("500").unwrap()),
                 ],
+                "en",
             )
             .await
             .unwrap();
@@ -329,17 +331,13 @@ mod tests {
     #[tokio::test]
     async fn test_get_budget_status() {
         let service = setup().await;
-        let accounts = service.db.account_list().await.unwrap();
-        let food = accounts.iter().find(|a| a.name == "Food").unwrap();
-        let transport = accounts.iter().find(|a| a.name == "Transport").unwrap();
-        let assets = accounts.iter().find(|a| a.name == "Assets").unwrap();
+        let food_id = account_id_by_path(&service, "Expenses:Food").await;
+        let transport_id = account_id_by_path(&service, "Expenses:Transport").await;
+        let assets_id = account_id_by_path(&service, "Assets").await;
 
         let member_id = service
             .db
-            .member_create(&Member {
-                id: MemberId(0),
-                name: "Test".to_string(),
-            })
+            .member_get_or_create_by_name("Test", "en")
             .await
             .unwrap();
 
@@ -349,9 +347,10 @@ mod tests {
                 FinancePeriod::Monthly,
                 CommodityId(1),
                 &[
-                    (food.id, Decimal::from_str("2000").unwrap()),
-                    (transport.id, Decimal::from_str("500").unwrap()),
+                    (food_id, Decimal::from_str("2000").unwrap()),
+                    (transport_id, Decimal::from_str("500").unwrap()),
                 ],
+                "en",
             )
             .await
             .unwrap();
@@ -372,7 +371,7 @@ mod tests {
         let p1 = accounting::posting::Posting {
             id: accounting::id::PostingId(0),
             transaction_id: tx_id,
-            account_id: food.id,
+            account_id: food_id,
             commodity_id: CommodityId(1),
             amount: Decimal::from_str("-800").unwrap(),
             cost: None,
@@ -384,7 +383,7 @@ mod tests {
         let p2 = accounting::posting::Posting {
             id: accounting::id::PostingId(0),
             transaction_id: tx_id,
-            account_id: assets.id,
+            account_id: assets_id,
             commodity_id: CommodityId(1),
             amount: Decimal::from_str("800").unwrap(),
             cost: None,
@@ -414,7 +413,7 @@ mod tests {
         let food_item = status
             .items
             .iter()
-            .find(|i| i.account_id == food.id)
+            .find(|i| i.account_id == food_id)
             .unwrap();
         assert_eq!(food_item.limit_amount, Decimal::from_str("2000").unwrap());
         assert_eq!(food_item.actual_amount, Decimal::from_str("800").unwrap());
@@ -424,15 +423,15 @@ mod tests {
     #[tokio::test]
     async fn test_delete_budget() {
         let service = setup().await;
-        let accounts = service.db.account_list().await.unwrap();
-        let food = accounts.iter().find(|a| a.name == "Food").unwrap();
+        let food_id = account_id_by_path(&service, "Expenses:Food").await;
 
         let id = service
             .create_budget(
                 "ToDelete",
                 FinancePeriod::Monthly,
                 CommodityId(1),
-                &[(food.id, Decimal::from_str("1000").unwrap())],
+                &[(food_id, Decimal::from_str("1000").unwrap())],
+                "en",
             )
             .await
             .unwrap();

@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
+import { i18n } from '../../i18n'
 import { useAccountStore } from '../../stores/account'
 import type { GridRow } from '../../utils/accountGrid'
 import AccountsView from '../AccountsView.vue'
@@ -64,7 +65,7 @@ describe('AccountsView', () => {
         owner_ids: [],
       },
     ]
-    const wrapper = mount(AccountsView)
+    const wrapper = mount(AccountsView, { global: { plugins: [i18n] } })
     await nextTick()
     const grids = wrapper.findAll('[data-testid="grid"]')
     expect(grids.length).toBeGreaterThan(0)
@@ -131,7 +132,7 @@ describe('AccountsView', () => {
       },
     ]
 
-    const wrapper = mount(AccountsView)
+    const wrapper = mount(AccountsView, { global: { plugins: [i18n] } })
     await nextTick()
 
     const grid = wrapper.findComponent({ name: 'AccountGrid' })
@@ -214,7 +215,7 @@ describe('AccountsView', () => {
       },
     ]
 
-    const wrapper = mount(AccountsView)
+    const wrapper = mount(AccountsView, { global: { plugins: [i18n] } })
     await nextTick()
 
     const grid = wrapper.findComponent({ name: 'AccountGrid' })

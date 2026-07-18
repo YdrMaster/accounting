@@ -114,6 +114,7 @@ impl TxCmd {
         self,
         db: SqliteDatabase,
         format: OutputFormat,
+        lang: &str,
     ) -> Result<(), AccountingError> {
         match self {
             TxCmd::Add(args) => {
@@ -133,7 +134,7 @@ impl TxCmd {
                 let service =
                     accounting_service::transaction_service::TransactionService::new(db.clone());
                 let results = service.list(filter, limit, offset).await?;
-                let channel_names = channel_name_map(&db).await?;
+                let channel_names = channel_name_map(&db, lang).await?;
                 let rows: Vec<TransactionRow> = results
                     .iter()
                     .map(|(t, _, channel_paths)| {
@@ -161,7 +162,7 @@ impl TxCmd {
                 let result = service.get(TransactionId(args.id)).await?;
                 match result {
                     Some((tx, postings, channel_paths)) => {
-                        let channel_names = channel_name_map(&db).await?;
+                        let channel_names = channel_name_map(&db, lang).await?;
                         let mut tx_row: TransactionRow = (&tx).into();
                         tx_row.channel_paths = channel_paths
                             .iter()
@@ -413,12 +414,16 @@ fn parse_channel_status(name: &str) -> (&str, ChannelPathStatus) {
 
 async fn channel_name_map(
     db: &SqliteDatabase,
+    lang: &str,
 ) -> Result<HashMap<ChannelId, String>, AccountingError> {
     let channels = db
         .channel_list()
         .await
         .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-    Ok(channels.into_iter().map(|c| (c.id, c.name)).collect())
+    let ids: Vec<ChannelId> = channels.iter().map(|c| c.id).collect();
+    db.channel_display_names(&ids, lang)
+        .await
+        .map_err(|e| AccountingError::DatabaseError(e.to_string()))
 }
 
 fn parse_date_time(s: &str) -> Result<chrono::NaiveDateTime, AccountingError> {

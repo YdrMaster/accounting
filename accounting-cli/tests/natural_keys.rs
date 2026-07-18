@@ -12,6 +12,7 @@ fn run(db: &str, args: &[&str]) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_accounting-cli"))
         .arg(db)
         .args(args)
+        .args(["--lang", "zh-CN"])
         .output()
         .expect("failed to execute accounting-cli");
 
@@ -29,7 +30,7 @@ fn run(db: &str, args: &[&str]) -> String {
 fn setup() -> String {
     let db = db_path();
     let _ = std::fs::remove_file(&db);
-    run(&db, &["initialize", "--lang", "zh-CN"]);
+    run(&db, &["initialize"]);
     db
 }
 
@@ -56,7 +57,7 @@ fn test_account_natural_keys() {
     assert!(out.contains("账户已创建"));
 
     let out = run(&db, &["account", "show", "Assets:Cash"]);
-    assert!(out.contains("Cash"));
+    assert!(out.contains("现金"));
 
     let out = run(&db, &["account", "balance", "Assets:Cash"]);
     assert!(out.contains("余额为零"));

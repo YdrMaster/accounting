@@ -1,13 +1,13 @@
 use sqlx::{FromRow, SqliteConnection};
 
 use crate::error::DbError;
+use crate::names::CHANNEL_NAMES;
 use accounting::channel::Channel;
 use accounting::id::{AccountId, ChannelId};
 
 #[derive(FromRow)]
 struct ChannelRow {
     id: i64,
-    name: String,
     description: Option<String>,
     account_id: Option<i64>,
     is_system: i32,
@@ -17,7 +17,6 @@ impl ChannelRow {
     fn into_channel(self) -> Channel {
         Channel {
             id: ChannelId(self.id),
-            name: self.name,
             description: self.description,
             account_id: self.account_id.map(AccountId),
             is_system: self.is_system != 0,
@@ -38,11 +37,9 @@ pub async fn channel_create(
     conn: &mut SqliteConnection,
     channel: &Channel,
 ) -> Result<ChannelId, DbError> {
-    validate_channel_name(&channel.name)?;
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO channels (name, description, account_id, is_system) VALUES (?1, ?2, ?3, ?4) RETURNING id",
+        "INSERT INTO channels (description, account_id, is_system) VALUES (?1, ?2, ?3) RETURNING id",
     )
-    .bind(&channel.name)
     .bind(&channel.description)
     .bind(channel.account_id.map(|id| id.0))
     .bind(channel.is_system as i32)
@@ -56,13 +53,12 @@ pub async fn channel_get(
     conn: &mut SqliteConnection,
     id: ChannelId,
 ) -> Result<Option<Channel>, DbError> {
-    let row: Option<ChannelRow> = sqlx::query_as(
-        "SELECT id, name, description, account_id, is_system FROM channels WHERE id = ?1",
-    )
-    .bind(id.0)
-    .fetch_optional(conn)
-    .await
-    .map_err(|e| DbError::Database(e.to_string()))?;
+    let row: Option<ChannelRow> =
+        sqlx::query_as("SELECT id, description, account_id, is_system FROM channels WHERE id = ?1")
+            .bind(id.0)
+            .fetch_optional(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(row.map(|r| r.into_channel()))
 }
 
@@ -71,7 +67,7 @@ pub async fn channel_get_by_name(
     name: &str,
 ) -> Result<Option<Channel>, DbError> {
     let row: Option<ChannelRow> = sqlx::query_as(
-        "SELECT id, name, description, account_id, is_system FROM channels WHERE name = ?1",
+        "SELECT c.id, c.description, c.account_id, c.is_system FROM channels c JOIN channel_names cn ON cn.channel_id = c.id WHERE cn.name = ?1",
     )
     .bind(name)
     .fetch_optional(conn)
@@ -80,21 +76,7 @@ pub async fn channel_get_by_name(
     Ok(row.map(|r| r.into_channel()))
 }
 
-/// 返回与给定渠道名相关的内置别名。
-///
-/// 用于跨语言/大小写解析：例如英文环境创建的是 `Alipay`，
-/// 用户仍可使用 `alipay` 或 `支付宝` 来引用它。
-fn channel_builtin_aliases(name: &str) -> Vec<&'static str> {
-    match name {
-        "Alipay" | "alipay" | "支付宝" => vec!["Alipay", "alipay", "支付宝"],
-        _ => Vec::new(),
-    }
-}
-
-/// 解析渠道名称，支持：
-/// 1. 精确匹配
-/// 2. 大小写不敏感匹配
-/// 3. 内置中英文别名匹配
+/// 通过渠道名称查找渠道，大小写不敏感。
 pub async fn channel_resolve_by_name(
     conn: &mut SqliteConnection,
     name: &str,
@@ -104,46 +86,29 @@ pub async fn channel_resolve_by_name(
         return Ok(None);
     }
 
-    let all = channel_list(conn).await?;
-    let input_lower = name.to_lowercase();
-
-    // 1. 精确匹配
-    if let Some(channel) = all.iter().find(|c| c.name == name) {
-        return Ok(Some(channel.clone()));
-    }
-
-    // 2. 大小写不敏感匹配
-    if let Some(channel) = all.iter().find(|c| c.name.to_lowercase() == input_lower) {
-        return Ok(Some(channel.clone()));
-    }
-
-    // 3. 内置别名匹配（也忽略大小写）
-    for channel in &all {
-        let aliases = channel_builtin_aliases(&channel.name);
-        if aliases
-            .iter()
-            .any(|alias| alias.to_lowercase() == input_lower)
-        {
-            return Ok(Some(channel.clone()));
-        }
-    }
-
-    Ok(None)
+    let row: Option<ChannelRow> = sqlx::query_as(
+        "SELECT c.id, c.description, c.account_id, c.is_system FROM channels c JOIN channel_names cn ON cn.channel_id = c.id WHERE LOWER(cn.name) = LOWER(?1)",
+    )
+    .bind(name)
+    .fetch_optional(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(row.map(|r| r.into_channel()))
 }
 
 pub async fn channel_list(conn: &mut SqliteConnection) -> Result<Vec<Channel>, DbError> {
-    let rows: Vec<ChannelRow> = sqlx::query_as(
-        "SELECT id, name, description, account_id, is_system FROM channels ORDER BY id",
-    )
-    .fetch_all(conn)
-    .await
-    .map_err(|e| DbError::Database(e.to_string()))?;
+    let rows: Vec<ChannelRow> =
+        sqlx::query_as("SELECT id, description, account_id, is_system FROM channels ORDER BY id")
+            .fetch_all(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(rows.into_iter().map(|r| r.into_channel()).collect())
 }
 
 pub async fn channel_upsert_by_name(
     conn: &mut SqliteConnection,
     name: &str,
+    lang: &str,
     description: Option<&str>,
     account_id: Option<AccountId>,
 ) -> Result<ChannelId, DbError> {
@@ -160,12 +125,15 @@ pub async fn channel_upsert_by_name(
     } else {
         let channel = Channel {
             id: ChannelId(0),
-            name: name.to_string(),
             description: description.map(|s| s.to_string()),
             account_id,
             is_system: false,
         };
-        channel_create(conn, &channel).await
+        let channel_id = channel_create(conn, &channel).await?;
+        CHANNEL_NAMES
+            .insert(conn, channel_id.0, lang, name, false, true)
+            .await?;
+        Ok(channel_id)
     }
 }
 
@@ -204,16 +172,30 @@ pub async fn channel_force_delete_by_id(
     Ok(())
 }
 
+/// 渠道改名：把渠道在 `lang` 语言下的显示名改为 `new_name`
+///（系统名字不可改文本：降级为非显示名并插入用户自定义显示名）
+pub async fn channel_rename(
+    conn: &mut SqliteConnection,
+    id: ChannelId,
+    new_name: &str,
+    lang: &str,
+) -> Result<(), DbError> {
+    validate_channel_name(new_name)?;
+    if channel_get(conn, id).await?.is_none() {
+        return Err(DbError::Database(format!("渠道 {} 不存在", id.0)));
+    }
+    CHANNEL_NAMES
+        .rename_display(conn, id.0, None, lang, new_name)
+        .await
+}
+
 pub async fn channel_update(
     conn: &mut SqliteConnection,
     id: ChannelId,
-    name: &str,
     description: Option<&str>,
     account_id: Option<AccountId>,
 ) -> Result<(), DbError> {
-    validate_channel_name(name)?;
-    sqlx::query("UPDATE channels SET name = ?1, description = ?2, account_id = ?3 WHERE id = ?4")
-        .bind(name)
+    sqlx::query("UPDATE channels SET description = ?1, account_id = ?2 WHERE id = ?3")
         .bind(description)
         .bind(account_id.map(|id| id.0))
         .bind(id.0)
@@ -231,9 +213,7 @@ mod tests {
     async fn setup() -> SqliteConnection {
         let mut conn = SqliteConnection::connect("sqlite::memory:").await.unwrap();
         crate::schema::initialize_schema(&mut conn).await.unwrap();
-        crate::schema::insert_seed_data(&mut conn, "en")
-            .await
-            .unwrap();
+        crate::schema::insert_seed_data(&mut conn).await.unwrap();
         conn
     }
 
@@ -242,14 +222,12 @@ mod tests {
         let mut conn = setup().await;
         let channel = Channel {
             id: ChannelId(0),
-            name: "TestPay".to_string(),
             description: Some("测试支付".to_string()),
             account_id: None,
             is_system: false,
         };
         let id = channel_create(&mut conn, &channel).await.unwrap();
         let fetched = channel_get(&mut conn, id).await.unwrap().unwrap();
-        assert_eq!(fetched.name, "TestPay");
         assert!(fetched.account_id.is_none());
     }
 
@@ -258,7 +236,6 @@ mod tests {
         let mut conn = setup().await;
         let channel = Channel {
             id: ChannelId(0),
-            name: "Huabei".to_string(),
             description: None,
             account_id: Some(AccountId(1)),
             is_system: false,
@@ -273,14 +250,13 @@ mod tests {
         let mut conn = setup().await;
         let channel = Channel {
             id: ChannelId(0),
-            name: "WeChat".to_string(),
             description: None,
             account_id: None,
             is_system: false,
         };
-        channel_create(&mut conn, &channel).await.unwrap();
+        let id = channel_create(&mut conn, &channel).await.unwrap();
         let list = channel_list(&mut conn).await.unwrap();
-        assert!(list.iter().any(|c| c.name == "WeChat"));
+        assert!(list.iter().any(|c| c.id == id));
     }
 
     #[tokio::test]
@@ -288,7 +264,6 @@ mod tests {
         let mut conn = setup().await;
         let channel = Channel {
             id: ChannelId(0),
-            name: "PayPal".to_string(),
             description: None,
             account_id: None,
             is_system: false,
@@ -307,13 +282,12 @@ mod tests {
         let mut conn = setup().await;
         let channel = Channel {
             id: ChannelId(0),
-            name: "CC".to_string(),
             description: None,
             account_id: None,
             is_system: false,
         };
         let id = channel_create(&mut conn, &channel).await.unwrap();
-        channel_update(&mut conn, id, "CC", None, Some(AccountId(1)))
+        channel_update(&mut conn, id, None, Some(AccountId(1)))
             .await
             .unwrap();
         let fetched = channel_get(&mut conn, id).await.unwrap().unwrap();
@@ -325,7 +299,6 @@ mod tests {
         let mut conn = setup().await;
         let channel = Channel {
             id: ChannelId(0),
-            name: "SystemChannel".to_string(),
             description: None,
             account_id: None,
             is_system: true,
@@ -336,7 +309,6 @@ mod tests {
 
         let user_channel = Channel {
             id: ChannelId(0),
-            name: "UserChannel".to_string(),
             description: None,
             account_id: None,
             is_system: false,
@@ -351,7 +323,6 @@ mod tests {
         let mut conn = setup().await;
         let channel = Channel {
             id: ChannelId(0),
-            name: "Protected".to_string(),
             description: None,
             account_id: None,
             is_system: true,
@@ -372,7 +343,6 @@ mod tests {
         let mut conn = setup().await;
         let channel = Channel {
             id: ChannelId(0),
-            name: "Deletable".to_string(),
             description: None,
             account_id: None,
             is_system: false,
@@ -383,31 +353,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_channel_name_with_arrow_rejected() {
-        let mut conn = setup().await;
-        let channel = Channel {
-            id: ChannelId(0),
-            name: "A->B".to_string(),
-            description: None,
-            account_id: None,
-            is_system: false,
-        };
-        let result = channel_create(&mut conn, &channel).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("不能包含"));
-    }
-
-    #[tokio::test]
     async fn test_channel_name_with_ampersand_rejected() {
         let mut conn = setup().await;
-        let channel = Channel {
-            id: ChannelId(0),
-            name: "A&B".to_string(),
-            description: None,
-            account_id: None,
-            is_system: false,
-        };
-        let result = channel_create(&mut conn, &channel).await;
+        let result = channel_upsert_by_name(&mut conn, "A&B", "en", None, None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("不能包含"));
     }
@@ -415,26 +363,58 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_channel_name_with_arrow_rejected() {
         let mut conn = setup().await;
-        let result = channel_upsert_by_name(&mut conn, "A->B", None, None).await;
+        let result = channel_upsert_by_name(&mut conn, "A->B", "en", None, None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("不能包含"));
     }
 
     #[tokio::test]
-    async fn test_resolve_channel_by_name_case_insensitive() {
+    async fn test_channel_upsert_creates_with_name() {
         let mut conn = setup().await;
-        let id = channel_create(
-            &mut conn,
-            &Channel {
-                id: ChannelId(0),
-                name: "TestPay".to_string(),
-                description: None,
-                account_id: None,
-                is_system: false,
-            },
+
+        // 创建成功：渠道与名字行一并写入，语言为调用方传入值
+        let id = channel_upsert_by_name(&mut conn, "云闪付", "zh-CN", Some("银联"), None)
+            .await
+            .unwrap();
+        let (lang, is_display): (String, i32) = sqlx::query_as(
+            "SELECT lang, is_display FROM channel_names WHERE channel_id = ?1 AND name = '云闪付'",
         )
+        .bind(id.0)
+        .fetch_one(&mut conn)
         .await
         .unwrap();
+        assert_eq!(lang, "zh-CN");
+        assert_eq!(is_display, 1);
+
+        // 按名字（NOCASE / 任意语言）命中
+        let found = channel_resolve_by_name(&mut conn, "云闪付").await.unwrap();
+        assert_eq!(found.unwrap().id, id);
+
+        // 再次 upsert 同名 → 更新而非新建
+        let again = channel_upsert_by_name(&mut conn, "云闪付", "zh-CN", Some("银联云闪付"), None)
+            .await
+            .unwrap();
+        assert_eq!(again, id);
+        let fetched = channel_get(&mut conn, id).await.unwrap().unwrap();
+        assert_eq!(fetched.description, Some("银联云闪付".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_channel_by_name_case_insensitive() {
+        let mut conn = setup().await;
+        let channel = Channel {
+            id: ChannelId(0),
+            description: None,
+            account_id: None,
+            is_system: false,
+        };
+        let id = channel_create(&mut conn, &channel).await.unwrap();
+        sqlx::query("INSERT INTO channel_names (channel_id, lang, name, is_display) VALUES (?1, 'en', ?2, 1)")
+            .bind(id.0)
+            .bind("TestPay")
+            .execute(&mut conn)
+            .await
+            .unwrap();
 
         let found = channel_resolve_by_name(&mut conn, "testpay").await.unwrap();
         assert_eq!(found.unwrap().id, id);
@@ -442,14 +422,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_channel_by_alias() {
-        // 英文种子创建的是 Alipay，应能通过 alipay/支付宝 解析到同一个渠道
+        // 种子数据中应存在 Alipay 及其名称记录，可通过大小写不敏感查找定位
         let mut conn = setup().await;
         let found = channel_resolve_by_name(&mut conn, "alipay").await.unwrap();
         assert!(found.is_some());
-        assert_eq!(found.unwrap().name, "Alipay");
 
         let found = channel_resolve_by_name(&mut conn, "支付宝").await.unwrap();
         assert!(found.is_some());
-        assert_eq!(found.unwrap().name, "Alipay");
     }
 }

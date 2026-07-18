@@ -135,7 +135,6 @@ fn parse_commodity(
         .get("internal_id")
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
-    let name = metadata.get("name").map(|v| unquote(v)).unwrap_or_default();
     let precision = metadata
         .get("precision")
         .and_then(|v| v.parse().ok())
@@ -145,7 +144,6 @@ fn parse_commodity(
         BCommodity {
             internal_id,
             symbol,
-            name,
             precision,
             created_at: None,
         },
@@ -828,11 +826,11 @@ mod tests {
 
     #[test]
     fn test_parse_commodity() {
+        // 旧格式可能带 name 元数据，解析时应容忍并忽略（币种名不再导出）
         let input = "1970-01-01 commodity CNY\n    internal_id: 1\n    name: \"人民币\"\n    precision: 2\n";
         let data = parse(input).unwrap();
         assert_eq!(data.commodities.len(), 1);
         assert_eq!(data.commodities[0].symbol, "CNY");
-        assert_eq!(data.commodities[0].name, "人民币");
         assert_eq!(data.commodities[0].precision, 2);
         assert_eq!(data.commodities[0].internal_id, 1);
     }

@@ -5,6 +5,4 @@ use crate::id::MemberId;
 pub struct Member {
     /// 成员唯一标识符
     pub id: MemberId,
-    /// 成员名称
-    pub name: String,
 }

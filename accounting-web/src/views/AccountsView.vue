@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AccountCreateDrawer from '../components/layout/AccountCreateDrawer.vue'
 import AccountDrawer from '../components/layout/AccountDrawer.vue'
 import AccountGrid from '../components/layout/AccountGrid.vue'
@@ -8,6 +9,7 @@ import type { AccountDto } from '../types/api'
 import { compileRows, type GridRow } from '../utils/accountGrid'
 
 const store = useAccountStore()
+const { t } = useI18n()
 
 onMounted(() => {
   if (store.accounts.length === 0) {
@@ -15,12 +17,12 @@ onMounted(() => {
   }
 })
 
-const typeLabels: Record<string, string> = {
-  Asset: '资产',
-  Income: '收入',
-  Expense: '支出',
-  Equity: '权益',
-}
+const typeLabels = computed<Record<string, string>>(() => ({
+  Asset: t('accounts.types.Asset'),
+  Income: t('accounts.types.Income'),
+  Expense: t('accounts.types.Expense'),
+  Equity: t('accounts.types.Equity'),
+}))
 
 const typeOrder = ['Asset', 'Income', 'Expense', 'Equity'] as const
 
@@ -120,10 +122,12 @@ function onAccountCreated() {
 <template>
   <div class="accounts">
     <div class="header-actions">
-      <button class="create-btn" @click="createDrawerVisible = true">+ 新建账户</button>
+      <button class="create-btn" @click="createDrawerVisible = true">
+        + {{ t('accounts.createAccount') }}
+      </button>
     </div>
 
-    <div v-if="store.loading" class="loading">加载中...</div>
+    <div v-if="store.loading" class="loading">{{ t('common.loading') }}</div>
     <div v-else-if="store.error" class="error">{{ store.error }}</div>
 
     <template v-else>

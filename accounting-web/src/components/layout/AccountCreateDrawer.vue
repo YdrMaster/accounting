@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { createAccount, fetchAccounts } from '../../api/client'
 import type { AccountDto } from '../../types/api'
+
+const { t } = useI18n()
 
 const emit = defineEmits<{
   close: []
@@ -15,12 +18,12 @@ const accounts = ref<AccountDto[]>([])
 const error = ref<string | null>(null)
 const submitting = ref(false)
 
-const typeOptions = [
-  { value: 'Asset', label: '资产' },
-  { value: 'Income', label: '收入' },
-  { value: 'Expense', label: '支出' },
-  { value: 'Equity', label: '权益' },
-]
+const typeOptions = computed(() => [
+  { value: 'Asset', label: t('createDrawer.typeAsset') },
+  { value: 'Income', label: t('createDrawer.typeIncome') },
+  { value: 'Expense', label: t('createDrawer.typeExpense') },
+  { value: 'Equity', label: t('createDrawer.typeEquity') },
+])
 
 onMounted(async () => {
   try {
@@ -46,7 +49,7 @@ function findRootType(account: AccountDto): string | null {
 
 async function handleSubmit() {
   if (!name.value.trim()) {
-    error.value = '请输入账户名称'
+    error.value = t('createDrawer.nameRequired')
     return
   }
   submitting.value = true
@@ -72,7 +75,7 @@ async function handleSubmit() {
     <div class="drawer">
       <div class="drawer-header">
         <div class="drag-handle" />
-        <span class="drawer-title">新建账户</span>
+        <span class="drawer-title">{{ t('createDrawer.title') }}</span>
         <button class="drawer-close" @click="emit('close')">×</button>
       </div>
 
@@ -80,12 +83,12 @@ async function handleSubmit() {
         <div v-if="error" class="error-banner">{{ error }}</div>
 
         <div class="field">
-          <label>账户名称</label>
-          <input v-model="name" type="text" placeholder="输入账户名称" />
+          <label>{{ t('createDrawer.nameLabel') }}</label>
+          <input v-model="name" type="text" :placeholder="t('createDrawer.namePlaceholder')" />
         </div>
 
         <div class="field">
-          <label>账户类型</label>
+          <label>{{ t('createDrawer.typeLabel') }}</label>
           <select v-model="accountType">
             <option v-for="opt in typeOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
@@ -94,9 +97,9 @@ async function handleSubmit() {
         </div>
 
         <div class="field">
-          <label>父账户（可选）</label>
+          <label>{{ t('createDrawer.parentLabel') }}</label>
           <select v-model="parentId">
-            <option :value="null">无（创建为根账户）</option>
+            <option :value="null">{{ t('createDrawer.parentNone') }}</option>
             <option v-for="a in parentCandidates" :key="a.id" :value="a.id">
               {{ a.name }}
             </option>
@@ -104,7 +107,7 @@ async function handleSubmit() {
         </div>
 
         <button class="submit-btn" :disabled="submitting || !name.trim()" @click="handleSubmit">
-          {{ submitting ? '创建中...' : '确认创建' }}
+          {{ submitting ? t('createDrawer.creating') : t('createDrawer.confirmCreate') }}
         </button>
       </div>
     </div>

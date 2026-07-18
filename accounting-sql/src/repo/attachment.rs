@@ -67,16 +67,20 @@ pub async fn attachment_delete(
 
 #[cfg(test)]
 async fn insert_test_transaction(conn: &mut SqliteConnection) -> TransactionId {
-    let member_id: i64 =
-        sqlx::query_scalar("INSERT INTO members (name) VALUES ('Test Member') RETURNING id")
-            .fetch_one(&mut *conn)
-            .await
-            .unwrap();
+    let member_id: i64 = sqlx::query_scalar("INSERT INTO members DEFAULT VALUES RETURNING id")
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO member_names (member_id, lang, name, is_system, is_display) VALUES (?1, 'en', 'Test Member', 0, 1)")
+        .bind(member_id)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO transactions (date_time, description, member_id) VALUES ('2024-01-01 00:00:00', 'test', ?1) RETURNING id",
     )
     .bind(member_id)
-    .fetch_one(conn)
+    .fetch_one(&mut *conn)
     .await
     .unwrap();
     TransactionId(id)
@@ -92,9 +96,7 @@ mod tests {
             .await
             .unwrap();
         crate::schema::initialize_schema(&mut conn).await.unwrap();
-        crate::schema::insert_seed_data(&mut conn, "en")
-            .await
-            .unwrap();
+        crate::schema::insert_seed_data(&mut conn).await.unwrap();
         conn
     }
 

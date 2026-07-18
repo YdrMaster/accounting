@@ -53,7 +53,6 @@ fn generate_commodity(out: &mut String, c: &BCommodity) {
         .unwrap_or_else(|| NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
     let _ = writeln!(out, "{} commodity {}", date, c.symbol);
     write_metadata(out, "internal_id", &c.internal_id.to_string());
-    write_metadata(out, "name", &escape_string(&c.name));
     write_metadata(out, "precision", &c.precision.to_string());
     let _ = writeln!(out);
 }
@@ -223,7 +222,6 @@ mod tests {
             commodities: vec![BCommodity {
                 internal_id: 1,
                 symbol: "CNY".to_string(),
-                name: "人民币".to_string(),
                 precision: 2,
                 created_at: None,
             }],
@@ -307,7 +305,6 @@ mod tests {
             output
         );
         assert!(output.contains("internal_id: 1"));
-        assert!(output.contains("name: \"人民币\""));
         assert!(output.contains("precision: 2"));
     }
 

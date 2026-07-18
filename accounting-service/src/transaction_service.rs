@@ -357,10 +357,9 @@ mod tests {
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
-    fn sample_account(name: &str) -> Account {
+    fn sample_account() -> Account {
         Account {
             id: AccountId(0),
-            name: name.to_string(),
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -385,22 +384,22 @@ mod tests {
     }
 
     async fn create_test_account(db: &SqliteDatabase, name: &str) -> AccountId {
-        let account = sample_account(name);
-        db.account_create(&account).await.unwrap()
+        let account = sample_account();
+        db.account_create_with_name(&account, name, "en")
+            .await
+            .unwrap()
     }
 
     async fn create_test_member(db: &SqliteDatabase) -> MemberId {
-        let member = accounting::member::Member {
-            id: MemberId(0),
-            name: "Test Member".to_string(),
-        };
-        db.member_create(&member).await.unwrap()
+        db.member_get_or_create_by_name("Test Member", "en")
+            .await
+            .unwrap()
     }
 
     #[tokio::test]
     async fn test_submit_transaction() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
         let tx_service = TransactionService::new(db);
         let member_id = create_test_member(&tx_service.db).await;
 
@@ -429,7 +428,7 @@ mod tests {
     #[tokio::test]
     async fn test_submit_unbalanced_fails() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
         let tx_service = TransactionService::new(db);
         let member_id = create_test_member(&tx_service.db).await;
 
@@ -458,7 +457,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_transaction() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
         let tx_service = TransactionService::new(db);
         let member_id = create_test_member(&tx_service.db).await;
 
@@ -510,7 +509,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_transaction() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
         let tx_service = TransactionService::new(db);
         let member_id = create_test_member(&tx_service.db).await;
 

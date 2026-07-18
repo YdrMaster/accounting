@@ -38,17 +38,25 @@ impl MemberCmd {
         self,
         db: SqliteDatabase,
         format: OutputFormat,
+        lang: &str,
     ) -> Result<(), accounting::error::AccountingError> {
         match self {
             MemberCmd::List(args) => {
-                let service = accounting_service::member_service::MemberService::new(db);
+                let service = accounting_service::member_service::MemberService::new(db.clone());
                 let members = service.list(args.limit, args.offset).await?;
-                let rows: Vec<MemberRow> = members.iter().map(|m| m.into()).collect();
+                let ids: Vec<accounting::id::MemberId> = members.iter().map(|m| m.id).collect();
+                let names = db.member_display_names(&ids, lang).await.map_err(|e| {
+                    accounting::error::AccountingError::DatabaseError(e.to_string())
+                })?;
+                let rows: Vec<MemberRow> = members
+                    .iter()
+                    .map(|m| MemberRow::new(m, names.get(&m.id).cloned().unwrap_or_default()))
+                    .collect();
                 print_vec(&rows, format);
             }
             MemberCmd::Add(args) => {
                 let service = accounting_service::member_service::MemberService::new(db);
-                let id = service.add(args.name).await?;
+                let id = service.add(args.name, lang).await?;
                 print_line(&format!("{}", t!("member_created", id = id.0)), format);
             }
             MemberCmd::Delete(args) => {

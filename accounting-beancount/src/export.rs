@@ -2,16 +2,49 @@ use crate::error::BeancountError;
 use crate::generator;
 use crate::model::*;
 use accounting::account::Account;
+use accounting::channel::Channel;
 use accounting::id::*;
+use accounting::member::Member;
 use accounting::transaction::TransactionKind;
 use accounting_sql::SqliteDatabase;
 use chrono::NaiveDate;
 use std::collections::HashMap;
 use std::path::Path;
 
-pub async fn export(db: &SqliteDatabase, output_dir: &Path) -> Result<String, BeancountError> {
+/// 按显示语言解析出的实体显示名（批量回退链：所选 → en → zh-CN → rowid）
+struct DisplayNames {
+    accounts: HashMap<AccountId, String>,
+    members: HashMap<MemberId, String>,
+    channels: HashMap<ChannelId, String>,
+}
+
+/// 导出数据库为 beancount 文本。
+///
+/// - `db`：数据库句柄（内存库亦可导出）
+/// - `lang`：当前显示语言，账户/成员/渠道等名字按回退链取该语言的显示名；
+///   币种只导出 symbol，不导出名字
+pub async fn export(
+    db: &SqliteDatabase,
+    lang: &str,
+    output_dir: &Path,
+) -> Result<String, BeancountError> {
     let attachments_dir = output_dir.join("attachments");
     std::fs::create_dir_all(&attachments_dir)?;
+
+    let accounts = db
+        .account_list()
+        .await
+        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+    let members = db
+        .member_list()
+        .await
+        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+    let channels = db
+        .channel_list()
+        .await
+        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+
+    let names = resolve_display_names(db, &accounts, &members, &channels, lang).await?;
 
     let mut data = BeancountData {
         commodities: vec![],
@@ -23,13 +56,44 @@ pub async fn export(db: &SqliteDatabase, output_dir: &Path) -> Result<String, Be
     };
 
     export_commodities(db, &mut data).await?;
-    export_accounts(db, &mut data).await?;
-    export_members(db, &mut data).await?;
-    export_channels(db, &mut data).await?;
-    export_transactions(db, &mut data, &attachments_dir).await?;
+    export_accounts(db, &accounts, &names.accounts, &mut data).await?;
+    export_members(&members, &names.members, &mut data);
+    export_channels(&channels, &names.channels, &mut data);
+    export_transactions(db, &accounts, &names, &mut data, &attachments_dir, lang).await?;
 
     let text = generator::generate(&data);
     Ok(text)
+}
+
+async fn resolve_display_names(
+    db: &SqliteDatabase,
+    accounts: &[Account],
+    members: &[Member],
+    channels: &[Channel],
+    lang: &str,
+) -> Result<DisplayNames, BeancountError> {
+    let account_ids: Vec<AccountId> = accounts.iter().map(|a| a.id).collect();
+    let member_ids: Vec<MemberId> = members.iter().map(|m| m.id).collect();
+    let channel_ids: Vec<ChannelId> = channels.iter().map(|c| c.id).collect();
+
+    let accounts = db
+        .account_display_names(&account_ids, lang)
+        .await
+        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+    let members = db
+        .member_display_names(&member_ids, lang)
+        .await
+        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+    let channels = db
+        .channel_display_names(&channel_ids, lang)
+        .await
+        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+
+    Ok(DisplayNames {
+        accounts,
+        members,
+        channels,
+    })
 }
 
 async fn export_commodities(
@@ -49,7 +113,6 @@ async fn export_commodities(
         data.commodities.push(BCommodity {
             internal_id: c.id.0,
             symbol: c.symbol.clone(),
-            name: c.name.clone(),
             precision: c.precision,
             created_at: created_at_map.get(&c.id).copied(),
         });
@@ -59,13 +122,10 @@ async fn export_commodities(
 
 async fn export_accounts(
     db: &SqliteDatabase,
+    accounts: &[Account],
+    account_names: &HashMap<AccountId, String>,
     data: &mut BeancountData,
 ) -> Result<(), BeancountError> {
-    let accounts = db
-        .account_list()
-        .await
-        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
-
     let created_at_by_id: HashMap<AccountId, NaiveDate> = db
         .account_created_at_map()
         .await
@@ -74,12 +134,9 @@ async fn export_accounts(
     let accounts_by_id: HashMap<AccountId, Account> =
         accounts.iter().map(|a| (a.id, a.clone())).collect();
 
-    for a in &accounts {
-        let path = a.display_path(&accounts_by_id);
-        let root_name = db
-            .account_find_root_name(a.id)
-            .await
-            .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+    for a in accounts {
+        let path = a.display_path(&accounts_by_id, account_names);
+        let root_name = root_account_name(a, &accounts_by_id, account_names);
 
         let account_type = match root_name.as_str() {
             "Asset" | "Assets" | "资产" => "Asset",
@@ -102,47 +159,56 @@ async fn export_accounts(
     Ok(())
 }
 
-async fn export_members(
-    db: &SqliteDatabase,
-    data: &mut BeancountData,
-) -> Result<(), BeancountError> {
-    let members = db
-        .member_list()
-        .await
-        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
-
-    for m in &members {
-        data.members.push(BMember {
-            internal_id: m.id.0,
-            name: m.name.clone(),
-        });
+/// 沿父链找到根账户，返回其显示名（无根或无名时返回空串）
+fn root_account_name(
+    account: &Account,
+    accounts_by_id: &HashMap<AccountId, Account>,
+    account_names: &HashMap<AccountId, String>,
+) -> String {
+    let mut current = account;
+    while let Some(pid) = current.parent_id {
+        match accounts_by_id.get(&pid) {
+            Some(parent) => current = parent,
+            None => break,
+        }
     }
-    Ok(())
+    account_names.get(&current.id).cloned().unwrap_or_default()
 }
 
-async fn export_channels(
-    db: &SqliteDatabase,
+fn export_members(
+    members: &[Member],
+    member_names: &HashMap<MemberId, String>,
     data: &mut BeancountData,
-) -> Result<(), BeancountError> {
-    let channels = db
-        .channel_list()
-        .await
-        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+) {
+    for m in members {
+        data.members.push(BMember {
+            internal_id: m.id.0,
+            name: member_names.get(&m.id).cloned().unwrap_or_default(),
+        });
+    }
+}
 
-    for ch in &channels {
+fn export_channels(
+    channels: &[Channel],
+    channel_names: &HashMap<ChannelId, String>,
+    data: &mut BeancountData,
+) {
+    for ch in channels {
         data.channels.push(BChannel {
             internal_id: ch.id.0,
-            name: ch.name.clone(),
+            name: channel_names.get(&ch.id).cloned().unwrap_or_default(),
             description: ch.description.clone(),
         });
     }
-    Ok(())
 }
 
 async fn export_transactions(
     db: &SqliteDatabase,
+    accounts: &[Account],
+    names: &DisplayNames,
     data: &mut BeancountData,
     attachments_dir: &Path,
+    lang: &str,
 ) -> Result<(), BeancountError> {
     use accounting::transaction_filter::TransactionFilter;
 
@@ -152,10 +218,6 @@ async fn export_transactions(
         .await
         .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
 
-    let accounts = db
-        .account_list()
-        .await
-        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
     let accounts_by_id: HashMap<AccountId, Account> =
         accounts.iter().map(|a| (a.id, a.clone())).collect();
 
@@ -168,23 +230,9 @@ async fn export_transactions(
         .map(|c| (c.id, c.symbol.clone()))
         .collect();
 
-    let channels = db
-        .channel_list()
-        .await
-        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
-    let ch_by_id: HashMap<ChannelId, String> =
-        channels.iter().map(|c| (c.id, c.name.clone())).collect();
-
-    let members = db
-        .member_list()
-        .await
-        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
-    let mem_by_id: HashMap<MemberId, String> =
-        members.iter().map(|m| (m.id, m.name.clone())).collect();
-
     let tx_ids: Vec<TransactionId> = transactions.iter().map(|t| t.id).collect();
     let tags_by_tx = db
-        .tag_names_by_transactions(&tx_ids)
+        .tag_names_by_transactions(&tx_ids, lang)
         .await
         .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
 
@@ -207,7 +255,7 @@ async fn export_transactions(
             TransactionKind::Reimbursement => "reimbursement",
         };
 
-        let member_name = Some(mem_by_id.get(&tx.member_id).cloned().ok_or_else(|| {
+        let member_name = Some(names.members.get(&tx.member_id).cloned().ok_or_else(|| {
             BeancountError::DatabaseError(format!("member id {} not found", tx.member_id.0))
         })?);
 
@@ -215,7 +263,11 @@ async fn export_transactions(
             .iter()
             .map(|cp| ChannelPathEntry {
                 position: cp.position,
-                channel: ch_by_id.get(&cp.channel_id).cloned().unwrap_or_default(),
+                channel: names
+                    .channels
+                    .get(&cp.channel_id)
+                    .cloned()
+                    .unwrap_or_default(),
                 status: cp.status,
             })
             .collect();
@@ -226,7 +278,7 @@ async fn export_transactions(
         for p in &postings {
             let account_path = {
                 let acct = accounts_by_id.get(&p.account_id);
-                acct.map(|a| a.display_path(&accounts_by_id))
+                acct.map(|a| a.display_path(&accounts_by_id, &names.accounts))
                     .unwrap_or_default()
             };
 
@@ -282,7 +334,7 @@ async fn export_transactions(
             let account_path = postings
                 .first()
                 .and_then(|p| accounts_by_id.get(&p.account_id))
-                .map(|a| a.display_path(&accounts_by_id))
+                .map(|a| a.display_path(&accounts_by_id, &names.accounts))
                 .unwrap_or_default();
 
             data.documents.push(BDocument {

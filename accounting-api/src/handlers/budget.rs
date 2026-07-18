@@ -4,7 +4,7 @@ use crate::dto::{
     BudgetDetailDto, BudgetDto, BudgetItemStatusDto, BudgetLimitDto, BudgetLimitRequest,
     BudgetStatusDto, CreateBudgetRequest, UpdateBudgetRequest, parse_period, to_period_string,
 };
-use crate::handlers::member::AppState;
+use crate::handlers::{Lang, member::AppState};
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, BudgetId, CommodityId};
 use accounting_service::report::budget::BudgetService;
@@ -56,10 +56,10 @@ fn map_error(e: AccountingError) -> BudgetResponse {
     }
 }
 
-fn budget_to_dto(b: &accounting::budget::Budget) -> BudgetDto {
+fn budget_to_dto(b: &accounting::budget::Budget, name: String) -> BudgetDto {
     BudgetDto {
         id: b.id.0,
-        name: b.name.clone(),
+        name,
         period: to_period_string(b.period).to_string(),
         commodity_id: b.commodity_id.0,
     }
@@ -83,12 +83,31 @@ pub struct BudgetStatusQuery {
     pub date: Option<String>,
 }
 
+/// 批量解析预算显示名
+async fn budget_names(
+    db: &accounting_sql::SqliteDatabase,
+    ids: &[BudgetId],
+    lang: &str,
+) -> Result<std::collections::HashMap<BudgetId, String>, BudgetResponse> {
+    db.budget_display_names(ids, lang)
+        .await
+        .map_err(|e| BudgetResponse::BadRequest(e.to_string()))
+}
+
 /// 列出所有预算表
-async fn list_budgets(State(state): State<Arc<AppState>>) -> BudgetResponse {
+async fn list_budgets(State(state): State<Arc<AppState>>, Lang(lang): Lang) -> BudgetResponse {
     let service = BudgetService::new(state.db.clone());
     match service.list_budgets().await {
         Ok(budgets) => {
-            let dtos: Vec<BudgetDto> = budgets.iter().map(budget_to_dto).collect();
+            let ids: Vec<BudgetId> = budgets.iter().map(|b| b.id).collect();
+            let names = match budget_names(&state.db, &ids, &lang).await {
+                Ok(n) => n,
+                Err(r) => return r,
+            };
+            let dtos: Vec<BudgetDto> = budgets
+                .iter()
+                .map(|b| budget_to_dto(b, names.get(&b.id).cloned().unwrap_or_default()))
+                .collect();
             BudgetResponse::Ok(Json(serde_json::to_value(dtos).unwrap()))
         }
         Err(e) => map_error(e),
@@ -98,6 +117,7 @@ async fn list_budgets(State(state): State<Arc<AppState>>) -> BudgetResponse {
 /// 创建预算表
 async fn create_budget(
     State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
     Json(req): Json<CreateBudgetRequest>,
 ) -> BudgetResponse {
     let period = match parse_period(&req.period) {
@@ -111,7 +131,13 @@ async fn create_budget(
 
     let service = BudgetService::new(state.db.clone());
     match service
-        .create_budget(&req.name, period, CommodityId(req.commodity_id), &limits)
+        .create_budget(
+            &req.name,
+            period,
+            CommodityId(req.commodity_id),
+            &limits,
+            &lang,
+        )
         .await
     {
         Ok(id) => {
@@ -130,13 +156,21 @@ async fn create_budget(
 /// 获取预算表详情
 async fn get_budget_detail(
     State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
     Path(id): Path<i64>,
 ) -> BudgetResponse {
     let service = BudgetService::new(state.db.clone());
     match service.get_budget_detail(BudgetId(id)).await {
         Ok(detail) => {
+            let names = match budget_names(&state.db, &[detail.budget.id], &lang).await {
+                Ok(n) => n,
+                Err(r) => return r,
+            };
             let dto = BudgetDetailDto {
-                budget: budget_to_dto(&detail.budget),
+                budget: budget_to_dto(
+                    &detail.budget,
+                    names.get(&detail.budget.id).cloned().unwrap_or_default(),
+                ),
                 limits: detail
                     .limits
                     .iter()
@@ -155,6 +189,7 @@ async fn get_budget_detail(
 /// 更新预算表
 async fn update_budget(
     State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
     Path(id): Path<i64>,
     Json(req): Json<UpdateBudgetRequest>,
 ) -> BudgetResponse {
@@ -175,6 +210,7 @@ async fn update_budget(
             period,
             CommodityId(req.commodity_id),
             &limits,
+            &lang,
         )
         .await
     {
@@ -203,6 +239,7 @@ async fn delete_budget(State(state): State<Arc<AppState>>, Path(id): Path<i64>) 
 /// 查询预算执行情况
 async fn get_budget_status(
     State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
     Path(id): Path<i64>,
     Query(query): Query<BudgetStatusQuery>,
 ) -> BudgetResponse {
@@ -218,8 +255,15 @@ async fn get_budget_status(
     let service = BudgetService::new(state.db.clone());
     match service.get_budget_status(BudgetId(id), date).await {
         Ok(status) => {
+            let names = match budget_names(&state.db, &[status.budget.id], &lang).await {
+                Ok(n) => n,
+                Err(r) => return r,
+            };
             let dto = BudgetStatusDto {
-                budget: budget_to_dto(&status.budget),
+                budget: budget_to_dto(
+                    &status.budget,
+                    names.get(&status.budget.id).cloned().unwrap_or_default(),
+                ),
                 period_start: status.period_start.to_string(),
                 period_end: status.period_end.to_string(),
                 items: status

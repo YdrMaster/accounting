@@ -1,6 +1,7 @@
 use sqlx::{FromRow, SqliteConnection};
 
 use crate::error::DbError;
+use crate::names::COMMODITY_NAMES;
 use accounting::commodity::Commodity;
 use accounting::id::CommodityId;
 
@@ -8,7 +9,6 @@ use accounting::id::CommodityId;
 struct CommodityRow {
     id: i64,
     symbol: String,
-    name: String,
     precision: i32,
     created_at: Option<String>,
 }
@@ -23,7 +23,6 @@ impl CommodityRow {
         Commodity {
             id: CommodityId(self.id),
             symbol: self.symbol,
-            name: self.name,
             precision: self.precision as u8,
             created_at,
         }
@@ -35,7 +34,7 @@ pub async fn commodity_get_by_symbol(
     symbol: &str,
 ) -> Result<Option<Commodity>, DbError> {
     let row: Option<CommodityRow> = sqlx::query_as(
-        "SELECT id, symbol, name, precision, created_at FROM commodities WHERE symbol = ?1",
+        "SELECT id, symbol, precision, created_at FROM commodities WHERE symbol = ?1",
     )
     .bind(symbol)
     .fetch_optional(conn)
@@ -45,12 +44,11 @@ pub async fn commodity_get_by_symbol(
 }
 
 pub async fn commodity_list(conn: &mut SqliteConnection) -> Result<Vec<Commodity>, DbError> {
-    let rows: Vec<CommodityRow> = sqlx::query_as(
-        "SELECT id, symbol, name, precision, created_at FROM commodities ORDER BY id",
-    )
-    .fetch_all(conn)
-    .await
-    .map_err(|e| DbError::Database(e.to_string()))?;
+    let rows: Vec<CommodityRow> =
+        sqlx::query_as("SELECT id, symbol, precision, created_at FROM commodities ORDER BY id")
+            .fetch_all(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(rows.into_iter().map(|r| r.into_commodity()).collect())
 }
 
@@ -86,10 +84,9 @@ pub async fn commodity_create(
     commodity: &Commodity,
 ) -> Result<CommodityId, DbError> {
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO commodities (symbol, name, precision) VALUES (?1, ?2, ?3) RETURNING id",
+        "INSERT INTO commodities (symbol, precision) VALUES (?1, ?2) RETURNING id",
     )
     .bind(&commodity.symbol)
-    .bind(&commodity.name)
     .bind(commodity.precision as i32)
     .fetch_one(conn)
     .await
@@ -97,15 +94,19 @@ pub async fn commodity_create(
     Ok(CommodityId(id))
 }
 
+/// 按 symbol 查找或创建币种；创建时把名称写入 commodity_names。
+///
+/// 名称语言由调用方传入；创建前校验全局命名空间唯一性（不区分大小写，
+/// 撞系统内置名同样拒绝）。
 pub async fn commodity_upsert_by_symbol(
     conn: &mut SqliteConnection,
     symbol: &str,
     name: &str,
+    lang: &str,
     precision: u8,
 ) -> Result<CommodityId, DbError> {
     if let Some(existing) = commodity_get_by_symbol(conn, symbol).await? {
-        sqlx::query("UPDATE commodities SET name = ?1, precision = ?2 WHERE id = ?3")
-            .bind(name)
+        sqlx::query("UPDATE commodities SET precision = ?1 WHERE id = ?2")
             .bind(precision as i32)
             .bind(existing.id.0)
             .execute(conn)
@@ -113,14 +114,20 @@ pub async fn commodity_upsert_by_symbol(
             .map_err(|e| DbError::Database(e.to_string()))?;
         Ok(existing.id)
     } else {
+        COMMODITY_NAMES
+            .ensure_available(conn, None, None, name)
+            .await?;
         let commodity = Commodity {
             id: CommodityId(0),
             symbol: symbol.to_string(),
-            name: name.to_string(),
             precision,
             created_at: None,
         };
-        commodity_create(conn, &commodity).await
+        let id = commodity_create(conn, &commodity).await?;
+        COMMODITY_NAMES
+            .insert(conn, id.0, lang, name, false, true)
+            .await?;
+        Ok(id)
     }
 }
 
@@ -134,9 +141,7 @@ mod tests {
             .await
             .unwrap();
         crate::schema::initialize_schema(&mut conn).await.unwrap();
-        crate::schema::insert_seed_data(&mut conn, "en")
-            .await
-            .unwrap();
+        crate::schema::insert_seed_data(&mut conn).await.unwrap();
         conn
     }
 
@@ -147,7 +152,6 @@ mod tests {
         assert!(found.is_some());
         let c = found.unwrap();
         assert_eq!(c.symbol, "CNY");
-        assert_eq!(c.name, "人民币");
         assert_eq!(c.precision, 2);
     }
 
@@ -165,7 +169,6 @@ mod tests {
         let commodity = Commodity {
             id: CommodityId(0),
             symbol: "USD".to_string(),
-            name: "美元".to_string(),
             precision: 2,
             created_at: None,
         };
@@ -175,6 +178,47 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(fetched.id, id);
-        assert_eq!(fetched.name, "美元");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_writes_name() {
+        let mut conn = setup().await;
+
+        // 创建时写入名称（语言由调用方传入）
+        let id = commodity_upsert_by_symbol(&mut conn, "USD", "US Dollar", "en", 2)
+            .await
+            .unwrap();
+        assert_eq!(
+            COMMODITY_NAMES
+                .resolve_display(&mut conn, id.0, "zh-CN")
+                .await
+                .unwrap(),
+            Some("US Dollar".to_string())
+        );
+
+        // 已有 symbol 再 upsert：不重复写名字
+        let again = commodity_upsert_by_symbol(&mut conn, "USD", "US Dollar", "en", 4)
+            .await
+            .unwrap();
+        assert_eq!(again, id);
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM commodity_names WHERE commodity_id = ?1")
+                .bind(id.0)
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+        assert_eq!(count, 1);
+
+        // 名称撞系统内置名（任何语言，NOCASE）→ 拒绝
+        assert!(
+            commodity_upsert_by_symbol(&mut conn, "EUR", "人民币", "zh-CN", 2)
+                .await
+                .is_err()
+        );
+        assert!(
+            commodity_upsert_by_symbol(&mut conn, "EUR", "chinese yuan", "en", 2)
+                .await
+                .is_err()
+        );
     }
 }

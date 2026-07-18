@@ -125,30 +125,23 @@ impl MappingService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use accounting::channel::Channel;
-    use accounting::member::Member;
     use accounting_sql::SqliteDatabase;
 
     async fn setup_db() -> (SqliteDatabase, MemberId, ChannelId) {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
 
         // 创建成员
-        let member = Member {
-            id: MemberId(0),
-            name: "测试用户".to_string(),
-        };
-        let member_id = db.member_create(&member).await.unwrap();
+        let member_id = db
+            .member_get_or_create_by_name("测试用户", "zh-CN")
+            .await
+            .unwrap();
 
         // 创建渠道
-        let channel = Channel {
-            id: ChannelId(0),
-            name: "TestPay".to_string(),
-            description: None,
-            account_id: None,
-            is_system: false,
-        };
-        let channel_id = db.channel_create(&channel).await.unwrap();
+        let channel_id = db
+            .channel_upsert_by_name("TestPay", None, None, "en")
+            .await
+            .unwrap();
 
         (db, member_id, channel_id)
     }

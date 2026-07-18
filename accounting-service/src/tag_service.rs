@@ -2,7 +2,6 @@ use accounting::error::AccountingError;
 use accounting::id::TagId;
 use accounting::tag::Tag;
 use accounting_sql::SqliteDatabase;
-
 /// 标签服务
 pub struct TagService {
     db: SqliteDatabase,
@@ -23,19 +22,16 @@ impl TagService {
     }
 
     /// 添加标签
+    ///
+    /// 名字按 `lang` 语言写入名字表；同名标签已存在时返回既有标签 ID。
     pub async fn add(
         &self,
         name: String,
         description: Option<String>,
+        lang: &str,
     ) -> Result<TagId, AccountingError> {
-        let tag = Tag {
-            id: TagId(0),
-            name,
-            description,
-            is_system: false,
-        };
         self.db
-            .tag_create(&tag)
+            .tag_upsert_by_name(&name, description.as_deref(), lang)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
@@ -57,20 +53,36 @@ mod tests {
     #[tokio::test]
     async fn test_tag_lifecycle() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
         let service = TagService::new(db);
 
         let id = service
-            .add("travel".to_string(), Some("旅行".to_string()))
+            .add("travel".to_string(), Some("旅行".to_string()), "en")
             .await
             .unwrap();
         assert!(id.0 > 0);
 
         let list = service.list().await.unwrap();
-        assert!(list.iter().any(|t| t.name == "travel"));
+        assert!(list.iter().any(|t| t.id == id));
+        assert!(
+            service
+                .db
+                .tag_get_by_name("travel")
+                .await
+                .unwrap()
+                .is_some()
+        );
 
         service.delete("travel").await.unwrap();
         let list = service.list().await.unwrap();
-        assert!(!list.iter().any(|t| t.name == "travel"));
+        assert!(!list.iter().any(|t| t.id == id));
+        assert!(
+            service
+                .db
+                .tag_get_by_name("travel")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }

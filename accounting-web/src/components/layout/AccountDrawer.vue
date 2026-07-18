@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   closeAccount,
   deleteAccount,
@@ -10,6 +11,8 @@ import {
   updateAccountFields,
 } from '../../api/client'
 import type { AccountDto, MemberDto } from '../../types/api'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   account: AccountDto
@@ -114,7 +117,7 @@ async function doRename() {
   try {
     await renameAccount(props.account.id, name)
     emit('updated', { ...props.account, name })
-    success.value = '名称已更新'
+    success.value = t('drawer.nameUpdated')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -128,7 +131,7 @@ async function doBillingDay() {
   try {
     await updateAccountFields(props.account.id, val, props.account.repayment_day)
     emit('updated', { ...props.account, billing_day: val })
-    success.value = '账单日已更新'
+    success.value = t('drawer.billingDayUpdated')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -142,7 +145,7 @@ async function doRepaymentDay() {
   try {
     await updateAccountFields(props.account.id, props.account.billing_day, val)
     emit('updated', { ...props.account, repayment_day: val })
-    success.value = '还款日已更新'
+    success.value = t('drawer.repaymentDayUpdated')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -156,10 +159,15 @@ async function addOwner(memberId: number) {
     await setAccountOwners(props.account.id, newIds)
     selectedOwnerIds.value = newIds
     emit('updated', { ...props.account, owner_ids: newIds })
-    success.value = '所有者已更新'
+    success.value = t('drawer.ownersUpdated')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
+}
+
+function selectOwner(memberId: number) {
+  addOwner(memberId)
+  ownerDropdownOpen.value = false
 }
 
 async function removeOwner(memberId: number) {
@@ -169,7 +177,7 @@ async function removeOwner(memberId: number) {
     await setAccountOwners(props.account.id, newIds)
     selectedOwnerIds.value = newIds
     emit('updated', { ...props.account, owner_ids: newIds })
-    success.value = '所有者已更新'
+    success.value = t('drawer.ownersUpdated')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -180,7 +188,7 @@ async function doClose() {
   try {
     await closeAccount(props.account.id)
     emit('updated', { ...props.account, closed_at: new Date().toISOString() })
-    success.value = '账户已关闭'
+    success.value = t('drawer.accountClosed')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -191,7 +199,7 @@ async function doReopen() {
   try {
     await reopenAccount(props.account.id)
     emit('updated', { ...props.account, closed_at: null })
-    success.value = '账户已重开'
+    success.value = t('drawer.accountReopened')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -200,7 +208,7 @@ async function doReopen() {
 async function doDelete() {
   if (isRoot || isSystem) return
   clearMessages()
-  if (!confirm(`确定删除账户「${props.account.name}」？`)) return
+  if (!confirm(t('drawer.deleteConfirm', { name: props.account.name }))) return
   try {
     await deleteAccount(props.account.id)
     emit('deleted', props.account.id)
@@ -240,11 +248,11 @@ async function doDelete() {
       <div v-if="success" class="message success-msg">{{ success }}</div>
 
       <div class="drawer-body">
-        <div v-if="isRoot" class="info-note">根账户，不可编辑</div>
+        <div v-if="isRoot" class="info-note">{{ t('drawer.rootNote') }}</div>
 
         <template v-else>
           <div class="field">
-            <label class="field-label">账单日（每月第 N 日）</label>
+            <label class="field-label">{{ t('drawer.billingDayLabel') }}</label>
             <input
               v-model.number="draftBillingDay"
               type="number"
@@ -256,7 +264,7 @@ async function doDelete() {
           </div>
 
           <div class="field">
-            <label class="field-label">还款日（每月第 N 日）</label>
+            <label class="field-label">{{ t('drawer.repaymentDayLabel') }}</label>
             <input
               v-model.number="draftRepaymentDay"
               type="number"
@@ -268,7 +276,7 @@ async function doDelete() {
           </div>
 
           <div class="field">
-            <label class="field-label">所有者</label>
+            <label class="field-label">{{ t('drawer.ownersLabel') }}</label>
             <div ref="ownerDropdownRef" class="owner-input-tag">
               <div class="owner-tag-list">
                 <button
@@ -295,7 +303,7 @@ async function doDelete() {
                   :key="member.id"
                   type="button"
                   class="dropdown-item"
-                  @click="addOwner(member.id); ownerDropdownOpen = false"
+                  @click="selectOwner(member.id)"
                 >
                   {{ member.name }}
                 </button>
@@ -305,16 +313,18 @@ async function doDelete() {
 
           <div class="actions">
             <button v-if="!isClosed" type="button" class="action-btn warn" @click="doClose">
-              关闭账户
+              {{ t('drawer.closeAccount') }}
             </button>
-            <button v-else type="button" class="action-btn" @click="doReopen">重开账户</button>
+            <button v-else type="button" class="action-btn" @click="doReopen">
+              {{ t('drawer.reopenAccount') }}
+            </button>
             <button
               v-if="!isRoot && !isSystem"
               type="button"
               class="action-btn danger"
               @click="doDelete"
             >
-              删除账户
+              {{ t('drawer.deleteAccount') }}
             </button>
           </div>
         </template>

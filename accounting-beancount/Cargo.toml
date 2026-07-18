@@ -9,6 +9,7 @@ accounting-sql = { path = "../accounting-sql" }
 chrono.workspace = true
 rust_decimal.workspace = true
 serde_json.workspace = true
+sqlx.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

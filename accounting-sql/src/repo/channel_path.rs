@@ -155,30 +155,53 @@ mod tests {
     async fn setup() -> SqliteConnection {
         let mut conn = SqliteConnection::connect("sqlite::memory:").await.unwrap();
         crate::schema::initialize_schema(&mut conn).await.unwrap();
-        crate::schema::insert_seed_data(&mut conn, "en")
-            .await
-            .unwrap();
+        crate::schema::insert_seed_data(&mut conn).await.unwrap();
         conn
     }
 
     async fn insert_channel(conn: &mut SqliteConnection, name: &str) -> ChannelId {
-        let id: i64 = sqlx::query_scalar("INSERT INTO channels (name) VALUES (?1) RETURNING id")
-            .bind(name)
-            .fetch_one(conn)
+        let id: i64 = sqlx::query_scalar("INSERT INTO channels DEFAULT VALUES RETURNING id")
+            .fetch_one(&mut *conn)
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO channel_names (channel_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(id)
+        .bind(name)
+        .execute(conn)
+        .await
+        .unwrap();
         ChannelId(id)
     }
 
     async fn ensure_test_member(conn: &mut SqliteConnection) -> i64 {
-        sqlx::query("INSERT OR IGNORE INTO members (name) VALUES ('Test Member')")
-            .execute(&mut *conn)
+        // Check if member already exists via member_names
+        if let Some(id) = sqlx::query_scalar::<_, i64>(
+            "SELECT member_id FROM member_names WHERE name = ?1 AND lang = 'en' LIMIT 1",
+        )
+        .bind("Test Member")
+        .fetch_optional(&mut *conn)
+        .await
+        .unwrap()
+        {
+            return id;
+        }
+        let id: i64 = sqlx::query_scalar("INSERT INTO members DEFAULT VALUES RETURNING id")
+            .fetch_one(&mut *conn)
             .await
             .unwrap();
-        sqlx::query_scalar("SELECT id FROM members WHERE name = 'Test Member'")
-            .fetch_one(conn)
-            .await
-            .unwrap()
+        sqlx::query(
+            "INSERT INTO member_names (member_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(id)
+        .bind("Test Member")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+        id
     }
 
     async fn insert_transaction(conn: &mut SqliteConnection) -> TransactionId {

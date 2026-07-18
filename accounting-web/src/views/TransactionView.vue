@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import Decimal from 'decimal.js'
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import TransactionList from '../components/TransactionList.vue'
 import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.vue'
-import { monthOf, todayStr } from '../utils/date'
 import { useTransactionStore } from '../stores/transaction'
+import { monthOf, todayStr } from '../utils/date'
 
 const txStore = useTransactionStore()
+const { t } = useI18n()
 
 const showFormOverlay = ref(false)
 const editingTxId = ref<number | undefined>(undefined)
@@ -83,7 +85,7 @@ function onEditTx(id: number) {
 }
 
 function onDeleteTx(id: number) {
-  if (confirm('确定要删除这条交易吗？')) {
+  if (confirm(t('transactions.confirmDelete'))) {
     txStore.remove(id)
   }
 }
@@ -112,27 +114,37 @@ function onFormSaved() {
   >
     <template v-if="!showFormOverlay">
       <div class="header-actions">
-        <button class="new-tx-btn" @click="onNewTx">+ 新建交易</button>
+        <button class="new-tx-btn" @click="onNewTx">+ {{ t('transactions.new') }}</button>
       </div>
 
       <div class="hero">
-        <p class="month-label">{{ txStore.loadedRange ? txStore.loadedRange.to.slice(0, 7).replace('-', '年') + '月' : '' }}</p>
-        <p class="label">月支出</p>
+        <p class="month-label">
+          {{
+            txStore.loadedRange
+              ? t('transactions.monthLabel', {
+                  year: txStore.loadedRange.to.slice(0, 4),
+                  month: txStore.loadedRange.to.slice(5, 7),
+                })
+              : ''
+          }}
+        </p>
+        <p class="label">{{ t('transactions.monthlyExpense') }}</p>
         <p class="amount">¥{{ formatAmount(new Decimal(monthlyExpense)) }}</p>
         <p class="sub">
-          月收入 ¥{{ formatAmount(new Decimal(monthlyIncome)) }} · 本月结余 ¥{{ formatAmount(new Decimal(monthlyBalance)) }}
+          {{ t('transactions.monthlyIncome') }} ¥{{ formatAmount(new Decimal(monthlyIncome)) }} ·
+          {{ t('transactions.monthlyBalance') }} ¥{{ formatAmount(new Decimal(monthlyBalance)) }}
         </p>
       </div>
 
       <div v-if="txStore.loading && txStore.transactions.length === 0" class="loading">
-        加载中...
+        {{ t('common.loading') }}
       </div>
       <div v-else-if="txStore.error" class="error">{{ txStore.error }}</div>
 
       <TransactionList :transactions="txStore.transactions" @edit="onEditTx" @delete="onDeleteTx" />
 
       <div v-if="txStore.loading && txStore.transactions.length > 0" class="loading-more">
-        加载更多...
+        {{ t('transactions.loadingMore') }}
       </div>
     </template>
 

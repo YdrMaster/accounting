@@ -36,6 +36,15 @@ impl<'a> SqliteTransaction<'a> {
         crate::repo::account::account_create_with_closure(&mut self.tx, account).await
     }
 
+    pub async fn account_create_with_name(
+        &mut self,
+        account: &accounting::account::Account,
+        name: &str,
+        lang: &str,
+    ) -> Result<accounting::id::AccountId, DbError> {
+        crate::repo::account::account_create_with_name(&mut self.tx, account, name, lang).await
+    }
+
     pub async fn account_get(
         &mut self,
         id: accounting::id::AccountId,
@@ -73,8 +82,9 @@ impl<'a> SqliteTransaction<'a> {
         &mut self,
         id: accounting::id::AccountId,
         new_name: &str,
+        lang: &str,
     ) -> Result<(), DbError> {
-        crate::repo::account::account_rename(&mut self.tx, id, new_name).await
+        crate::repo::account::account_rename(&mut self.tx, id, new_name, lang).await
     }
 
     pub async fn account_close(&mut self, id: accounting::id::AccountId) -> Result<(), DbError> {
@@ -107,8 +117,9 @@ impl<'a> SqliteTransaction<'a> {
     pub async fn account_find_root_name(
         &mut self,
         account_id: accounting::id::AccountId,
+        lang: &str,
     ) -> Result<String, DbError> {
-        crate::repo::account::account_find_root_name(&mut self.tx, account_id).await
+        crate::repo::account::account_find_root_name(&mut self.tx, account_id, lang).await
     }
 
     pub async fn account_find_root_id(
@@ -121,8 +132,9 @@ impl<'a> SqliteTransaction<'a> {
     pub async fn account_get_or_create_by_path(
         &mut self,
         path: &str,
+        lang: &str,
     ) -> Result<accounting::id::AccountId, DbError> {
-        crate::repo::account::account_get_or_create_by_path(&mut self.tx, path).await
+        crate::repo::account::account_get_or_create_by_path(&mut self.tx, path, lang).await
     }
 
     pub async fn account_update_by_path(
@@ -179,9 +191,16 @@ impl<'a> SqliteTransaction<'a> {
         symbol: &str,
         name: &str,
         precision: u8,
+        lang: &str,
     ) -> Result<accounting::id::CommodityId, DbError> {
-        crate::repo::commodity::commodity_upsert_by_symbol(&mut self.tx, symbol, name, precision)
-            .await
+        crate::repo::commodity::commodity_upsert_by_symbol(
+            &mut self.tx,
+            symbol,
+            name,
+            lang,
+            precision,
+        )
+        .await
     }
 
     // === Member ===
@@ -211,8 +230,9 @@ impl<'a> SqliteTransaction<'a> {
     pub async fn member_get_or_create_by_name(
         &mut self,
         name: &str,
+        lang: &str,
     ) -> Result<accounting::id::MemberId, DbError> {
-        crate::repo::member::member_get_or_create_by_name(&mut self.tx, name).await
+        crate::repo::member::member_get_or_create_by_name(&mut self.tx, name, lang).await
     }
 
     // === Channel ===
@@ -266,11 +286,10 @@ impl<'a> SqliteTransaction<'a> {
     pub async fn channel_update(
         &mut self,
         id: accounting::id::ChannelId,
-        name: &str,
         description: Option<&str>,
         account_id: Option<accounting::id::AccountId>,
     ) -> Result<(), DbError> {
-        crate::repo::channel::channel_update(&mut self.tx, id, name, description, account_id).await
+        crate::repo::channel::channel_update(&mut self.tx, id, description, account_id).await
     }
 
     pub async fn channel_upsert_by_name(
@@ -278,9 +297,16 @@ impl<'a> SqliteTransaction<'a> {
         name: &str,
         description: Option<&str>,
         account_id: Option<accounting::id::AccountId>,
+        lang: &str,
     ) -> Result<accounting::id::ChannelId, DbError> {
-        crate::repo::channel::channel_upsert_by_name(&mut self.tx, name, description, account_id)
-            .await
+        crate::repo::channel::channel_upsert_by_name(
+            &mut self.tx,
+            name,
+            lang,
+            description,
+            account_id,
+        )
+        .await
     }
 
     // === ChannelPath ===
@@ -379,8 +405,9 @@ impl<'a> SqliteTransaction<'a> {
         &mut self,
         name: &str,
         description: Option<&str>,
+        lang: &str,
     ) -> Result<accounting::id::TagId, DbError> {
-        crate::repo::tag::tag_upsert_by_name(&mut self.tx, name, description).await
+        crate::repo::tag::tag_upsert_by_name(&mut self.tx, name, description, lang).await
     }
 
     // === Attachment ===
@@ -515,6 +542,7 @@ impl<'a> SqliteTransaction<'a> {
     pub async fn posting_sum_by_tag(
         &mut self,
         filter: &accounting::transaction_filter::TransactionFilter,
+        lang: &str,
     ) -> Result<
         Vec<(
             accounting::id::TagId,
@@ -524,12 +552,13 @@ impl<'a> SqliteTransaction<'a> {
         )>,
         DbError,
     > {
-        crate::repo::posting::posting_sum_by_tag(&mut self.tx, filter).await
+        crate::repo::posting::posting_sum_by_tag(&mut self.tx, filter, lang).await
     }
 
     pub async fn posting_sum_by_member(
         &mut self,
         filter: &accounting::transaction_filter::TransactionFilter,
+        lang: &str,
     ) -> Result<
         Vec<(
             accounting::id::MemberId,
@@ -539,12 +568,13 @@ impl<'a> SqliteTransaction<'a> {
         )>,
         DbError,
     > {
-        crate::repo::posting::posting_sum_by_member(&mut self.tx, filter).await
+        crate::repo::posting::posting_sum_by_member(&mut self.tx, filter, lang).await
     }
 
     pub async fn posting_sum_by_channel(
         &mut self,
         filter: &accounting::transaction_filter::TransactionFilter,
+        lang: &str,
     ) -> Result<
         Vec<(
             accounting::id::ChannelId,
@@ -554,7 +584,7 @@ impl<'a> SqliteTransaction<'a> {
         )>,
         DbError,
     > {
-        crate::repo::posting::posting_sum_by_channel(&mut self.tx, filter).await
+        crate::repo::posting::posting_sum_by_channel(&mut self.tx, filter, lang).await
     }
 
     // === Settings ===
@@ -590,9 +620,17 @@ impl<'a> SqliteTransaction<'a> {
         period: accounting::finance_period::FinancePeriod,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
+        lang: &str,
     ) -> Result<accounting::id::BudgetId, DbError> {
-        crate::repo::budget::budget_upsert_by_name(&mut self.tx, name, period, commodity_id, limits)
-            .await
+        crate::repo::budget::budget_upsert_by_name(
+            &mut self.tx,
+            name,
+            lang,
+            period,
+            commodity_id,
+            limits,
+        )
+        .await
     }
 
     pub async fn budget_list_all_with_limits(

@@ -33,20 +33,31 @@ impl ReportCmd {
         self,
         db: SqliteDatabase,
         format: OutputFormat,
+        lang: &str,
     ) -> Result<(), AccountingError> {
         match self {
             ReportCmd::Bs => {
                 let service =
-                    accounting_service::report::balance_sheet::BalanceSheetService::new(db);
+                    accounting_service::report::balance_sheet::BalanceSheetService::new(db.clone());
                 let bs = service.balance_sheet().await?;
+                let account_ids: Vec<accounting::id::AccountId> =
+                    bs.assets.iter().map(|item| item.account.id).collect();
+                let names = db
+                    .account_display_names(&account_ids, lang)
+                    .await
+                    .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
                 let mut rows = Vec::new();
                 for item in &bs.assets {
+                    let account_name = names
+                        .get(&item.account.id)
+                        .cloned()
+                        .unwrap_or_else(|| item.account.id.to_string());
                     for (cid, amount) in &item.balances {
                         rows.push(ReportBalanceRow {
                             account_id: item.account.id.0,
                             account_name: format!(
                                 "{}",
-                                t!("report_account_asset", name = item.account.name)
+                                t!("report_account_asset", name = account_name)
                             ),
                             commodity_id: cid.0,
                             amount: amount.to_string(),
@@ -74,8 +85,15 @@ impl ReportCmd {
                     None => resolve_commodity(&db, "CNY").await?,
                 };
 
-                let service = accounting_service::report::cash_flow::CashFlowService::new(db);
+                let service =
+                    accounting_service::report::cash_flow::CashFlowService::new(db.clone());
                 let report = service.cash_flow_report(date, period, commodity_id).await?;
+                let account_ids: Vec<accounting::id::AccountId> =
+                    report.items.iter().map(|item| item.account.id).collect();
+                let names = db
+                    .account_display_names(&account_ids, lang)
+                    .await
+                    .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
                 println!(
                     "{}",
@@ -91,9 +109,13 @@ impl ReportCmd {
                     "Account", "Inflow", "Outflow", "Net"
                 );
                 for item in &report.items {
+                    let account_name = names
+                        .get(&item.account.id)
+                        .cloned()
+                        .unwrap_or_else(|| item.account.id.to_string());
                     println!(
                         "{:<30} {:>12} {:>12} {:>12}",
-                        item.account.name, item.inflow, item.outflow, item.net
+                        account_name, item.inflow, item.outflow, item.net
                     );
                 }
                 println!("{}", "-".repeat(70));

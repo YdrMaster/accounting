@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AccountPicker from '../components/layout/AccountPicker.vue'
 import { useAccountStore } from '../stores/account'
 import { useBudgetStore } from '../stores/budget'
@@ -7,6 +8,7 @@ import type { BudgetDto, BudgetLimitRequest } from '../types/api'
 
 const budgetStore = useBudgetStore()
 const accountStore = useAccountStore()
+const { t } = useI18n()
 
 onMounted(async () => {
   await Promise.all([budgetStore.loadBudgets(), accountStore.loadAccounts()])
@@ -18,11 +20,11 @@ const editingBudget = ref<BudgetDto | null>(null)
 
 function periodLabel(period: string): string {
   const labels: Record<string, string> = {
-    daily: '每日',
-    'weekly-sun': '每周（周日起）',
-    'weekly-mon': '每周（周一起）',
-    monthly: '每月',
-    yearly: '每年',
+    daily: t('budget.period.daily'),
+    'weekly-sun': t('budget.period.weeklySun'),
+    'weekly-mon': t('budget.period.weeklyMon'),
+    monthly: t('budget.period.monthly'),
+    yearly: t('budget.period.yearly'),
   }
   return labels[period] ?? period
 }
@@ -38,7 +40,7 @@ function onEditBudget(budget: BudgetDto) {
 }
 
 function onDeleteBudget(id: number) {
-  if (confirm('确定要删除这个预算表吗？')) {
+  if (confirm(t('budget.confirmDelete'))) {
     budgetStore.remove(id)
     if (selectedBudgetId.value === id) {
       selectedBudgetId.value = null
@@ -73,11 +75,11 @@ function removeLimit(index: number) {
 
 async function submitBudget() {
   if (!formName.value.trim()) {
-    alert('请输入预算表名称')
+    alert(t('budget.nameRequired'))
     return
   }
   if (formLimits.value.length === 0) {
-    alert('请至少添加一个限额')
+    alert(t('budget.limitRequired'))
     return
   }
 
@@ -96,7 +98,7 @@ async function submitBudget() {
     }
     onBudgetCreated()
   } catch (e) {
-    alert('保存失败: ' + (e instanceof Error ? e.message : String(e)))
+    alert(t('budget.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
   }
 }
 </script>
@@ -106,13 +108,13 @@ async function submitBudget() {
     <!-- Show normal budget view when drawer is not displayed -->
     <template v-if="!showCreateDrawer">
       <div class="header-actions">
-        <button class="new-budget-btn" @click="onNewBudget">+ 新建预算</button>
+        <button class="new-budget-btn" @click="onNewBudget">+ {{ t('budget.new') }}</button>
       </div>
 
-      <div v-if="budgetStore.loading" class="loading">加载中...</div>
+      <div v-if="budgetStore.loading" class="loading">{{ t('common.loading') }}</div>
       <div v-else-if="budgetStore.error" class="error">{{ budgetStore.error }}</div>
       <template v-else>
-        <div v-if="budgetStore.budgets.length === 0" class="empty">暂无预算表</div>
+        <div v-if="budgetStore.budgets.length === 0" class="empty">{{ t('budget.empty') }}</div>
 
         <div v-for="budget in budgetStore.budgets" :key="budget.id" class="budget-card">
           <div class="budget-info">
@@ -120,8 +122,10 @@ async function submitBudget() {
             <p class="budget-meta">{{ periodLabel(budget.period) }}</p>
           </div>
           <div class="budget-actions">
-            <button class="edit-btn" @click="onEditBudget(budget)">编辑</button>
-            <button class="delete-btn" @click="onDeleteBudget(budget.id)">删除</button>
+            <button class="edit-btn" @click="onEditBudget(budget)">{{ t('common.edit') }}</button>
+            <button class="delete-btn" @click="onDeleteBudget(budget.id)">
+              {{ t('common.delete') }}
+            </button>
           </div>
         </div>
       </template>
@@ -132,47 +136,54 @@ async function submitBudget() {
       <div class="drawer-backdrop" @click="onDrawerClosed" />
       <div class="drawer">
         <div class="drawer-header">
-          <span class="drawer-title">{{ editingBudget ? '编辑预算' : '新建预算' }}</span>
+          <span class="drawer-title">
+            {{ editingBudget ? t('budget.editTitle') : t('budget.newTitle') }}
+          </span>
           <button class="drawer-close" @click="onDrawerClosed">×</button>
         </div>
 
         <div class="drawer-body">
           <div class="field">
-            <label>预算表名称</label>
-            <input v-model="formName" type="text" placeholder="输入预算表名称" />
+            <label>{{ t('budget.nameLabel') }}</label>
+            <input v-model="formName" type="text" :placeholder="t('budget.namePlaceholder')" />
           </div>
 
           <div class="field">
-            <label>周期类型</label>
+            <label>{{ t('budget.periodLabel') }}</label>
             <select v-model="formPeriod">
-              <option value="daily">每日</option>
-              <option value="weekly-sun">每周（周日起）</option>
-              <option value="weekly-mon">每周（周一起）</option>
-              <option value="monthly">每月</option>
-              <option value="yearly">每年</option>
+              <option value="daily">{{ t('budget.period.daily') }}</option>
+              <option value="weekly-sun">{{ t('budget.period.weeklySun') }}</option>
+              <option value="weekly-mon">{{ t('budget.period.weeklyMon') }}</option>
+              <option value="monthly">{{ t('budget.period.monthly') }}</option>
+              <option value="yearly">{{ t('budget.period.yearly') }}</option>
             </select>
           </div>
 
-          <div class="section-title">限额列表</div>
+          <div class="section-title">{{ t('budget.limitsTitle') }}</div>
 
           <div v-for="(limit, index) in formLimits" :key="index" class="limit-row">
             <AccountPicker
               :model-value="limit.account_id || null"
-              placeholder="选择账户"
+              :placeholder="t('budget.selectAccount')"
               @update:model-value="
                 id => {
                   formLimits[index].account_id = id
                 }
               "
             />
-            <input v-model="limit.amount" type="number" step="0.01" placeholder="限额" />
+            <input
+              v-model="limit.amount"
+              type="number"
+              step="0.01"
+              :placeholder="t('budget.limitPlaceholder')"
+            />
             <button class="remove-limit-btn" @click="removeLimit(index)">×</button>
           </div>
 
-          <button class="add-limit-btn" @click="addLimit">+ 添加限额</button>
+          <button class="add-limit-btn" @click="addLimit">+ {{ t('budget.addLimit') }}</button>
 
           <button class="submit-btn" @click="submitBudget">
-            {{ editingBudget ? '保存' : '创建' }}
+            {{ editingBudget ? t('common.save') : t('budget.create') }}
           </button>
         </div>
       </div>

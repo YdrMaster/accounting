@@ -1,14 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use accounting::account::Account;
-    use accounting::attachment::Attachment;
-    use accounting::channel::Channel;
     use accounting::channel_path::{ChannelPathNode, ChannelPathStatus};
     use accounting::commodity::Commodity;
     use accounting::id::*;
-    use accounting::member::Member;
     use accounting::posting::Posting;
-    use accounting::tag::Tag;
     use accounting::transaction::{Transaction, TransactionKind};
     use accounting::transaction_filter::TransactionFilter;
     use accounting_beancount::export::export;
@@ -18,96 +13,52 @@ mod tests {
     use std::str::FromStr;
     use tempfile::TempDir;
 
+    /// 导出接口接收数据库句柄，源库可用内存库
     async fn setup_source_db() -> SqliteDatabase {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("zh-CN")).await.unwrap();
+        db.initialize().await.unwrap();
         db
     }
 
     async fn setup_target_db() -> SqliteDatabase {
-        let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("zh-CN")).await.unwrap();
-        db
+        setup_source_db().await
     }
 
     async fn create_test_data(db: &SqliteDatabase) -> TransactionId {
-        // 创建商品
-        let _usd_id = db
-            .commodity_create(&Commodity {
-                id: CommodityId(0),
-                symbol: "USD".to_string(),
-                name: "美元".to_string(),
-                precision: 2,
-                created_at: None,
-            })
-            .await
-            .unwrap();
+        // 创建商品（币种只有 symbol，无名字）
+        db.commodity_create(&Commodity {
+            id: CommodityId(0),
+            symbol: "USD".to_string(),
+            precision: 2,
+            created_at: None,
+        })
+        .await
+        .unwrap();
 
         // 创建成员
         let member_id = db
-            .member_create(&Member {
-                id: MemberId(0),
-                name: "张三".to_string(),
-            })
+            .member_get_or_create_by_name("张三", "zh-CN")
             .await
             .unwrap();
 
         // 创建渠道
         let channel_id = db
-            .channel_create(&Channel {
-                id: ChannelId(0),
-                name: "微信".to_string(),
-                description: Some("微信支付".to_string()),
-                account_id: None,
-                is_system: false,
-            })
+            .channel_upsert_by_name("微信", Some("微信支付"), None, "zh-CN")
             .await
             .unwrap();
 
-        // 创建账户
-        let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
+        // 创建账户：中文路径、英文路径各一例
         let bank_id = db
-            .account_create_with_closure(&Account {
-                id: AccountId(0),
-                name: "工商银行".to_string(),
-                parent_id: Some(assets_id),
-                closed_at: None,
-                is_system: false,
-                billing_day: None,
-                repayment_day: None,
-            })
+            .account_get_or_create_by_path("资产:工商银行", "zh-CN")
             .await
             .unwrap();
-
-        let expense_id = db
-            .account_get_by_name("Expenses")
-            .await
-            .unwrap()
-            .unwrap()
-            .id;
-        let food_id = db
-            .account_create_with_closure(&Account {
-                id: AccountId(0),
-                name: "餐饮".to_string(),
-                parent_id: Some(expense_id),
-                closed_at: None,
-                is_system: false,
-                billing_day: None,
-                repayment_day: None,
-            })
+        let dining_id = db
+            .account_get_or_create_by_path("Expenses:Dining", "en")
             .await
             .unwrap();
 
         // 创建标签
-        let tag_id = db
-            .tag_create(&Tag {
-                id: TagId(0),
-                name: "日常".to_string(),
-                description: Some("日常开支".to_string()),
-                is_system: false,
-            })
-            .await
-            .unwrap();
+        let tag_id = db.tag_upsert_by_name("日常", None, "zh-CN").await.unwrap();
 
         // 创建交易
         let tx = Transaction {
@@ -124,12 +75,14 @@ mod tests {
         let tag_ids = vec![tag_id];
         let tx_id = db.transaction_insert(&tx, &tag_ids).await.unwrap();
 
+        let cny_id = db.commodity_get_by_symbol("CNY").await.unwrap().unwrap().id;
+
         // 创建分录
         let posting1 = Posting {
             id: PostingId(0),
             transaction_id: tx_id,
-            account_id: food_id,
-            commodity_id: CommodityId(1), // CNY
+            account_id: dining_id,
+            commodity_id: cny_id,
             amount: Decimal::from_str("-50.00").unwrap(),
             cost: None,
             cost_commodity_id: None,
@@ -143,7 +96,7 @@ mod tests {
             id: PostingId(0),
             transaction_id: tx_id,
             account_id: bank_id,
-            commodity_id: CommodityId(1), // CNY
+            commodity_id: cny_id,
             amount: Decimal::from_str("50.00").unwrap(),
             cost: None,
             cost_commodity_id: None,
@@ -166,15 +119,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_round_trip_basic() {
+        let temp_dir = TempDir::new().unwrap();
         let source_db = setup_source_db().await;
         let _tx_id = create_test_data(&source_db).await;
 
-        let temp_dir = TempDir::new().unwrap();
-        let output_dir = temp_dir.path().to_path_buf();
+        let output_dir = temp_dir.path().join("out");
 
-        // 导出
-        let beancount_text = export(&source_db, &output_dir).await.unwrap();
+        // 导出（中文显示语言）
+        let beancount_text = export(&source_db, "zh-CN", &output_dir).await.unwrap();
         assert!(!beancount_text.is_empty());
+        assert!(
+            beancount_text.contains("资产:工商银行"),
+            "zh-CN 导出应含中文账户路径，got:\n{}",
+            beancount_text
+        );
 
         // 写入 beancount 文件
         let beancount_file = output_dir.join("transactions.beancount");
@@ -188,25 +146,52 @@ mod tests {
 
         // 验证导入统计
         assert_eq!(import_result.commodities, 2); // CNY + USD
-        assert!(import_result.accounts >= 6); // 4 根账户 + 工商银行 + 餐饮
+        assert!(import_result.accounts >= 6); // 4 根账户 + 工商银行 + Dining
         assert_eq!(import_result.members, 1);
-        assert_eq!(import_result.channels, 2); // 支付宝 (seed) + 微信
+        assert_eq!(import_result.channels, 2); // Alipay (seed) + 微信
         assert_eq!(import_result.transactions, 1);
 
-        // 验证数据一致性
+        // 验证数据一致性（名字走名字表命中查询）
         let members = target_db.member_list().await.unwrap();
         assert_eq!(members.len(), 1);
-        assert_eq!(members[0].name, "张三");
+        assert!(
+            target_db
+                .member_get_by_name("张三")
+                .await
+                .unwrap()
+                .is_some()
+        );
 
         let channels = target_db.channel_list().await.unwrap();
         assert_eq!(channels.len(), 2);
-        let wechat = channels.iter().find(|c| c.name == "微信").unwrap();
+        let wechat = target_db
+            .channel_get_by_name("微信")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(wechat.description, Some("微信支付".to_string()));
 
         let commodities = target_db.commodity_list().await.unwrap();
         assert_eq!(commodities.len(), 2);
-        let usd = commodities.iter().find(|c| c.symbol == "USD").unwrap();
-        assert_eq!(usd.name, "美元");
+        assert!(
+            target_db
+                .commodity_get_by_symbol("USD")
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // 中英文账户名均按名字表命中既有账户（不重复创建；账户按路径逐段命中）
+        let bank = target_db
+            .account_get_by_name("资产:工商银行")
+            .await
+            .unwrap();
+        assert!(bank.is_some(), "中文账户路径应命中导入后的账户");
+        let dining = target_db
+            .account_get_by_name("Expenses:Dining")
+            .await
+            .unwrap();
+        assert!(dining.is_some(), "英文账户路径应命中导入后的账户");
 
         let transactions = target_db
             .transaction_list(&TransactionFilter::default(), 100, 0)
@@ -232,13 +217,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_export_lang_switches_account_paths() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_db = setup_source_db().await;
+        let _tx_id = create_test_data(&source_db).await;
+
+        let en_dir = temp_dir.path().join("out_en");
+        let zh_dir = temp_dir.path().join("out_zh");
+
+        let en_text = export(&source_db, "en", &en_dir).await.unwrap();
+        let zh_text = export(&source_db, "zh-CN", &zh_dir).await.unwrap();
+
+        // 同一库，系统根账户路径随 lang 变化
+        assert!(
+            en_text.contains("open Assets:"),
+            "en 导出应含英文系统账户路径，got:\n{}",
+            en_text
+        );
+        assert!(
+            zh_text.contains("open 资产:"),
+            "zh-CN 导出应含中文系统账户路径，got:\n{}",
+            zh_text
+        );
+        assert_ne!(en_text, zh_text);
+
+        // 英文账户名（en 名字）在两种语言下按回退链解析
+        assert!(en_text.contains("Expenses:Dining"));
+        assert!(zh_text.contains("支出:Dining"));
+        // 中文账户名（zh-CN 名字）在 en 下回退到中文名
+        assert!(en_text.contains("Assets:工商银行"));
+        assert!(zh_text.contains("资产:工商银行"));
+    }
+
+    #[tokio::test]
     async fn test_round_trip_with_attachments() {
+        let temp_dir = TempDir::new().unwrap();
         let source_db = setup_source_db().await;
         let tx_id = create_test_data(&source_db).await;
 
         // 创建附件
         let attachment_data = b"test receipt content";
-        let attachment = Attachment {
+        let attachment = accounting::attachment::Attachment {
             id: AttachmentId(0),
             transaction_id: tx_id,
             filename: "receipt.txt".to_string(),
@@ -246,11 +265,10 @@ mod tests {
         };
         source_db.attachment_create(&attachment).await.unwrap();
 
-        let temp_dir = TempDir::new().unwrap();
-        let output_dir = temp_dir.path().to_path_buf();
+        let output_dir = temp_dir.path().join("out");
 
         // 导出
-        let beancount_text = export(&source_db, &output_dir).await.unwrap();
+        let beancount_text = export(&source_db, "zh-CN", &output_dir).await.unwrap();
 
         // 验证附件文件已创建
         let attachments_dir = output_dir.join("attachments");
@@ -316,11 +334,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_import_missing_attachment() {
+        let temp_dir = TempDir::new().unwrap();
         let source_db = setup_source_db().await;
         let tx_id = create_test_data(&source_db).await;
 
         // 创建附件
-        let attachment = Attachment {
+        let attachment = accounting::attachment::Attachment {
             id: AttachmentId(0),
             transaction_id: tx_id,
             filename: "missing.txt".to_string(),
@@ -328,11 +347,10 @@ mod tests {
         };
         source_db.attachment_create(&attachment).await.unwrap();
 
-        let temp_dir = TempDir::new().unwrap();
-        let output_dir = temp_dir.path().to_path_buf();
+        let output_dir = temp_dir.path().join("out");
 
         // 导出
-        let beancount_text = export(&source_db, &output_dir).await.unwrap();
+        let beancount_text = export(&source_db, "zh-CN", &output_dir).await.unwrap();
 
         // 删除附件文件
         let attachments_dir = output_dir.join("attachments");
@@ -357,16 +375,30 @@ mod tests {
         assert_eq!(import_result.attachments, 0);
     }
 
+    /// 导出接口接收 `&SqliteDatabase`，内存库可直接导出（不再要求文件路径）
     #[tokio::test]
-    async fn test_import_duplicate_transaction() {
+    async fn test_export_from_in_memory_db() {
         let source_db = setup_source_db().await;
         let _tx_id = create_test_data(&source_db).await;
 
         let temp_dir = TempDir::new().unwrap();
-        let output_dir = temp_dir.path().to_path_buf();
+        let output_dir = temp_dir.path().join("out");
+
+        let text = export(&source_db, "zh-CN", &output_dir).await.unwrap();
+        assert!(!text.is_empty());
+        assert!(text.contains("资产:工商银行"));
+    }
+
+    #[tokio::test]
+    async fn test_import_duplicate_transaction() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_db = setup_source_db().await;
+        let _tx_id = create_test_data(&source_db).await;
+
+        let output_dir = temp_dir.path().join("out");
 
         // 导出
-        let beancount_text = export(&source_db, &output_dir).await.unwrap();
+        let beancount_text = export(&source_db, "zh-CN", &output_dir).await.unwrap();
 
         // 写入 beancount 文件
         let beancount_file = output_dir.join("transactions.beancount");

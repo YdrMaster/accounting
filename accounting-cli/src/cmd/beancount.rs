@@ -30,20 +30,25 @@ impl BeancountCmd {
         self,
         db: SqliteDatabase,
         _format: OutputFormat,
+        lang: &str,
     ) -> Result<(), AccountingError> {
         match self {
-            BeancountCmd::Export(args) => run_export(db, args).await,
+            BeancountCmd::Export(args) => run_export(db, args, lang).await,
             BeancountCmd::Import(args) => run_import(db, args).await,
         }
     }
 }
 
-async fn run_export(db: SqliteDatabase, args: BeancountExportArgs) -> Result<(), AccountingError> {
+async fn run_export(
+    db: SqliteDatabase,
+    args: BeancountExportArgs,
+    lang: &str,
+) -> Result<(), AccountingError> {
     std::fs::create_dir_all(&args.output_dir).map_err(|e| {
         AccountingError::Unknown(format!("{}", t!("beancount_create_dir_failed", error = e)))
     })?;
 
-    let text = accounting_beancount::export::export(&db, &args.output_dir)
+    let text = accounting_beancount::export::export(&db, lang, &args.output_dir)
         .await
         .map_err(|e| AccountingError::Unknown(e.to_string()))?;
 

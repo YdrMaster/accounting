@@ -141,23 +141,25 @@ mod tests {
     async fn setup() -> (SqliteConnection, MemberId, ChannelId, AccountId) {
         let mut conn = SqliteConnection::connect("sqlite::memory:").await.unwrap();
         crate::schema::initialize_schema(&mut conn).await.unwrap();
-        crate::schema::insert_seed_data(&mut conn, "en")
-            .await
-            .unwrap();
+        crate::schema::insert_seed_data(&mut conn).await.unwrap();
 
         // 创建成员
-        let member = Member {
-            id: MemberId(0),
-            name: "测试".to_string(),
-        };
+        let member = Member { id: MemberId(0) };
         let member_id = crate::repo::member::member_create(&mut conn, &member)
             .await
             .unwrap();
+        // 为成员添加英文名
+        sqlx::query(
+            "INSERT INTO member_names (member_id, lang, name, is_system, is_display) VALUES (?1, 'en', 'Test Member', 0, 1)",
+        )
+        .bind(member_id.0)
+        .execute(&mut conn)
+        .await
+        .unwrap();
 
         // 创建渠道
         let channel = Channel {
             id: ChannelId(0),
-            name: "TestPay".to_string(),
             description: None,
             account_id: None,
             is_system: false,
@@ -165,6 +167,14 @@ mod tests {
         let channel_id = crate::repo::channel::channel_create(&mut conn, &channel)
             .await
             .unwrap();
+        // 为渠道添加英文名
+        sqlx::query(
+            "INSERT INTO channel_names (channel_id, lang, name, is_system, is_display) VALUES (?1, 'en', 'TestPay', 0, 1)",
+        )
+        .bind(channel_id.0)
+        .execute(&mut conn)
+        .await
+        .unwrap();
 
         // 使用种子数据中的 Assets 账户 (id=1)
         let account_id = AccountId(1);

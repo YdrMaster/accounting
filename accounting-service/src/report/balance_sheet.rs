@@ -79,7 +79,6 @@ mod tests {
     use super::*;
     use accounting::account::Account;
     use accounting::id::{AccountId, CommodityId, MemberId, PostingId, TransactionId};
-    use accounting::member::Member;
     use accounting::posting::Posting;
     use accounting::transaction::{Transaction, TransactionKind};
     use accounting_sql::SqliteDatabase;
@@ -87,10 +86,9 @@ mod tests {
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
-    fn sample_account(name: &str, parent_id: Option<AccountId>) -> Account {
+    fn bare_account(parent_id: Option<AccountId>) -> Account {
         Account {
             id: AccountId(0),
-            name: name.to_string(),
             parent_id,
             closed_at: None,
             is_system: false,
@@ -116,17 +114,12 @@ mod tests {
 
     async fn setup_db() -> SqliteDatabase {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
         db
     }
 
     async fn create_test_member(db: &SqliteDatabase) -> MemberId {
-        db.member_create(&Member {
-            id: MemberId(0),
-            name: "Test".to_string(),
-        })
-        .await
-        .unwrap()
+        db.member_get_or_create_by_name("Test", "en").await.unwrap()
     }
 
     #[tokio::test]
@@ -143,8 +136,10 @@ mod tests {
             .unwrap()
             .id;
 
-        let bank = sample_account("Bank", Some(assets_id));
-        let bank_id = db.account_create_with_closure(&bank).await.unwrap();
+        let bank_id = db
+            .account_create_with_name(&bare_account(Some(assets_id)), "Bank", "en")
+            .await
+            .unwrap();
 
         let tx = Transaction {
             id: TransactionId(0),
@@ -168,7 +163,7 @@ mod tests {
         let sheet = service.balance_sheet().await.unwrap();
 
         assert_eq!(sheet.assets.len(), 1);
-        assert_eq!(sheet.assets[0].account.name, "Bank");
+        assert_eq!(sheet.assets[0].account.id, bank_id);
         assert_eq!(sheet.assets[0].balances.len(), 1);
         assert_eq!(
             sheet.assets[0].balances[0].1,
@@ -184,8 +179,10 @@ mod tests {
 
         let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
 
-        let bank = sample_account("Bank", Some(assets_id));
-        let bank_id = db.account_create_with_closure(&bank).await.unwrap();
+        let bank_id = db
+            .account_create_with_name(&bare_account(Some(assets_id)), "Bank", "en")
+            .await
+            .unwrap();
 
         let tx = Transaction {
             id: TransactionId(0),

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAccountStore } from '../../stores/account'
 import type { AccountDto } from '../../types/api'
 import { compileRows, type GridRow } from '../../utils/accountGrid'
@@ -18,11 +19,13 @@ onMounted(() => {
   }
 })
 
+const { t } = useI18n()
+
 const typeLabels: Record<string, string> = {
-  Asset: '资产',
-  Income: '收入',
-  Expense: '支出',
-  Equity: '权益',
+  Asset: t('pickerOverlay.typeAsset'),
+  Income: t('pickerOverlay.typeIncome'),
+  Expense: t('pickerOverlay.typeExpense'),
+  Equity: t('pickerOverlay.typeEquity'),
 }
 
 const typeOrder = ['Asset', 'Income', 'Expense', 'Equity'] as const
@@ -95,8 +98,8 @@ function onConfirm() {
 <template>
   <div class="picker-overlay">
     <div class="picker-header">
-      <button class="back-btn" @click="emit('close')">← 返回</button>
-      <span class="picker-title">选择账户</span>
+      <button class="back-btn" @click="emit('close')">{{ t('pickerOverlay.back') }}</button>
+      <span class="picker-title">{{ t('pickerOverlay.selectTitle') }}</span>
     </div>
 
     <div class="picker-body">
@@ -112,7 +115,9 @@ function onConfirm() {
     </div>
 
     <div class="picker-footer">
-      <button class="confirm-btn" :disabled="!selectedAccount" @click="onConfirm">确认选择</button>
+      <button class="confirm-btn" :disabled="!selectedAccount" @click="onConfirm">
+        {{ t('pickerOverlay.confirm') }}
+      </button>
     </div>
   </div>
 </template>

@@ -6,7 +6,6 @@ use std::collections::HashMap;
 pub struct BCommodity {
     pub internal_id: i64,
     pub symbol: String,
-    pub name: String,
     pub precision: u8,
     pub created_at: Option<NaiveDate>,
 }

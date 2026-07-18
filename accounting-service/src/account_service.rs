@@ -20,8 +20,15 @@ impl AccountService {
         Self { db }
     }
 
-    /// 创建账户并维护闭包表（保留原始接口）
-    pub async fn create(&self, account: Account) -> Result<AccountId, AccountingError> {
+    /// 创建账户并维护闭包表
+    ///
+    /// `name` 为账户名字（按 `lang` 语言写入名字表）；实体本身不再携带名字。
+    pub async fn create(
+        &self,
+        account: Account,
+        name: &str,
+        lang: &str,
+    ) -> Result<AccountId, AccountingError> {
         let mut tx = self
             .db
             .transaction()
@@ -41,25 +48,25 @@ impl AccountService {
                 )));
             }
         } else {
-            AccountType::from_str(&account.name).map_err(|_| {
+            AccountType::from_str(name).map_err(|_| {
                 AccountingError::InvalidTransaction(
-                    t!("unrecognized_account_prefix", prefix = account.name).to_string(),
+                    t!("unrecognized_account_prefix", prefix = name).to_string(),
                 )
             })?;
         }
 
         // 同级 name 唯一性检查
         let existing = tx
-            .account_get_by_parent_and_name(account.parent_id, &account.name)
+            .account_get_by_parent_and_name(account.parent_id, name)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         if existing.is_some() {
-            return Err(AccountingError::AccountAlreadyExists(account.name.clone()));
+            return Err(AccountingError::AccountAlreadyExists(name.to_string()));
         }
 
-        // 创建账户并维护闭包表
+        // 创建账户并维护闭包表，名字按 lang 写入名字表
         let id = tx
-            .account_create_with_closure(&account)
+            .account_create_with_name(&account, name, lang)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
@@ -73,10 +80,12 @@ impl AccountService {
     ///
     /// 解析 `:` 分隔的层级结构，校验第一段为有效根节点名，
     /// 逐级按 name + parent_id 查找/创建父账户，最后创建目标账户。
+    /// 新创建账户的名字按 `lang` 语言写入名字表。
     /// 返回目标账户的 ID。
     pub async fn create_cascading(
         &self,
         path: &str,
+        lang: &str,
         billing_day: Option<u8>,
         repayment_day: Option<u8>,
         owner_ids: &[MemberId],
@@ -119,7 +128,6 @@ impl AccountService {
             let is_leaf = i == segments.len() - 1;
             let account = Account {
                 id: AccountId(0),
-                name: segment.to_string(),
                 parent_id,
                 closed_at: None,
                 is_system: false,
@@ -128,7 +136,7 @@ impl AccountService {
             };
 
             let id = tx
-                .account_create_with_closure(&account)
+                .account_create_with_name(&account, segment, lang)
                 .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             parent_id = Some(id);
@@ -158,6 +166,7 @@ impl AccountService {
     /// 与 `create_cascading` 类似，但允许路径中间段为任意名称。
     /// 只要首段是已存在的系统根账户（如 "Assets" / "Income" / "Expenses" / "Equity"）即可。
     /// 用于导入场景：在标准根账户下自动创建 `Import` 子树。
+    /// 自动创建的账户名来自外部账单数据，语言标注为 `und`（未确定）。
     pub async fn ensure_cascading(&self, path: &str) -> Result<AccountId, AccountingError> {
         let segments: Vec<&str> = path.split(':').collect();
         if segments.is_empty() {
@@ -210,7 +219,6 @@ impl AccountService {
 
             let account = Account {
                 id: AccountId(0),
-                name: segment.to_string(),
                 parent_id,
                 closed_at: None,
                 is_system: false,
@@ -218,8 +226,9 @@ impl AccountService {
                 repayment_day: None,
             };
 
+            // 导入自动创建的账户名来自外部账单，语言未确定（und）
             let id = tx
-                .account_create_with_closure(&account)
+                .account_create_with_name(&account, segment, accounting::name::lang::UND)
                 .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             parent_id = Some(id);
@@ -256,8 +265,9 @@ impl AccountService {
             .posting_sum_by_account(id)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        // 根账户名用于内部账户类型判定，固定按 en 解析（系统根账户必有 en 系统名）
         let root_name = tx
-            .account_find_root_name(account.id)
+            .account_find_root_name(account.id, accounting::name::lang::EN)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         let account_type =
@@ -391,14 +401,15 @@ mod tests {
     use accounting_sql::SqliteDatabase;
 
     async fn setup_db() -> SqliteDatabase {
-        SqliteDatabase::open_in_memory().await.unwrap()
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize().await.unwrap();
+        db
     }
 
-    fn sample_account(name: &str) -> Account {
+    fn bare_account(parent_id: Option<AccountId>) -> Account {
         Account {
             id: AccountId(0),
-            name: name.to_string(),
-            parent_id: None,
+            parent_id,
             closed_at: None,
             is_system: false,
             billing_day: None,
@@ -410,8 +421,10 @@ mod tests {
     async fn test_create_account() {
         let db = setup_db().await;
         let service = AccountService::new(db);
-        let account = sample_account("Asset");
-        let id = service.create(account).await.unwrap();
+        let id = service
+            .create(bare_account(None), "Asset", "en")
+            .await
+            .unwrap();
         assert!(id.0 > 0);
     }
 
@@ -420,12 +433,19 @@ mod tests {
         let db = setup_db().await;
         let service = AccountService::new(db);
 
-        let parent = sample_account("Equity");
-        let parent_id = service.create(parent).await.unwrap();
+        // 种子数据中的系统根账户 Equity 作为父账户
+        let parent_id = service
+            .db
+            .account_get_by_name("Equity")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
 
-        let mut child = sample_account("OpeningSvc");
-        child.parent_id = Some(parent_id);
-        let child_id = service.create(child).await.unwrap();
+        let child_id = service
+            .create(bare_account(Some(parent_id)), "OpeningSvc", "en")
+            .await
+            .unwrap();
 
         // 验证闭包关系：子账户的根应为父账户
         let root_id = service.db.account_find_root_id(child_id).await.unwrap();
@@ -440,13 +460,20 @@ mod tests {
         let db = setup_db().await;
         let service = AccountService::new(db);
 
-        let parent = sample_account("Income");
-        let parent_id = service.create(parent).await.unwrap();
+        let parent_id = service
+            .db
+            .account_get_by_name("Income")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
 
-        let mut child = sample_account("SalarySvc");
-        child.parent_id = Some(parent_id);
-        service.create(child.clone()).await.unwrap();
-        let result = service.create(child).await;
+        let child = bare_account(Some(parent_id));
+        service
+            .create(child.clone(), "SalarySvc", "en")
+            .await
+            .unwrap();
+        let result = service.create(child, "SalarySvc", "en").await;
         assert!(matches!(
             result,
             Err(AccountingError::AccountAlreadyExists(_))
@@ -457,9 +484,8 @@ mod tests {
     async fn test_create_with_nonexistent_parent_fails() {
         let db = setup_db().await;
         let service = AccountService::new(db);
-        let mut account = sample_account("Expense");
-        account.parent_id = Some(AccountId(99999));
-        let result = service.create(account).await;
+        let account = bare_account(Some(AccountId(99999)));
+        let result = service.create(account, "Whatever", "en").await;
         assert!(matches!(result, Err(AccountingError::AccountNotFound(_))));
     }
 
@@ -468,12 +494,18 @@ mod tests {
         let db = setup_db().await;
         let service = AccountService::new(db);
 
-        let parent = sample_account("Expenses");
-        let parent_id = service.create(parent).await.unwrap();
+        let parent_id = service
+            .db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
 
-        let mut child = sample_account("FoodSvc");
-        child.parent_id = Some(parent_id);
-        let id = service.create(child).await.unwrap();
+        let id = service
+            .create(bare_account(Some(parent_id)), "FoodSvc", "en")
+            .await
+            .unwrap();
 
         service.close(id).await.unwrap();
 
@@ -488,8 +520,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ensure_cascading_under_import_root() {
-        let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        let db = setup_db().await;
         let service = AccountService::new(db);
 
         // Expenses 系统根账户下创建 Import 子树
@@ -536,8 +567,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ensure_cascading_idempotent() {
-        let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        let db = setup_db().await;
         let service = AccountService::new(db);
 
         let id1 = service
@@ -553,8 +583,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ensure_cascading_rejects_nonexistent_root() {
-        let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        let db = setup_db().await;
         let service = AccountService::new(db);
 
         let result = service.ensure_cascading("Nonexistent:子账户").await;
@@ -563,13 +592,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_ensure_cascading_rejects_non_system_root() {
-        let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        let db = setup_db().await;
         let service = AccountService::new(db);
 
         // 先在 Assets 下创建普通子账户
         let _bank_id = service
-            .create_cascading("Assets:Bank", None, None, &[])
+            .create_cascading("Assets:Bank", "en", None, None, &[])
             .await
             .unwrap();
 

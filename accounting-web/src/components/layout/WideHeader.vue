@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 defineProps<{
   leftDisabled: boolean
   rightDisabled: boolean
@@ -9,6 +11,8 @@ const emit = defineEmits<{
   left: []
   right: []
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -18,7 +22,7 @@ const emit = defineEmits<{
     </button>
     <span v-else class="spacer"></span>
 
-    <h1>记账</h1>
+    <h1>{{ t('header.title') }}</h1>
 
     <button v-if="showControls" type="button" :disabled="rightDisabled" @click="emit('right')">
       ›

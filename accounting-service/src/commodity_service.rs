@@ -23,21 +23,17 @@ impl CommodityService {
     }
 
     /// 添加商品
+    ///
+    /// 名字按 `lang` 语言写入名字表；同 symbol 商品已存在时更新精度并返回既有 ID。
     pub async fn add(
         &self,
         symbol: String,
         name: String,
         precision: u8,
+        lang: &str,
     ) -> Result<CommodityId, AccountingError> {
-        let commodity = Commodity {
-            id: CommodityId(0),
-            symbol,
-            name,
-            precision,
-            created_at: None,
-        };
         self.db
-            .commodity_create(&commodity)
+            .commodity_upsert_by_symbol(&symbol, &name, precision, lang)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
@@ -51,11 +47,11 @@ mod tests {
     #[tokio::test]
     async fn test_commodity_lifecycle() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
         let service = CommodityService::new(db);
 
         let id = service
-            .add("USD".to_string(), "美元".to_string(), 2)
+            .add("USD".to_string(), "美元".to_string(), 2, "zh-CN")
             .await
             .unwrap();
         assert!(id.0 > 0);

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { AccountDto } from '../../types/api'
 import AccountPickerOverlay from './AccountPickerOverlay.vue'
 
@@ -11,6 +12,8 @@ defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [accountId: number]
 }>()
+
+const { t } = useI18n()
 
 const showOverlay = ref(false)
 
@@ -31,8 +34,10 @@ function onSelect(account: AccountDto) {
 <template>
   <div class="account-picker">
     <button class="picker-trigger" @click="onClick">
-      <span v-if="modelValue" class="selected-id">账户 #{{ modelValue }}</span>
-      <span v-else class="placeholder">{{ placeholder || '选择账户' }}</span>
+      <span v-if="modelValue" class="selected-id">{{
+        t('picker.accountNumber', { id: modelValue })
+      }}</span>
+      <span v-else class="placeholder">{{ placeholder || t('picker.selectPlaceholder') }}</span>
     </button>
 
     <Teleport to=".picker-portal">

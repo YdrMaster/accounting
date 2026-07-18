@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义用于排除交易统计的内置系统标签，包括不计收支和不计预算两个独立标签，以及中英文双语种子数据。
+定义用于排除交易统计的内置系统标签，包括不计收支和不计预算两个独立标签，以及按语言存储的多语言系统名字种子数据。
 
 ## Requirements
 
@@ -43,13 +43,13 @@
 - **WHEN** 交易同时有"不计收支"和"不计预算"标签
 - **THEN** 该交易同时不计入收支统计和预算统计
 
-### Requirement: 中英文双语种子数据
-系统 SHALL 在中英文种子数据中各插入 2 条内置标签记录，共 4 条。
+### Requirement: 内置标签多语言系统名字种子
+系统 SHALL 在种子数据中创建 `exclude-from-income-statement` 和 `exclude-from-budget` 两个内置标签实体（`is_system=1`），并在 `tag_names` 中为每个实体按受支持语言（en、zh-CN）插入系统名字（英文 `exclude-from-income-statement`/`不计收支`、`exclude-from-budget`/`不计预算`），分别设为对应语言的显示名。种子内容与建库显示语言无关（见 `entity-names-i18n`）。
 
-#### Scenario: 英文种子数据
+#### Scenario: 英文环境初始化
 - **WHEN** 使用英文 locale 初始化数据库
-- **THEN** tags 表包含 `exclude-from-income-statement` 和 `exclude-from-budget` 两条 is_system=1 记录
+- **THEN** 两个内置标签实体的英文显示名分别为 `exclude-from-income-statement` 和 `exclude-from-budget`
 
-#### Scenario: 中文种子数据
+#### Scenario: 中文环境初始化
 - **WHEN** 使用中文 locale 初始化数据库
-- **THEN** tags 表包含 `不计收支` 和 `不计预算` 两条 is_system=1 记录
+- **THEN** 同一批内置标签实体的中文显示名分别为 `不计收支` 和 `不计预算`，数据库标签内容与英文建库无结构差异

@@ -4,6 +4,7 @@ use rust_decimal::Decimal;
 use sqlx::{QueryBuilder, SqliteConnection};
 
 use crate::error::DbError;
+use crate::names::ACCOUNT_NAMES;
 use accounting::amount::{from_db_amount, to_db_amount};
 use accounting::datetime_utils;
 use accounting::id::{
@@ -184,15 +185,17 @@ pub async fn posting_sum_with_ancestors(
 pub async fn posting_sum_by_tag(
     conn: &mut SqliteConnection,
     filter: &TransactionFilter,
+    lang: &str,
 ) -> Result<Vec<(TagId, CommodityId, String, Decimal)>, DbError> {
     let precisions = load_precisions(conn).await?;
 
+    // 按根账户 id 聚合，名字在聚合后按回退链批量解析，
+    // 请求语言无显示名时回退 en → zh-CN → 插入序而非整条消失
     let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
-        "SELECT tt.tag_id, p.commodity_id, ra.name, SUM(p.amount) as total
+        "SELECT tt.tag_id, p.commodity_id, aa.ancestor_id, SUM(p.amount) as total
          FROM postings p
          JOIN accounts a ON p.account_id = a.id
          JOIN account_ancestors aa ON a.id = aa.account_id AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
-         JOIN accounts ra ON aa.ancestor_id = ra.id
          JOIN transactions t ON p.transaction_id = t.id
          JOIN transaction_tags tt ON tt.transaction_id = t.id
          WHERE 1=1 ",
@@ -200,17 +203,19 @@ pub async fn posting_sum_by_tag(
 
     apply_posting_filter(&mut builder, filter, false);
 
-    builder.push(" GROUP BY tt.tag_id, p.commodity_id, ra.name");
+    builder.push(" GROUP BY tt.tag_id, p.commodity_id, aa.ancestor_id");
 
-    let rows: Vec<(i64, i64, String, i64)> = builder
+    let rows: Vec<(i64, i64, i64, i64)> = builder
         .build_query_as()
-        .fetch_all(conn)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
 
+    let root_names = resolve_root_names(conn, &rows, lang).await?;
+
     Ok(rows
         .into_iter()
-        .map(|(tag_id, commodity_id, root_name, amount)| {
+        .map(|(tag_id, commodity_id, root_id, amount)| {
             let precision = precisions
                 .get(&CommodityId(commodity_id))
                 .copied()
@@ -218,7 +223,10 @@ pub async fn posting_sum_by_tag(
             (
                 TagId(tag_id),
                 CommodityId(commodity_id),
-                root_name,
+                root_names
+                    .get(&root_id)
+                    .cloned()
+                    .unwrap_or_else(|| "?".to_string()),
                 from_db_amount(amount, precision),
             )
         })
@@ -228,32 +236,35 @@ pub async fn posting_sum_by_tag(
 pub async fn posting_sum_by_member(
     conn: &mut SqliteConnection,
     filter: &TransactionFilter,
+    lang: &str,
 ) -> Result<Vec<(MemberId, CommodityId, String, Decimal)>, DbError> {
     let precisions = load_precisions(conn).await?;
 
+    // 按根账户 id 聚合，名字在聚合后按回退链批量解析
     let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
-        "SELECT t.member_id, p.commodity_id, ra.name, SUM(p.amount) as total
+        "SELECT t.member_id, p.commodity_id, aa.ancestor_id, SUM(p.amount) as total
          FROM postings p
          JOIN accounts a ON p.account_id = a.id
          JOIN account_ancestors aa ON a.id = aa.account_id AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
-         JOIN accounts ra ON aa.ancestor_id = ra.id
          JOIN transactions t ON p.transaction_id = t.id
          WHERE t.member_id IS NOT NULL ",
     );
 
     apply_posting_filter(&mut builder, filter, true);
 
-    builder.push(" GROUP BY t.member_id, p.commodity_id, ra.name");
+    builder.push(" GROUP BY t.member_id, p.commodity_id, aa.ancestor_id");
 
-    let rows: Vec<(i64, i64, String, i64)> = builder
+    let rows: Vec<(i64, i64, i64, i64)> = builder
         .build_query_as()
-        .fetch_all(conn)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
 
+    let root_names = resolve_root_names(conn, &rows, lang).await?;
+
     Ok(rows
         .into_iter()
-        .map(|(member_id, commodity_id, root_name, amount)| {
+        .map(|(member_id, commodity_id, root_id, amount)| {
             let precision = precisions
                 .get(&CommodityId(commodity_id))
                 .copied()
@@ -261,7 +272,10 @@ pub async fn posting_sum_by_member(
             (
                 MemberId(member_id),
                 CommodityId(commodity_id),
-                root_name,
+                root_names
+                    .get(&root_id)
+                    .cloned()
+                    .unwrap_or_else(|| "?".to_string()),
                 from_db_amount(amount, precision),
             )
         })
@@ -271,15 +285,16 @@ pub async fn posting_sum_by_member(
 pub async fn posting_sum_by_channel(
     conn: &mut SqliteConnection,
     filter: &TransactionFilter,
+    lang: &str,
 ) -> Result<Vec<(ChannelId, CommodityId, String, Decimal)>, DbError> {
     let precisions = load_precisions(conn).await?;
 
+    // 按根账户 id 聚合，名字在聚合后按回退链批量解析
     let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
-        "SELECT cp.channel_id, p.commodity_id, ra.name, SUM(p.amount) as total
+        "SELECT cp.channel_id, p.commodity_id, aa.ancestor_id, SUM(p.amount) as total
          FROM postings p
          JOIN accounts a ON p.account_id = a.id
          JOIN account_ancestors aa ON a.id = aa.account_id AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
-         JOIN accounts ra ON aa.ancestor_id = ra.id
          JOIN transactions t ON p.transaction_id = t.id
          JOIN channel_paths cp ON cp.transaction_id = t.id
          WHERE 1=1 ",
@@ -287,17 +302,19 @@ pub async fn posting_sum_by_channel(
 
     apply_posting_filter(&mut builder, filter, true);
 
-    builder.push(" GROUP BY cp.channel_id, p.commodity_id, ra.name");
+    builder.push(" GROUP BY cp.channel_id, p.commodity_id, aa.ancestor_id");
 
-    let rows: Vec<(i64, i64, String, i64)> = builder
+    let rows: Vec<(i64, i64, i64, i64)> = builder
         .build_query_as()
-        .fetch_all(conn)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
 
+    let root_names = resolve_root_names(conn, &rows, lang).await?;
+
     Ok(rows
         .into_iter()
-        .map(|(channel_id, commodity_id, root_name, amount)| {
+        .map(|(channel_id, commodity_id, root_id, amount)| {
             let precision = precisions
                 .get(&CommodityId(commodity_id))
                 .copied()
@@ -305,11 +322,31 @@ pub async fn posting_sum_by_channel(
             (
                 ChannelId(channel_id),
                 CommodityId(commodity_id),
-                root_name,
+                root_names
+                    .get(&root_id)
+                    .cloned()
+                    .unwrap_or_else(|| "?".to_string()),
                 from_db_amount(amount, precision),
             )
         })
         .collect())
+}
+
+/// 批量解析聚合结果中根账户的显示名（回退链），避免逐条 N+1 查询。
+async fn resolve_root_names(
+    conn: &mut SqliteConnection,
+    rows: &[(i64, i64, i64, i64)],
+    lang: &str,
+) -> Result<HashMap<i64, String>, DbError> {
+    let root_ids: Vec<i64> = rows
+        .iter()
+        .map(|row| row.2)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    ACCOUNT_NAMES
+        .batch_resolve_display(conn, &root_ids, lang)
+        .await
 }
 
 /// 收支汇总结果
@@ -332,11 +369,11 @@ pub async fn posting_summary(
          FROM postings p
          JOIN accounts a ON p.account_id = a.id
          JOIN account_ancestors aa ON a.id = aa.account_id
-         JOIN accounts ra ON aa.ancestor_id = ra.id AND aa.depth = (
+         JOIN account_names an ON aa.ancestor_id = an.account_id AND aa.depth = (
              SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id
          )
          JOIN transactions t ON p.transaction_id = t.id
-         WHERE ra.name IN ('Assets', 'Asset', '资产') ",
+         WHERE an.is_system = 1 AND an.name = 'Assets'",
     );
 
     if start.is_some() || end.is_some() {
@@ -571,9 +608,9 @@ pub async fn posting_sum_all_assets(
          FROM postings p
          JOIN accounts a ON p.account_id = a.id
          JOIN account_ancestors aa ON a.id = aa.account_id
-         JOIN accounts root ON aa.ancestor_id = root.id
+         JOIN account_names an ON aa.ancestor_id = an.account_id
            AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
-         WHERE root.name IN ('Assets', '资产')
+         WHERE an.is_system = 1 AND an.name = 'Assets'
          GROUP BY p.account_id, p.commodity_id
          HAVING SUM(p.amount) != 0",
     )
@@ -691,21 +728,33 @@ mod tests {
             .await
             .unwrap();
         crate::schema::initialize_schema(&mut conn).await.unwrap();
-        crate::schema::insert_seed_data(&mut conn, "en")
-            .await
-            .unwrap();
+        crate::schema::insert_seed_data(&mut conn).await.unwrap();
         conn
     }
 
     async fn ensure_test_member(conn: &mut SqliteConnection) -> i64 {
-        sqlx::query("INSERT OR IGNORE INTO members (name) VALUES ('Test Member')")
-            .execute(&mut *conn)
+        let existing: Option<i64> = sqlx::query_scalar(
+            "SELECT member_id FROM member_names WHERE name = 'Test Member' AND lang = 'en'",
+        )
+        .fetch_optional(&mut *conn)
+        .await
+        .unwrap();
+        if let Some(id) = existing {
+            return id;
+        }
+        let id: i64 = sqlx::query_scalar("INSERT INTO members DEFAULT VALUES RETURNING id")
+            .fetch_one(&mut *conn)
             .await
             .unwrap();
-        sqlx::query_scalar("SELECT id FROM members WHERE name = 'Test Member'")
-            .fetch_one(conn)
-            .await
-            .unwrap()
+        sqlx::query(
+            "INSERT INTO member_names (member_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', 'Test Member', 0, 1)",
+        )
+        .bind(id)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+        id
     }
 
     async fn insert_transaction(conn: &mut SqliteConnection) -> TransactionId {
@@ -728,14 +777,23 @@ mod tests {
             .id;
         let account = Account {
             id: AccountId(0),
-            name: name.to_string(),
             parent_id: Some(root_id),
             closed_at: None,
             is_system: false,
             billing_day: None,
             repayment_day: None,
         };
-        account_create_with_closure(conn, &account).await.unwrap()
+        let id = account_create_with_closure(conn, &account).await.unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(id.0)
+        .bind(name)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+        id
     }
 
     async fn insert_income_account(conn: &mut SqliteConnection, name: &str) -> AccountId {
@@ -746,14 +804,23 @@ mod tests {
             .id;
         let account = Account {
             id: AccountId(0),
-            name: name.to_string(),
             parent_id: Some(root_id),
             closed_at: None,
             is_system: false,
             billing_day: None,
             repayment_day: None,
         };
-        account_create_with_closure(conn, &account).await.unwrap()
+        let id = account_create_with_closure(conn, &account).await.unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(id.0)
+        .bind(name)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+        id
     }
 
     async fn insert_expense_account(conn: &mut SqliteConnection, name: &str) -> AccountId {
@@ -764,14 +831,23 @@ mod tests {
             .id;
         let account = Account {
             id: AccountId(0),
-            name: name.to_string(),
             parent_id: Some(root_id),
             closed_at: None,
             is_system: false,
             billing_day: None,
             repayment_day: None,
         };
-        account_create_with_closure(conn, &account).await.unwrap()
+        let id = account_create_with_closure(conn, &account).await.unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(id.0)
+        .bind(name)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+        id
     }
 
     fn sample_posting(tx_id: TransactionId, account_id: AccountId, amount: &str) -> Posting {
@@ -869,9 +945,17 @@ mod tests {
         let expense = insert_expense_account(&mut conn, "Expenses:Food").await;
 
         let tag_id: i64 = sqlx::query_scalar(
-            "INSERT INTO tags (name, description, is_system) VALUES ('餐饮', NULL, 0) RETURNING id",
+            "INSERT INTO tags (description, is_system) VALUES (NULL, 0) RETURNING id",
         )
         .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tag_names (tag_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', '餐饮', 0, 1)",
+        )
+        .bind(tag_id)
+        .execute(&mut conn)
         .await
         .unwrap();
         let tag_id = TagId(tag_id);
@@ -898,7 +982,7 @@ mod tests {
         posting_insert(&mut conn, &p1).await.unwrap();
         posting_insert(&mut conn, &p2).await.unwrap();
 
-        let results = posting_sum_by_tag(&mut conn, &TransactionFilter::default())
+        let results = posting_sum_by_tag(&mut conn, &TransactionFilter::default(), "en")
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -917,7 +1001,7 @@ mod tests {
             end_date: Some(NaiveDate::from_ymd_opt(2024, 1, 31).unwrap()),
             ..Default::default()
         };
-        let results = posting_sum_by_tag(&mut conn, &filter_include)
+        let results = posting_sum_by_tag(&mut conn, &filter_include, "en")
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -927,7 +1011,7 @@ mod tests {
             end_date: Some(NaiveDate::from_ymd_opt(2024, 2, 28).unwrap()),
             ..Default::default()
         };
-        let results = posting_sum_by_tag(&mut conn, &filter_exclude)
+        let results = posting_sum_by_tag(&mut conn, &filter_exclude, "en")
             .await
             .unwrap();
         assert!(results.is_empty());
@@ -939,11 +1023,18 @@ mod tests {
         let income = insert_income_account(&mut conn, "Income:Bonus").await;
         let expense = insert_expense_account(&mut conn, "Expenses:Transport").await;
 
-        let member_id: i64 =
-            sqlx::query_scalar("INSERT INTO members (name) VALUES ('Alice') RETURNING id")
-                .fetch_one(&mut conn)
-                .await
-                .unwrap();
+        let member_id: i64 = sqlx::query_scalar("INSERT INTO members DEFAULT VALUES RETURNING id")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO member_names (member_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', 'Alice', 0, 1)",
+        )
+        .bind(member_id)
+        .execute(&mut conn)
+        .await
+        .unwrap();
         let member_id = MemberId(member_id);
 
         let tx_id: i64 = sqlx::query_scalar(
@@ -960,7 +1051,7 @@ mod tests {
         posting_insert(&mut conn, &p1).await.unwrap();
         posting_insert(&mut conn, &p2).await.unwrap();
 
-        let results = posting_sum_by_member(&mut conn, &TransactionFilter::default())
+        let results = posting_sum_by_member(&mut conn, &TransactionFilter::default(), "en")
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -978,7 +1069,7 @@ mod tests {
             member_ids: vec![member_id],
             ..Default::default()
         };
-        let results = posting_sum_by_member(&mut conn, &filter_member)
+        let results = posting_sum_by_member(&mut conn, &filter_member, "en")
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -988,7 +1079,7 @@ mod tests {
             end_date: Some(NaiveDate::from_ymd_opt(2024, 4, 30).unwrap()),
             ..Default::default()
         };
-        let results = posting_sum_by_member(&mut conn, &filter_exclude)
+        let results = posting_sum_by_member(&mut conn, &filter_exclude, "en")
             .await
             .unwrap();
         assert!(results.is_empty());
@@ -1000,10 +1091,17 @@ mod tests {
         let income = insert_income_account(&mut conn, "Income:Refund").await;
         let expense = insert_expense_account(&mut conn, "Expenses:Shopping").await;
 
-        let channel_id: i64 = sqlx::query_scalar(
-            "INSERT INTO channels (name, description) VALUES ('TestPay', NULL) RETURNING id",
+        let channel_id: i64 =
+            sqlx::query_scalar("INSERT INTO channels (description) VALUES (NULL) RETURNING id")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+        sqlx::query(
+            "INSERT INTO channel_names (channel_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', 'TestPay', 0, 1)",
         )
-        .fetch_one(&mut conn)
+        .bind(channel_id)
+        .execute(&mut conn)
         .await
         .unwrap();
         let channel_id = ChannelId(channel_id);
@@ -1033,7 +1131,7 @@ mod tests {
         posting_insert(&mut conn, &p1).await.unwrap();
         posting_insert(&mut conn, &p2).await.unwrap();
 
-        let results = posting_sum_by_channel(&mut conn, &TransactionFilter::default())
+        let results = posting_sum_by_channel(&mut conn, &TransactionFilter::default(), "en")
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -1051,7 +1149,7 @@ mod tests {
             channel_ids: vec![channel_id],
             ..Default::default()
         };
-        let results = posting_sum_by_channel(&mut conn, &filter_channel)
+        let results = posting_sum_by_channel(&mut conn, &filter_channel, "en")
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -1061,9 +1159,120 @@ mod tests {
             end_date: Some(NaiveDate::from_ymd_opt(2024, 7, 31).unwrap()),
             ..Default::default()
         };
-        let results = posting_sum_by_channel(&mut conn, &filter_exclude)
+        let results = posting_sum_by_channel(&mut conn, &filter_exclude, "en")
             .await
             .unwrap();
         assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_summary_and_assets_not_doubled() {
+        // 回归（原 B1）：根账户有 en + zh-CN 两个显示名时，
+        // 聚合不得因 JOIN 命中多行而翻倍
+        let mut conn = setup().await;
+        let asset = insert_account(&mut conn, "Assets:Card").await;
+        let income = insert_income_account(&mut conn, "Income:Salary2").await;
+
+        let tx_id = insert_transaction(&mut conn).await;
+        let p1 = sample_posting(tx_id, asset, "100.00");
+        let p2 = sample_posting(tx_id, income, "-100.00");
+        posting_insert(&mut conn, &p1).await.unwrap();
+        posting_insert(&mut conn, &p2).await.unwrap();
+
+        let summary = posting_summary(&mut conn, None, None).await.unwrap();
+        assert_eq!(summary.income, Decimal::from_str("100.00").unwrap());
+        assert_eq!(summary.expense, Decimal::ZERO);
+
+        let assets = posting_sum_all_assets(&mut conn).await.unwrap();
+        let card_rows: Vec<_> = assets.iter().filter(|(a, _, _)| *a == asset).collect();
+        assert_eq!(card_rows.len(), 1);
+        assert_eq!(card_rows[0].2, Decimal::from_str("100.00").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_sum_by_tag_fallback_when_lang_missing() {
+        // 请求语言无显示名时按回退链取名，posting 不消失
+        let mut conn = setup().await;
+
+        // 自建根账户：只有 'und' 名字（导入自动创建场景）
+        let root = account_create_with_closure(
+            &mut conn,
+            &Account {
+                id: AccountId(0),
+                parent_id: None,
+                closed_at: None,
+                is_system: false,
+                billing_day: None,
+                repayment_day: None,
+            },
+        )
+        .await
+        .unwrap();
+        crate::names::ACCOUNT_NAMES
+            .insert(&mut conn, root.0, "und", "私房钱", false, true)
+            .await
+            .unwrap();
+        let child = account_create_with_closure(
+            &mut conn,
+            &Account {
+                id: AccountId(0),
+                parent_id: Some(root),
+                closed_at: None,
+                is_system: false,
+                billing_day: None,
+                repayment_day: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let tag_id: i64 = sqlx::query_scalar(
+            "INSERT INTO tags (description, is_system) VALUES (NULL, 0) RETURNING id",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tag_names (tag_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', 'secret', 0, 1)",
+        )
+        .bind(tag_id)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+
+        let member_id = ensure_test_member(&mut conn).await;
+        let tx_id: i64 = sqlx::query_scalar(
+            "INSERT INTO transactions (date_time, description, member_id) VALUES ('2024-02-01 00:00:00', 'stash', ?1) RETURNING id",
+        )
+        .bind(member_id)
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        let tx_id = TransactionId(tx_id);
+        sqlx::query("INSERT INTO transaction_tags (transaction_id, tag_id) VALUES (?1, ?2)")
+            .bind(tx_id.0)
+            .bind(tag_id)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+
+        let p = sample_posting(tx_id, child, "50.00");
+        posting_insert(&mut conn, &p).await.unwrap();
+
+        // 以 zh-CN 查询：根账户无中文/英文名 → 回退到 'und' 名字，行不消失
+        let results = posting_sum_by_tag(&mut conn, &TransactionFilter::default(), "zh-CN")
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].2, "私房钱");
+        assert_eq!(results[0].3, Decimal::from_str("50.00").unwrap());
+
+        // 以 en 查询同样回退到 'und' 名字
+        let results = posting_sum_by_tag(&mut conn, &TransactionFilter::default(), "en")
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].2, "私房钱");
     }
 }

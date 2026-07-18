@@ -1,16 +1,27 @@
 import { useWindowSize } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
+import { i18n } from '../i18n'
 
 export const paneNames = ['transaction', 'assets', 'accounts', 'calendar', 'budget'] as const
 
 export type PaneName = (typeof paneNames)[number]
 
 export const paneLabels: Record<PaneName, string> = {
-  transaction: '交易',
-  assets: '资产',
-  accounts: '账户',
-  calendar: '日历',
-  budget: '预算',
+  get transaction() {
+    return i18n.global.t('nav.transaction')
+  },
+  get assets() {
+    return i18n.global.t('nav.assets')
+  },
+  get accounts() {
+    return i18n.global.t('nav.accounts')
+  },
+  get calendar() {
+    return i18n.global.t('nav.calendar')
+  },
+  get budget() {
+    return i18n.global.t('nav.budget')
+  },
 }
 
 export function useResponsiveLayout() {

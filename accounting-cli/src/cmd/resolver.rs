@@ -1,7 +1,27 @@
+use accounting::account::Account;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, BudgetId, ChannelId, CommodityId, MemberId};
 use accounting_sql::SqliteDatabase;
 use rust_i18n::t;
+use std::collections::HashMap;
+
+/// 取全量账户及其 `lang` 显示名映射（回退链内置），用于拼装 display_path
+pub async fn account_display_maps(
+    db: &SqliteDatabase,
+    lang: &str,
+) -> Result<(HashMap<AccountId, Account>, HashMap<AccountId, String>), AccountingError> {
+    let accounts = db
+        .account_list()
+        .await
+        .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+    let ids: Vec<AccountId> = accounts.iter().map(|a| a.id).collect();
+    let names = db
+        .account_display_names(&ids, lang)
+        .await
+        .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+    let accounts_by_id = accounts.into_iter().map(|a| (a.id, a)).collect();
+    Ok((accounts_by_id, names))
+}
 
 /// 解析成员名称到 MemberId
 pub async fn resolve_member(db: &SqliteDatabase, name: &str) -> Result<MemberId, AccountingError> {
@@ -108,7 +128,7 @@ mod tests {
 
     async fn setup_db() -> SqliteDatabase {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("zh-CN")).await.unwrap();
+        db.initialize().await.unwrap();
         db
     }
 

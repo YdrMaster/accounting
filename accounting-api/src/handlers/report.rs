@@ -1,6 +1,6 @@
 //! 报表 API handler
 
-use crate::handlers::member::AppState;
+use crate::handlers::{Lang, member::AppState};
 use accounting::account::Account;
 use accounting::finance_period::FinancePeriod;
 use accounting::id::{AccountId, CommodityId};
@@ -69,24 +69,36 @@ struct CashFlowTotal {
     net: String,
 }
 
+/// 批量加载账户表与按请求语言解析的显示路径
+async fn load_account_paths(
+    db: &accounting_sql::SqliteDatabase,
+    lang: &str,
+) -> Result<HashMap<i64, String>, String> {
+    let accounts: HashMap<AccountId, Account> = db
+        .account_list()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|a| (a.id, a))
+        .collect();
+    let ids: Vec<AccountId> = accounts.keys().copied().collect();
+    let names = db
+        .account_display_names(&ids, lang)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(accounts
+        .values()
+        .map(|a| (a.id.0, a.display_path(&accounts, &names)))
+        .collect())
+}
+
 /// 获取资产负债表
 async fn balance_sheet(
     State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
 ) -> Result<Json<BalanceSheetResponse>, String> {
     let db = state.db();
-    let account_paths: HashMap<i64, String> = {
-        let accounts: HashMap<AccountId, Account> = db
-            .account_list()
-            .await
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|a| (a.id, a))
-            .collect();
-        accounts
-            .values()
-            .map(|a| (a.id.0, a.display_path(&accounts)))
-            .collect()
-    };
+    let account_paths = load_account_paths(db, &lang).await?;
 
     let service = BalanceSheetService::new(db.clone());
     let sheet = service.balance_sheet().await.map_err(|e| e.to_string())?;
@@ -108,7 +120,7 @@ fn into_item(
         account: account_paths
             .get(&ab.account.id.0)
             .cloned()
-            .unwrap_or_else(|| ab.account.name.clone()),
+            .unwrap_or_else(|| ab.account.id.0.to_string()),
         balances: ab.balances.into_iter().map(into_entry).collect(),
     }
 }
@@ -134,6 +146,7 @@ fn parse_period(s: &str) -> Result<FinancePeriod, String> {
 /// 获取资金流量表
 async fn cash_flow(
     State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
     Query(query): Query<CashFlowQuery>,
 ) -> Result<Json<CashFlowResponse>, String> {
     let db = state.db();
@@ -151,19 +164,7 @@ async fn cash_flow(
     };
     let commodity_id = CommodityId(query.commodity.unwrap_or(1));
 
-    let account_paths: HashMap<i64, String> = {
-        let accounts: HashMap<AccountId, Account> = db
-            .account_list()
-            .await
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|a| (a.id, a))
-            .collect();
-        accounts
-            .values()
-            .map(|a| (a.id.0, a.display_path(&accounts)))
-            .collect()
-    };
+    let account_paths = load_account_paths(db, &lang).await?;
 
     let service = CashFlowService::new(db.clone());
     let report = service
@@ -171,22 +172,26 @@ async fn cash_flow(
         .await
         .map_err(|e| e.to_string())?;
 
+    let mut items: Vec<CashFlowItem> = report
+        .items
+        .into_iter()
+        .map(|item| CashFlowItem {
+            account: account_paths
+                .get(&item.account.id.0)
+                .cloned()
+                .unwrap_or_else(|| item.account.id.0.to_string()),
+            inflow: item.inflow.to_string(),
+            outflow: item.outflow.to_string(),
+            net: item.net.to_string(),
+        })
+        .collect();
+    // 按请求语言的账户显示名排序
+    items.sort_by(|a, b| a.account.cmp(&b.account));
+
     Ok(Json(CashFlowResponse {
         period_start: report.period_start.to_string(),
         period_end: report.period_end.to_string(),
-        items: report
-            .items
-            .into_iter()
-            .map(|item| CashFlowItem {
-                account: account_paths
-                    .get(&item.account.id.0)
-                    .cloned()
-                    .unwrap_or_else(|| item.account.name.clone()),
-                inflow: item.inflow.to_string(),
-                outflow: item.outflow.to_string(),
-                net: item.net.to_string(),
-            })
-            .collect(),
+        items,
         total: CashFlowTotal {
             inflow: report.total.inflow.to_string(),
             outflow: report.total.outflow.to_string(),

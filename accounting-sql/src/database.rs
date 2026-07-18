@@ -10,8 +10,29 @@ pub struct SqliteDatabase {
     pool: SqlitePool,
 }
 
-/// 默认语言
-pub const DEFAULT_LANG: &str = "zh-CN";
+/// 生成六类实体的批量显示名解析包装（回退链见 `names::EntityNames`）
+macro_rules! display_name_wrappers {
+    ($($fn_name:ident: $id_ty:ident => $names:ident,)*) => {
+        $(
+            /// 批量解析显示名，返回 实体 ID → 显示名 的映射（无名字的实体不在映射中）
+            pub async fn $fn_name(
+                &self,
+                ids: &[accounting::id::$id_ty],
+                lang: &str,
+            ) -> Result<std::collections::HashMap<accounting::id::$id_ty, String>, DbError> {
+                let mut conn = self.acquire().await?;
+                let raw: Vec<i64> = ids.iter().map(|id| id.0).collect();
+                let map = crate::names::$names
+                    .batch_resolve_display(&mut conn, &raw, lang)
+                    .await?;
+                Ok(map
+                    .into_iter()
+                    .map(|(k, v)| (accounting::id::$id_ty(k), v))
+                    .collect())
+            }
+        )*
+    };
+}
 
 impl SqliteDatabase {
     /// 打开文件数据库并自动初始化 schema
@@ -72,26 +93,47 @@ impl SqliteDatabase {
         Ok(SqliteTransaction::new(tx))
     }
 
-    /// 初始化数据库种子数据
-    ///
-    /// 若数据库已写入过种子数据（`settings.language` 已存在），则直接返回已保存的语言，
-    /// 避免再次运行时按另一种语言追加第二套默认账户。
-    ///
-    /// `lang` 为 `None` 时使用 [`DEFAULT_LANG`](DEFAULT_LANG)。
-    pub async fn initialize(&self, lang: Option<&str>) -> Result<String, DbError> {
+    /// 初始化数据库种子数据（语言不再是库的属性）
+    pub async fn initialize(&self) -> Result<(), DbError> {
         let mut conn = self
             .pool
             .acquire()
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
-        if let Some(saved) = crate::repo::get_setting(&mut conn, "language").await? {
-            Ok(saved)
-        } else {
-            let lang = lang.unwrap_or(DEFAULT_LANG);
-            crate::schema::insert_seed_data(&mut conn, lang).await?;
-            crate::repo::set_setting(&mut conn, "language", lang).await?;
-            Ok(lang.to_string())
+        // 检查是否已初始化（commodities 表有数据说明已 seed）
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM commodities")
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+        if count == 0 {
+            crate::schema::insert_seed_data(&mut conn).await?;
         }
+        Ok(())
+    }
+
+    /// 检查数据库是否已初始化（commodities 表有数据说明已 seed）
+    pub async fn is_initialized(&self) -> Result<bool, DbError> {
+        let mut conn = self
+            .pool
+            .acquire()
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM commodities")
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+        Ok(count > 0)
+    }
+
+    // === 显示名解析（回退链：所选语言 → en → zh-CN → 插入序） ===
+
+    display_name_wrappers! {
+        account_display_names: AccountId => ACCOUNT_NAMES,
+        tag_display_names: TagId => TAG_NAMES,
+        channel_display_names: ChannelId => CHANNEL_NAMES,
+        commodity_display_names: CommodityId => COMMODITY_NAMES,
+        member_display_names: MemberId => MEMBER_NAMES,
+        budget_display_names: BudgetId => BUDGET_NAMES,
     }
 
     // === Account ===
@@ -110,6 +152,16 @@ impl SqliteDatabase {
     ) -> Result<accounting::id::AccountId, DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::account::account_create_with_closure(&mut conn, account).await
+    }
+
+    pub async fn account_create_with_name(
+        &self,
+        account: &accounting::account::Account,
+        name: &str,
+        lang: &str,
+    ) -> Result<accounting::id::AccountId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_create_with_name(&mut conn, account, name, lang).await
     }
 
     pub async fn account_get(
@@ -154,9 +206,10 @@ impl SqliteDatabase {
         &self,
         id: accounting::id::AccountId,
         new_name: &str,
+        lang: &str,
     ) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::account::account_rename(&mut conn, id, new_name).await
+        crate::repo::account::account_rename(&mut conn, id, new_name, lang).await
     }
 
     pub async fn account_update_fields(
@@ -204,9 +257,10 @@ impl SqliteDatabase {
     pub async fn account_find_root_name(
         &self,
         account_id: accounting::id::AccountId,
+        lang: &str,
     ) -> Result<String, DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::account::account_find_root_name(&mut conn, account_id).await
+        crate::repo::account::account_find_root_name(&mut conn, account_id, lang).await
     }
 
     pub async fn account_find_root_id(
@@ -220,9 +274,10 @@ impl SqliteDatabase {
     pub async fn account_get_or_create_by_path(
         &self,
         path: &str,
+        lang: &str,
     ) -> Result<accounting::id::AccountId, DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::account::account_get_or_create_by_path(&mut conn, path).await
+        crate::repo::account::account_get_or_create_by_path(&mut conn, path, lang).await
     }
 
     pub async fn account_update_by_path(
@@ -299,9 +354,11 @@ impl SqliteDatabase {
         symbol: &str,
         name: &str,
         precision: u8,
+        lang: &str,
     ) -> Result<accounting::id::CommodityId, DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::commodity::commodity_upsert_by_symbol(&mut conn, symbol, name, precision).await
+        crate::repo::commodity::commodity_upsert_by_symbol(&mut conn, symbol, name, lang, precision)
+            .await
     }
 
     // === Member ===
@@ -335,9 +392,10 @@ impl SqliteDatabase {
     pub async fn member_get_or_create_by_name(
         &self,
         name: &str,
+        lang: &str,
     ) -> Result<accounting::id::MemberId, DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::member::member_get_or_create_by_name(&mut conn, name).await
+        crate::repo::member::member_get_or_create_by_name(&mut conn, name, lang).await
     }
 
     pub async fn member_get_by_name(
@@ -352,9 +410,10 @@ impl SqliteDatabase {
         &self,
         id: accounting::id::MemberId,
         new_name: &str,
+        lang: &str,
     ) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::member::member_rename(&mut conn, id, new_name).await
+        crate::repo::member::member_rename(&mut conn, id, new_name, lang).await
     }
 
     // === Channel ===
@@ -415,12 +474,11 @@ impl SqliteDatabase {
     pub async fn channel_update(
         &self,
         id: accounting::id::ChannelId,
-        name: &str,
         description: Option<&str>,
         account_id: Option<accounting::id::AccountId>,
     ) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::channel::channel_update(&mut conn, id, name, description, account_id).await
+        crate::repo::channel::channel_update(&mut conn, id, description, account_id).await
     }
 
     pub async fn channel_upsert_by_name(
@@ -428,9 +486,22 @@ impl SqliteDatabase {
         name: &str,
         description: Option<&str>,
         account_id: Option<accounting::id::AccountId>,
+        lang: &str,
     ) -> Result<accounting::id::ChannelId, DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::channel::channel_upsert_by_name(&mut conn, name, description, account_id).await
+        crate::repo::channel::channel_upsert_by_name(&mut conn, name, lang, description, account_id)
+            .await
+    }
+
+    /// 渠道改名：把渠道在 `lang` 语言下的显示名改为 `new_name`
+    pub async fn channel_rename(
+        &self,
+        id: accounting::id::ChannelId,
+        new_name: &str,
+        lang: &str,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel::channel_rename(&mut conn, id, new_name, lang).await
     }
 
     // === ChannelPath ===
@@ -540,9 +611,10 @@ impl SqliteDatabase {
         id: accounting::id::TagId,
         name: &str,
         description: Option<&str>,
+        lang: &str,
     ) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::tag::tag_update(&mut conn, id, name, description).await
+        crate::repo::tag::tag_update(&mut conn, id, name, description, lang).await
     }
 
     pub async fn tag_delete(&self, name: &str) -> Result<(), DbError> {
@@ -554,18 +626,20 @@ impl SqliteDatabase {
         &self,
         name: &str,
         description: Option<&str>,
+        lang: &str,
     ) -> Result<accounting::id::TagId, DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::tag::tag_upsert_by_name(&mut conn, name, description).await
+        crate::repo::tag::tag_upsert_by_name(&mut conn, name, description, lang).await
     }
 
     pub async fn tag_names_by_transactions(
         &self,
         transaction_ids: &[accounting::id::TransactionId],
+        lang: &str,
     ) -> Result<std::collections::HashMap<accounting::id::TransactionId, Vec<String>>, DbError>
     {
         let mut conn = self.acquire().await?;
-        crate::repo::tag::tag_names_by_transactions(&mut conn, transaction_ids).await
+        crate::repo::tag::tag_names_by_transactions(&mut conn, transaction_ids, lang).await
     }
 
     // === Attachment ===
@@ -714,6 +788,7 @@ impl SqliteDatabase {
     pub async fn posting_sum_by_tag(
         &self,
         filter: &accounting::transaction_filter::TransactionFilter,
+        lang: &str,
     ) -> Result<
         Vec<(
             accounting::id::TagId,
@@ -724,12 +799,13 @@ impl SqliteDatabase {
         DbError,
     > {
         let mut conn = self.acquire().await?;
-        crate::repo::posting::posting_sum_by_tag(&mut conn, filter).await
+        crate::repo::posting::posting_sum_by_tag(&mut conn, filter, lang).await
     }
 
     pub async fn posting_sum_by_member(
         &self,
         filter: &accounting::transaction_filter::TransactionFilter,
+        lang: &str,
     ) -> Result<
         Vec<(
             accounting::id::MemberId,
@@ -740,12 +816,13 @@ impl SqliteDatabase {
         DbError,
     > {
         let mut conn = self.acquire().await?;
-        crate::repo::posting::posting_sum_by_member(&mut conn, filter).await
+        crate::repo::posting::posting_sum_by_member(&mut conn, filter, lang).await
     }
 
     pub async fn posting_sum_by_channel(
         &self,
         filter: &accounting::transaction_filter::TransactionFilter,
+        lang: &str,
     ) -> Result<
         Vec<(
             accounting::id::ChannelId,
@@ -756,7 +833,7 @@ impl SqliteDatabase {
         DbError,
     > {
         let mut conn = self.acquire().await?;
-        crate::repo::posting::posting_sum_by_channel(&mut conn, filter).await
+        crate::repo::posting::posting_sum_by_channel(&mut conn, filter, lang).await
     }
 
     pub async fn posting_summary(
@@ -788,9 +865,11 @@ impl SqliteDatabase {
         period: accounting::finance_period::FinancePeriod,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
+        lang: &str,
     ) -> Result<accounting::id::BudgetId, DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::budget::budget_create(&mut conn, name, period, commodity_id, limits).await
+        crate::repo::budget::budget_create(&mut conn, name, lang, period, commodity_id, limits)
+            .await
     }
 
     pub async fn budget_get(
@@ -813,10 +892,19 @@ impl SqliteDatabase {
         period: accounting::finance_period::FinancePeriod,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
+        lang: &str,
     ) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::budget::budget_update(&mut conn, budget_id, name, period, commodity_id, limits)
-            .await
+        crate::repo::budget::budget_update(
+            &mut conn,
+            budget_id,
+            name,
+            lang,
+            period,
+            commodity_id,
+            limits,
+        )
+        .await
     }
 
     pub async fn budget_delete(&self, id: accounting::id::BudgetId) -> Result<(), DbError> {
@@ -851,10 +939,18 @@ impl SqliteDatabase {
         period: accounting::finance_period::FinancePeriod,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
+        lang: &str,
     ) -> Result<accounting::id::BudgetId, DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::budget::budget_upsert_by_name(&mut conn, name, period, commodity_id, limits)
-            .await
+        crate::repo::budget::budget_upsert_by_name(
+            &mut conn,
+            name,
+            lang,
+            period,
+            commodity_id,
+            limits,
+        )
+        .await
     }
 
     pub async fn budget_get_by_name(
@@ -1006,22 +1102,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_initialize_is_idempotent_across_languages() {
+    async fn test_initialize_is_idempotent() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
 
-        db.initialize(Some("zh-CN")).await.unwrap();
-        // 模拟 API 服务在另一种语言下再次调用 initialize
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
+        // Second call should be a no-op (idempotent)
+        db.initialize().await.unwrap();
 
         let root_names: Vec<String> =
-            sqlx::query_scalar("SELECT name FROM accounts WHERE parent_id IS NULL ORDER BY name")
+            sqlx::query_scalar("SELECT an.name FROM accounts a JOIN account_names an ON an.account_id = a.id WHERE a.parent_id IS NULL AND an.lang = 'en' AND an.is_display = 1 ORDER BY an.name")
                 .fetch_all(&db.pool)
                 .await
                 .unwrap();
 
         assert_eq!(root_names, vec!["Assets", "Equity", "Expenses", "Income"]);
-
-        let lang = db.get_setting("language").await.unwrap();
-        assert_eq!(lang, Some("zh-CN".to_string()));
     }
 }

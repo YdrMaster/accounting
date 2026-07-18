@@ -32,6 +32,8 @@ pub mod id;
 pub mod installment;
 /// 成员模型
 pub mod member;
+/// 名字按语言管理
+pub mod name;
 /// 分录模型
 pub mod posting;
 /// 分录角色（收支侧/资产侧）

@@ -162,14 +162,13 @@ async fn main() {
             eprintln!("Failed to open database: {}", e);
             std::process::exit(1);
         });
-    let lang = db
-        .initialize(args.lang.as_deref())
-        .await
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to initialize database: {}", e);
-            std::process::exit(1);
-        });
-    rust_i18n::set_locale(&lang);
+    db.initialize().await.unwrap_or_else(|e| {
+        eprintln!("Failed to initialize database: {}", e);
+        std::process::exit(1);
+    });
+    // API 启动时的 locale 用 --lang 或默认 en；每个请求的 locale 由 handler 按请求参数决定
+    let default_lang = args.lang.as_deref().unwrap_or("en");
+    rust_i18n::set_locale(default_lang);
 
     let state = Arc::new(handlers::member::AppState { db });
     let app = router::create_app(state, &args.static_dir);

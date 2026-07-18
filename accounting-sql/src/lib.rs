@@ -4,6 +4,8 @@
 pub mod database;
 /// 错误类型
 pub mod error;
+/// 名字按语言管理：六张名字表共享的显示名解析与写路径校验
+pub mod names;
 /// Repository 模块集合
 pub mod repo;
 /// 数据库 schema 与种子数据

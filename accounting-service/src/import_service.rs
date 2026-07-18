@@ -76,7 +76,7 @@ impl ImportService {
                 source: source.to_string(),
             })?;
 
-        // 2. 解析 source 为 ChannelId 和渠道名称（支持别名与大小写不敏感）
+        // 2. 解析 source 为 ChannelId（支持别名与大小写不敏感，命中名字表任意语言名字）
         let channel =
             self.db
                 .channel_resolve_by_name(source)
@@ -84,12 +84,13 @@ impl ImportService {
                 .map_err(|e| ImportError::Database {
                     source: e.to_string(),
                 })?;
+        // 渠道实体不再携带名字；Import 路径中的渠道段直接使用调用方给定的 source
         let (channel_id, channel_name) =
-            channel
-                .map(|c| (c.id, c.name))
-                .ok_or_else(|| ImportError::ChannelNotFound {
+            channel.map(|c| (c.id, source.to_string())).ok_or_else(|| {
+                ImportError::ChannelNotFound {
                     source: source.to_string(),
-                })?;
+                }
+            })?;
 
         // 3. 查找默认 CommodityId（CNY）
         let commodity =
@@ -103,11 +104,8 @@ impl ImportService {
             .map(|c| c.id)
             .ok_or(ImportError::CnyCommodityNotFound)?;
 
-        // 4. 查找 "待处理" 系统 Tag
-        let (pending_tag_id, pending_tag_name) = match self.resolve_pending_tag_id().await? {
-            Some((id, name)) => (Some(id), Some(name)),
-            None => (None, None),
-        };
+        // 4. 按系统名 "pending" 查找待处理系统 Tag（不再探测 "待处理" 中文名）
+        let pending_tag_id = self.resolve_pending_tag_id().await?;
 
         // 5. 构造 ImportContext
         let ctx = ImportContext {
@@ -130,7 +128,7 @@ impl ImportService {
             transaction_ids: Vec::new(),
             imported: 0,
             skipped: 0,
-            pending_tag_name,
+            pending_tag_name: pending_tag_id.map(|_| "pending".to_string()),
             errors: Vec::new(),
         };
 
@@ -306,31 +304,19 @@ impl ImportService {
         account_service.ensure_cascading(&path).await
     }
 
-    /// 解析 "待处理" 系统 Tag ID 和名称
-    async fn resolve_pending_tag_id(&self) -> Result<Option<(TagId, String)>, ImportError> {
-        // 尝试中文
-        if let Some(tag) =
-            self.db
-                .tag_get_by_name("待处理")
-                .await
-                .map_err(|e| ImportError::Database {
-                    source: e.to_string(),
-                })?
-        {
-            return Ok(Some((tag.id, tag.name)));
-        }
-        // 尝试英文
-        if let Some(tag) =
-            self.db
-                .tag_get_by_name("pending")
-                .await
-                .map_err(|e| ImportError::Database {
-                    source: e.to_string(),
-                })?
-        {
-            return Ok(Some((tag.id, tag.name)));
-        }
-        Ok(None)
+    /// 按系统名 "pending" 解析待处理系统 Tag ID
+    ///
+    /// 系统标签实体固定以 en 系统名 `pending` 落库（zh-CN 系统名为同一实体的
+    /// 另一条名字记录），单名查询即可命中，无需按界面语言探测。
+    async fn resolve_pending_tag_id(&self) -> Result<Option<TagId>, ImportError> {
+        let tag = self
+            .db
+            .tag_get_by_name("pending")
+            .await
+            .map_err(|e| ImportError::Database {
+                source: e.to_string(),
+            })?;
+        Ok(tag.map(|t| t.id))
     }
 }
 
@@ -341,24 +327,17 @@ mod tests {
 
     async fn setup_db() -> SqliteDatabase {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
 
         // 创建成员
-        let member = accounting::member::Member {
-            id: MemberId(0),
-            name: "测试用户".to_string(),
-        };
-        db.member_create(&member).await.unwrap();
+        db.member_get_or_create_by_name("测试用户", "zh-CN")
+            .await
+            .unwrap();
 
         // 创建 "alipay" 渠道
-        let channel = accounting::channel::Channel {
-            id: ChannelId(0),
-            name: "alipay".to_string(),
-            description: Some("支付宝".to_string()),
-            account_id: None,
-            is_system: false,
-        };
-        db.channel_create(&channel).await.unwrap();
+        db.channel_upsert_by_name("alipay", Some("支付宝"), None, "en")
+            .await
+            .unwrap();
 
         db
     }
@@ -425,10 +404,9 @@ mod tests {
         // 查找实际的渠道 ID
         let channel = db.channel_get_by_name("alipay").await.unwrap().unwrap();
 
-        // 创建一个目标账户供映射
+        // 创建一个目标账户供映射（仅按 id 关联，无需名字）
         let expense_account = accounting::account::Account {
             id: AccountId(0),
-            name: "Dining".to_string(),
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -504,15 +482,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_import_with_channel_alias() {
-        // 中文环境下渠道名为“支付宝”，使用英文别名 alipay 应能导入
+        // 渠道解析走名字表命中（大小写不敏感）：英文别名 alipay 可命中种子渠道 Alipay/支付宝
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("zh-CN")).await.unwrap();
+        db.initialize().await.unwrap();
 
-        let member = accounting::member::Member {
-            id: MemberId(0),
-            name: "测试用户".to_string(),
-        };
-        db.member_create(&member).await.unwrap();
+        db.member_get_or_create_by_name("测试用户", "zh-CN")
+            .await
+            .unwrap();
 
         let service = ImportService::new(db);
         let csv_data = concat!(
@@ -585,6 +561,50 @@ mod tests {
         assert!(
             refund.is_some(),
             "退款应作为负支出归入 Expenses:Import:alipay:退款"
+        );
+    }
+
+    /// 3.1：pending 标签只按系统名 `pending` 单名查询（不再探测 `待处理`）
+    #[tokio::test]
+    async fn test_pending_tag_resolved_by_system_name() {
+        let db = setup_db().await;
+        let service = ImportService::new(db.clone());
+
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2024-01-15 12:30:00,餐饮美食,美团外卖,mei***@tuan.com,美团外卖-午餐,支出,35.00,蚂蚁宝藏信用卡,交易成功,2024011522001470000001\t,MO20240101\t,,\n",
+        );
+
+        let result = service
+            .import(csv_data.as_bytes(), "alipay", MemberId(1))
+            .await
+            .unwrap();
+
+        // pending_tag_name 固定为系统名
+        assert_eq!(result.pending_tag_name.as_deref(), Some("pending"));
+
+        // 交易挂上了 pending 系统标签；显示名按语言回退链解析
+        let names_en = db
+            .tag_names_by_transactions(&result.transaction_ids, "en")
+            .await
+            .unwrap();
+        assert!(
+            names_en
+                .values()
+                .all(|names| names.iter().any(|n| n == "pending")),
+            "en 显示名应为 pending: {:?}",
+            names_en
+        );
+        let names_zh = db
+            .tag_names_by_transactions(&result.transaction_ids, "zh-CN")
+            .await
+            .unwrap();
+        assert!(
+            names_zh
+                .values()
+                .all(|names| names.iter().any(|n| n == "待处理")),
+            "zh-CN 显示名应为 待处理: {:?}",
+            names_zh
         );
     }
 

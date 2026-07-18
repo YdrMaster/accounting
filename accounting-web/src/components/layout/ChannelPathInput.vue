@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useChannelStore } from '../../stores/channel'
 import type { ChannelPathNodeInput } from '../../types/api'
 
@@ -10,6 +11,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: ChannelPathNodeInput[]]
 }>()
+
+const { t } = useI18n()
 
 const channelStore = useChannelStore()
 
@@ -81,14 +84,16 @@ function getChannelsForLevel(position: number): number[] {
 }
 
 function channelName(id: number): string {
-  return channelStore.channels.find(c => c.id === id)?.name || `渠道 #${id}`
+  return (
+    channelStore.channels.find(c => c.id === id)?.name || t('channelInput.channelNumber', { id })
+  )
 }
 </script>
 
 <template>
   <div class="channel-path-input">
     <div v-for="pos in maxPosition + 1" :key="pos - 1" class="level-row">
-      <div class="level-label">第 {{ pos }} 级</div>
+      <div class="level-label">{{ t('channelInput.level', { n: pos }) }}</div>
       <div class="level-channels">
         <span v-for="chId in getChannelsForLevel(pos - 1)" :key="chId" class="channel-chip">
           {{ channelName(chId) }}
@@ -115,7 +120,7 @@ function channelName(id: number): string {
             }
           "
         >
-          <option value="">+ 添加渠道</option>
+          <option value="">{{ t('channelInput.addChannel') }}</option>
           <option
             v-for="ch in channelStore.channels"
             :key="ch.id"
@@ -135,7 +140,7 @@ function channelName(id: number): string {
       </button>
     </div>
 
-    <button class="add-level-btn" @click="addLevel">+ 添加链路级别</button>
+    <button class="add-level-btn" @click="addLevel">{{ t('channelInput.addLevel') }}</button>
   </div>
 </template>
 

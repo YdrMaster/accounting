@@ -3,6 +3,7 @@ use sqlx::SqliteConnection;
 use std::collections::HashMap;
 
 use crate::error::DbError;
+use crate::names::ACCOUNT_NAMES;
 use accounting::account::Account;
 use accounting::id::{AccountId, MemberId};
 
@@ -12,10 +13,9 @@ pub async fn account_create(
 ) -> Result<AccountId, DbError> {
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO accounts
-         (name, parent_id, is_system, billing_day, repayment_day)
-         VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id",
+         (parent_id, is_system, billing_day, repayment_day)
+         VALUES (?1, ?2, ?3, ?4) RETURNING id",
     )
-    .bind(&account.name)
     .bind(account.parent_id.map(|id| id.0))
     .bind(account.is_system as i32)
     .bind(account.billing_day.map(|v| v as i32))
@@ -31,7 +31,7 @@ pub async fn account_get(
     id: AccountId,
 ) -> Result<Option<Account>, DbError> {
     let row: Option<AccountRow> = sqlx::query_as(
-        "SELECT id, name, parent_id, closed_at, is_system, billing_day, repayment_day
+        "SELECT id, parent_id, closed_at, is_system, billing_day, repayment_day
          FROM accounts WHERE id = ?1",
     )
     .bind(id.0)
@@ -67,8 +67,10 @@ pub async fn account_get_by_parent_and_name(
     name: &str,
 ) -> Result<Option<Account>, DbError> {
     let row: Option<AccountRow> = sqlx::query_as(
-        "SELECT id, name, parent_id, closed_at, is_system, billing_day, repayment_day
-         FROM accounts WHERE parent_id IS ?1 AND name = ?2",
+        "SELECT a.id, a.parent_id, a.closed_at, a.is_system, a.billing_day, a.repayment_day
+         FROM accounts a
+         JOIN account_names an ON an.account_id = a.id
+         WHERE a.parent_id IS ?1 AND an.name = ?2",
     )
     .bind(parent_id.map(|id| id.0))
     .bind(name)
@@ -80,7 +82,7 @@ pub async fn account_get_by_parent_and_name(
 
 pub async fn account_list(conn: &mut SqliteConnection) -> Result<Vec<Account>, DbError> {
     let rows: Vec<AccountRow> = sqlx::query_as(
-        "SELECT id, name, parent_id, closed_at, is_system, billing_day, repayment_day
+        "SELECT id, parent_id, closed_at, is_system, billing_day, repayment_day
          FROM accounts ORDER BY id",
     )
     .fetch_all(conn)
@@ -96,7 +98,7 @@ pub async fn account_list_children(
     parent_id: AccountId,
 ) -> Result<Vec<Account>, DbError> {
     let rows: Vec<AccountRow> = sqlx::query_as(
-        "SELECT id, name, parent_id, closed_at, is_system, billing_day, repayment_day
+        "SELECT id, parent_id, closed_at, is_system, billing_day, repayment_day
          FROM accounts WHERE parent_id = ?1 ORDER BY id",
     )
     .bind(parent_id.0)
@@ -108,18 +110,22 @@ pub async fn account_list_children(
         .collect::<Result<_, _>>()
 }
 
+/// 改名：把 (账户, lang) 的显示名改为 new_name；该语言无显示名时新增显示名。
+///
+/// 系统名字不可改文本：改名时降级为非显示名并插入用户自定义显示名；
+/// 新名字须在父账户命名空间内唯一（不区分大小写）。
 pub async fn account_rename(
     conn: &mut SqliteConnection,
     id: AccountId,
     new_name: &str,
+    lang: &str,
 ) -> Result<(), DbError> {
-    sqlx::query("UPDATE accounts SET name = ?1 WHERE id = ?2")
-        .bind(new_name)
-        .bind(id.0)
-        .execute(conn)
+    let account = account_get(conn, id)
+        .await?
+        .ok_or_else(|| DbError::Database(format!("账户 {} 不存在", id.0)))?;
+    ACCOUNT_NAMES
+        .rename_display(conn, id.0, account.parent_id.map(|p| p.0), lang, new_name)
         .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
-    Ok(())
 }
 
 pub async fn account_update_fields(
@@ -178,6 +184,7 @@ pub async fn account_delete(conn: &mut SqliteConnection, id: AccountId) -> Resul
 pub async fn account_get_or_create_by_path(
     conn: &mut SqliteConnection,
     path: &str,
+    lang: &str,
 ) -> Result<AccountId, DbError> {
     if let Some(account) = account_get_by_name(conn, path).await? {
         return Ok(account.id);
@@ -195,16 +202,19 @@ pub async fn account_get_or_create_by_path(
                 parent_id = Some(account.id);
             }
             None => {
-                let account = Account {
+                let new_account = Account {
                     id: AccountId(0),
-                    name: segment.to_string(),
                     parent_id,
                     closed_at: None,
                     is_system: false,
                     billing_day: None,
                     repayment_day: None,
                 };
-                let id = account_create_with_closure(conn, &account).await?;
+                let id = account_create_with_closure(conn, &new_account).await?;
+                // 自动创建的名字写入 account_names，语言由调用方指定（导入场景传 'und'）
+                ACCOUNT_NAMES
+                    .insert(conn, id.0, lang, segment, false, true)
+                    .await?;
                 parent_id = Some(id);
             }
         }
@@ -331,6 +341,26 @@ pub async fn account_create_with_closure(
     Ok(id)
 }
 
+/// 用户创建账户并附带名字。
+///
+/// 名字语言由调用方传入；创建前校验父账户命名空间唯一性（不区分大小写，
+/// 撞系统内置名同样拒绝）。
+pub async fn account_create_with_name(
+    conn: &mut SqliteConnection,
+    account: &Account,
+    name: &str,
+    lang: &str,
+) -> Result<AccountId, DbError> {
+    ACCOUNT_NAMES
+        .ensure_available(conn, account.parent_id.map(|p| p.0), None, name)
+        .await?;
+    let id = account_create_with_closure(conn, account).await?;
+    ACCOUNT_NAMES
+        .insert(conn, id.0, lang, name, false, true)
+        .await?;
+    Ok(id)
+}
+
 pub async fn account_get_owners(
     conn: &mut SqliteConnection,
     account_id: AccountId,
@@ -405,22 +435,17 @@ pub async fn account_set_owners(
     Ok(())
 }
 
+/// 取账户所属根账户的显示名（回退链：所选语言 → en → zh-CN → 插入序）。
 pub async fn account_find_root_name(
     conn: &mut SqliteConnection,
     account_id: AccountId,
+    lang: &str,
 ) -> Result<String, DbError> {
-    let name: String = sqlx::query_scalar(
-        "SELECT a.name FROM account_ancestors aa
-         JOIN accounts a ON aa.ancestor_id = a.id
-         WHERE aa.account_id = ?1
-         ORDER BY aa.depth DESC
-         LIMIT 1",
-    )
-    .bind(account_id.0)
-    .fetch_one(conn)
-    .await
-    .map_err(|e| DbError::Database(e.to_string()))?;
-    Ok(name)
+    let root_id = account_find_root_id(conn, account_id).await?;
+    ACCOUNT_NAMES
+        .resolve_display(conn, root_id.0, lang)
+        .await?
+        .ok_or_else(|| DbError::Database(format!("账户 {} 没有任何名字", root_id.0)))
 }
 
 pub async fn account_find_root_id(
@@ -443,7 +468,6 @@ pub async fn account_find_root_id(
 #[derive(sqlx::FromRow)]
 struct AccountRow {
     id: i64,
-    name: String,
     parent_id: Option<i64>,
     closed_at: Option<String>,
     is_system: i32,
@@ -465,7 +489,6 @@ impl TryFrom<AccountRow> for Account {
 
         Ok(Account {
             id: AccountId(row.id),
-            name: row.name,
             parent_id: row.parent_id.map(AccountId),
             closed_at,
             is_system: row.is_system != 0,
@@ -487,9 +510,7 @@ mod tests {
             .await
             .unwrap();
         crate::schema::initialize_schema(&mut conn).await.unwrap();
-        crate::schema::insert_seed_data(&mut conn, "en")
-            .await
-            .unwrap();
+        crate::schema::insert_seed_data(&mut conn).await.unwrap();
         conn
     }
 
@@ -498,7 +519,6 @@ mod tests {
         let mut conn = setup().await;
         let account = Account {
             id: AccountId(0),
-            name: "Bank".to_string(),
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -507,7 +527,6 @@ mod tests {
         };
         let id = account_create(&mut conn, &account).await.unwrap();
         let fetched = account_get(&mut conn, id).await.unwrap().unwrap();
-        assert_eq!(fetched.name, "Bank");
         assert!(!fetched.is_system);
     }
 
@@ -518,7 +537,6 @@ mod tests {
             .await
             .unwrap();
         assert!(found.is_some());
-        assert_eq!(found.unwrap().name, "OpeningBalances");
     }
 
     #[tokio::test]
@@ -533,7 +551,6 @@ mod tests {
         let mut conn = setup().await;
         let parent = Account {
             id: AccountId(0),
-            name: "TestParent".to_string(),
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -544,7 +561,6 @@ mod tests {
 
         let child = Account {
             id: AccountId(0),
-            name: "Child".to_string(),
             parent_id: Some(parent_id),
             closed_at: None,
             is_system: false,
@@ -555,7 +571,6 @@ mod tests {
 
         let children = account_list_children(&mut conn, parent_id).await.unwrap();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].name, "Child");
     }
 
     #[tokio::test]
@@ -579,7 +594,6 @@ mod tests {
         let mut conn = setup().await;
         let assets = Account {
             id: AccountId(0),
-            name: "Assets".to_string(),
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -589,9 +603,16 @@ mod tests {
         let assets_id = account_create_with_closure(&mut conn, &assets)
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display) VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(assets_id.0)
+        .bind("Assets")
+        .execute(&mut conn)
+        .await
+        .unwrap();
         let bank = Account {
             id: AccountId(0),
-            name: "Bank".to_string(),
             parent_id: Some(assets_id),
             closed_at: None,
             is_system: false,
@@ -599,9 +620,16 @@ mod tests {
             repayment_day: None,
         };
         let bank_id = account_create_with_closure(&mut conn, &bank).await.unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display) VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(bank_id.0)
+        .bind("Bank")
+        .execute(&mut conn)
+        .await
+        .unwrap();
         let checking = Account {
             id: AccountId(0),
-            name: "Checking".to_string(),
             parent_id: Some(bank_id),
             closed_at: None,
             is_system: false,
@@ -611,9 +639,17 @@ mod tests {
         let checking_id = account_create_with_closure(&mut conn, &checking)
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display) VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(checking_id.0)
+        .bind("Checking")
+        .execute(&mut conn)
+        .await
+        .unwrap();
 
         assert_eq!(
-            account_find_root_name(&mut conn, checking_id)
+            account_find_root_name(&mut conn, checking_id, "en")
                 .await
                 .unwrap(),
             "Assets"
@@ -629,7 +665,6 @@ mod tests {
         let mut conn = setup().await;
         let equity = Account {
             id: AccountId(0),
-            name: "Equity".to_string(),
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -639,9 +674,19 @@ mod tests {
         let equity_id = account_create_with_closure(&mut conn, &equity)
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display) VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(equity_id.0)
+        .bind("Equity")
+        .execute(&mut conn)
+        .await
+        .unwrap();
 
         assert_eq!(
-            account_find_root_name(&mut conn, equity_id).await.unwrap(),
+            account_find_root_name(&mut conn, equity_id, "en")
+                .await
+                .unwrap(),
             "Equity"
         );
         assert_eq!(
@@ -655,7 +700,6 @@ mod tests {
         let mut conn = setup().await;
         let assets_cn = Account {
             id: AccountId(0),
-            name: "资产".to_string(),
             parent_id: None,
             closed_at: None,
             is_system: false,
@@ -665,9 +709,16 @@ mod tests {
         let assets_id = account_create_with_closure(&mut conn, &assets_cn)
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display) VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(assets_id.0)
+        .bind("资产")
+        .execute(&mut conn)
+        .await
+        .unwrap();
         let bank_cn = Account {
             id: AccountId(0),
-            name: "银行".to_string(),
             parent_id: Some(assets_id),
             closed_at: None,
             is_system: false,
@@ -677,9 +728,19 @@ mod tests {
         let bank_id = account_create_with_closure(&mut conn, &bank_cn)
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display) VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(bank_id.0)
+        .bind("银行")
+        .execute(&mut conn)
+        .await
+        .unwrap();
 
         assert_eq!(
-            account_find_root_name(&mut conn, bank_id).await.unwrap(),
+            account_find_root_name(&mut conn, bank_id, "en")
+                .await
+                .unwrap(),
             "资产"
         );
         assert_eq!(
@@ -687,8 +748,184 @@ mod tests {
             assets_id
         );
         assert_eq!(
-            account_find_root_name(&mut conn, assets_id).await.unwrap(),
+            account_find_root_name(&mut conn, assets_id, "en")
+                .await
+                .unwrap(),
             "资产"
         );
+        // 只有英文（此处 fixture 把中文文本放在 en 语言上）名字时，以中文查询按回退链取同一名字
+        assert_eq!(
+            account_find_root_name(&mut conn, assets_id, "zh-CN")
+                .await
+                .unwrap(),
+            "资产"
+        );
+    }
+
+    fn bare_account(parent_id: Option<AccountId>) -> Account {
+        Account {
+            id: AccountId(0),
+            parent_id,
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_with_name_and_namespace_uniqueness() {
+        let mut conn = setup().await;
+        let assets_id = account_get_by_name(&mut conn, "Assets")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let expenses_id = account_get_by_name(&mut conn, "Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+
+        // 正常创建：名字按调用方语言写入，按任意语言名命中
+        let id =
+            account_create_with_name(&mut conn, &bare_account(Some(assets_id)), "招行", "zh-CN")
+                .await
+                .unwrap();
+        assert!(
+            account_get_by_name(&mut conn, "Assets:招行")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            crate::names::ACCOUNT_NAMES
+                .resolve_display(&mut conn, id.0, "en")
+                .await
+                .unwrap(),
+            Some("招行".to_string())
+        );
+
+        // 同父级撞系统名（NOCASE）→ 拒绝
+        assert!(
+            account_create_with_name(&mut conn, &bare_account(Some(assets_id)), "cash", "en")
+                .await
+                .is_err()
+        );
+        assert!(
+            account_create_with_name(&mut conn, &bare_account(Some(assets_id)), "现金", "zh-CN")
+                .await
+                .is_err()
+        );
+        // 不同父级允许同名
+        assert!(
+            account_create_with_name(&mut conn, &bare_account(Some(expenses_id)), "Cash", "en")
+                .await
+                .is_ok()
+        );
+        // 根命名空间撞系统根账户名 → 拒绝
+        assert!(
+            account_create_with_name(&mut conn, &bare_account(None), "ASSETS", "en")
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_account_rename_applies() {
+        let mut conn = setup().await;
+        let assets_id = account_get_by_name(&mut conn, "Assets")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let id =
+            account_create_with_name(&mut conn, &bare_account(Some(assets_id)), "OldBank", "en")
+                .await
+                .unwrap();
+
+        // 英文改名生效：新名命中，旧名不再命中
+        account_rename(&mut conn, id, "NewBank", "en")
+            .await
+            .unwrap();
+        assert!(
+            account_get_by_name(&mut conn, "Assets:NewBank")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            account_get_by_name(&mut conn, "Assets:OldBank")
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        // 中文改名：该语言无显示名 → 新增显示名，英文名不受影响
+        account_rename(&mut conn, id, "新银行", "zh-CN")
+            .await
+            .unwrap();
+        let names = crate::names::ACCOUNT_NAMES
+            .batch_resolve_display(&mut conn, &[id.0], "zh-CN")
+            .await
+            .unwrap();
+        assert_eq!(names.get(&id.0).unwrap(), "新银行");
+        assert!(
+            account_get_by_name(&mut conn, "Assets:NewBank")
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // 改为父级命名空间内已占用的名字 → 拒绝
+        assert!(account_rename(&mut conn, id, "cash", "en").await.is_err());
+
+        // 系统账户改名：系统名降级为非显示（文本保留），用户名成为显示名
+        account_rename(&mut conn, assets_id, "MyAssets", "en")
+            .await
+            .unwrap();
+        let names = crate::names::ACCOUNT_NAMES
+            .batch_resolve_display(&mut conn, &[assets_id.0], "en")
+            .await
+            .unwrap();
+        assert_eq!(names.get(&assets_id.0).unwrap(), "MyAssets");
+        // 系统名仍可命中
+        assert!(
+            account_get_by_name(&mut conn, "Assets")
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // 不存在的账户显式报错
+        assert!(
+            account_rename(&mut conn, AccountId(99999), "X", "en")
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_or_create_by_path_uses_given_lang() {
+        let mut conn = setup().await;
+
+        // 导入场景：自动创建的名字标 'und'
+        let id = account_get_or_create_by_path(&mut conn, "Expenses:餐饮美食", "und")
+            .await
+            .unwrap();
+        let lang: String = sqlx::query_scalar(
+            "SELECT lang FROM account_names WHERE account_id = ?1 AND name = '餐饮美食'",
+        )
+        .bind(id.0)
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(lang, "und");
+
+        // 重复调用幂等，返回同一账户
+        let again = account_get_or_create_by_path(&mut conn, "Expenses:餐饮美食", "und")
+            .await
+            .unwrap();
+        assert_eq!(again, id);
     }
 }

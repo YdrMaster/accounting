@@ -22,137 +22,120 @@ impl ConfigService {
     }
 
     /// 将数据库中的配置导出为 ConfigFile
-    pub async fn export(&self) -> Result<ConfigFile, AccountingError> {
+    ///
+    /// 实体名字按 `lang` 回退链（所选 → en → zh-CN → 插入序）批量解析；
+    /// `lang` 同时写入 settings.language，作为回导入时的名字写入语言。
+    pub async fn export(&self, lang: &str) -> Result<ConfigFile, AccountingError> {
+        let db_err = |e: accounting_sql::DbError| AccountingError::DatabaseError(e.to_string());
+
         let mut file = ConfigFile {
-            version: ConfigFile::current_version().to_string(),
+            settings: Some(Settings {
+                language: lang.to_string(),
+            }),
             ..Default::default()
         };
 
-        // settings
-        if let Some(lang) = self
+        // 实体清单
+        let commodities = self.db.commodity_list().await.map_err(db_err)?;
+        let members = self.db.member_list().await.map_err(db_err)?;
+        let channels = self.db.channel_list().await.map_err(db_err)?;
+        let tags = self.db.tag_list().await.map_err(db_err)?;
+        let accounts = self.db.account_list().await.map_err(db_err)?;
+
+        // 批量显示名（回退链在包装层完成）
+        let commodity_names = self
             .db
-            .get_setting("language")
+            .commodity_display_names(&commodities.iter().map(|c| c.id).collect::<Vec<_>>(), lang)
             .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
-        {
-            file.settings = Some(Settings { language: lang });
-        }
+            .map_err(db_err)?;
+        let member_names = self
+            .db
+            .member_display_names(&members.iter().map(|m| m.id).collect::<Vec<_>>(), lang)
+            .await
+            .map_err(db_err)?;
+        let channel_names = self
+            .db
+            .channel_display_names(&channels.iter().map(|c| c.id).collect::<Vec<_>>(), lang)
+            .await
+            .map_err(db_err)?;
+        let tag_names = self
+            .db
+            .tag_display_names(&tags.iter().map(|t| t.id).collect::<Vec<_>>(), lang)
+            .await
+            .map_err(db_err)?;
+        let account_names = self
+            .db
+            .account_display_names(&accounts.iter().map(|a| a.id).collect::<Vec<_>>(), lang)
+            .await
+            .map_err(db_err)?;
+
+        // 账户 ID -> 显示路径
+        let accounts_by_id: HashMap<AccountId, accounting::account::Account> =
+            accounts.iter().map(|a| (a.id, a.clone())).collect();
+        let account_path_map: HashMap<AccountId, String> = accounts
+            .iter()
+            .map(|a| (a.id, a.display_path(&accounts_by_id, &account_names)))
+            .collect();
 
         // commodities
-        let commodities = self
-            .db
-            .commodity_list()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         file.commodities = commodities
-            .clone()
-            .into_iter()
+            .iter()
             .map(|c| YamlCommodity {
-                symbol: c.symbol,
-                name: c.name,
+                symbol: c.symbol.clone(),
+                name: commodity_names.get(&c.id).cloned().unwrap_or_default(),
                 precision: c.precision,
             })
             .collect();
 
         // members
-        let members = self
-            .db
-            .member_list()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         file.members = members
-            .clone()
-            .into_iter()
-            .map(|m| YamlMember { name: m.name })
+            .iter()
+            .map(|m| YamlMember {
+                name: member_names.get(&m.id).cloned().unwrap_or_default(),
+            })
             .collect();
 
         // channels
-        let channels = self
-            .db
-            .channel_list()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-
-        // build account id -> path map for channel account references
-        let accounts = self
-            .db
-            .account_list()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        let mut account_path_map: HashMap<AccountId, String> = HashMap::new();
-        let accounts_by_id: HashMap<AccountId, accounting::account::Account> =
-            accounts.iter().map(|a| (a.id, a.clone())).collect();
-        for account in &accounts {
-            let path = account.display_path(&accounts_by_id);
-            account_path_map.insert(account.id, path);
-        }
-
         file.channels = channels
-            .clone()
-            .into_iter()
+            .iter()
             .map(|c| YamlChannel {
-                name: c.name,
-                description: c.description,
+                name: channel_names.get(&c.id).cloned().unwrap_or_default(),
+                description: c.description.clone(),
                 account: c
                     .account_id
                     .map(|id| account_path_map.get(&id).cloned().unwrap_or_default()),
             })
             .collect();
 
-        // pre-build name lookup maps for members and channels
-        let mut member_name_map: HashMap<MemberId, String> = HashMap::new();
-        let mut channel_name_map: HashMap<ChannelId, String> = HashMap::new();
-        for m in &members {
-            member_name_map.insert(m.id, m.name.clone());
-        }
-        for c in &channels {
-            channel_name_map.insert(c.id, c.name.clone());
-        }
-
         // tags
-        let tags = self
-            .db
-            .tag_list()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         file.tags = tags
-            .into_iter()
+            .iter()
             .map(|t| YamlTag {
-                name: t.name,
-                description: t.description,
+                name: tag_names.get(&t.id).cloned().unwrap_or_default(),
+                description: t.description.clone(),
             })
             .collect();
 
         // accounts
         file.accounts = accounts
             .iter()
-            .map(|a| {
-                let path = account_path_map
-                    .get(&a.id)
-                    .cloned()
-                    .unwrap_or_else(|| a.name.clone());
-                YamlAccount {
-                    path,
-                    closed_at: a.closed_at.map(|d| d.to_string()),
-                    billing_day: a.billing_day,
-                    repayment_day: a.repayment_day,
-                }
+            .map(|a| YamlAccount {
+                path: account_path_map.get(&a.id).cloned().unwrap_or_default(),
+                closed_at: a.closed_at.map(|d| d.to_string()),
+                billing_day: a.billing_day,
+                repayment_day: a.repayment_day,
             })
             .collect();
 
         // account owners
-        let owners = self
-            .db
-            .account_list_owners()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        let owners = self.db.account_list_owners().await.map_err(db_err)?;
         let mut owners_by_account: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (account_id, member_id) in owners {
             let account_path = account_path_map
                 .get(&account_id)
                 .cloned()
                 .unwrap_or_default();
-            let member_name = member_name_map.get(&member_id).cloned().unwrap_or_default();
+            let member_name = member_names.get(&member_id).cloned().unwrap_or_default();
             owners_by_account
                 .entry(account_path)
                 .or_default()
@@ -164,20 +147,15 @@ impl ConfigService {
             .collect();
 
         // account mappings
-        let mappings = self
-            .db
-            .account_mapping_list_all()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        let mappings = self.db.account_mapping_list_all().await.map_err(db_err)?;
         let mut mappings_by_key: BTreeMap<(String, String), BTreeMap<String, String>> =
             BTreeMap::new();
-
         for mapping in mappings {
-            let member_name = member_name_map
+            let member_name = member_names
                 .get(&mapping.member_id)
                 .cloned()
                 .unwrap_or_default();
-            let channel_name = channel_name_map
+            let channel_name = channel_names
                 .get(&mapping.channel_id)
                 .cloned()
                 .unwrap_or_default();
@@ -204,11 +182,16 @@ impl ConfigService {
             .db
             .budget_list_all_with_limits()
             .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        let mut commodity_symbol_map: HashMap<CommodityId, String> = HashMap::new();
-        for c in &commodities {
-            commodity_symbol_map.insert(c.id, c.symbol.clone());
-        }
+            .map_err(db_err)?;
+        let budget_names = self
+            .db
+            .budget_display_names(&budgets.iter().map(|(b, _)| b.id).collect::<Vec<_>>(), lang)
+            .await
+            .map_err(db_err)?;
+        let commodity_symbol_map: HashMap<CommodityId, String> = commodities
+            .iter()
+            .map(|c| (c.id, c.symbol.clone()))
+            .collect();
 
         file.budgets = budgets
             .into_iter()
@@ -226,7 +209,7 @@ impl ConfigService {
                     limit_map.insert(path, limit.amount.to_string());
                 }
                 YamlBudget {
-                    name: budget.name,
+                    name: budget_names.get(&budget.id).cloned().unwrap_or_default(),
                     period: budget.period.to_string(),
                     commodity,
                     limits: limit_map,
@@ -245,12 +228,8 @@ impl ConfigService {
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
-        // 语言一致性检查
-        let db_lang = tx
-            .get_setting("language")
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-
+        // 文件声明的语言作为本次导入所有名字的写入语言
+        // （语言不再是数据库属性，不做库内语言一致性检查）
         let file_lang = data
             .settings
             .as_ref()
@@ -258,15 +237,6 @@ impl ConfigService {
             .ok_or_else(|| {
                 AccountingError::InvalidTransaction("导入文件缺少 settings.language".to_string())
             })?;
-
-        if let Some(db_lang) = db_lang
-            && db_lang != file_lang
-        {
-            return Err(AccountingError::InvalidTransaction(format!(
-                "语言不一致：数据库为 {}，导入文件为 {}",
-                db_lang, file_lang
-            )));
-        }
 
         // 缓存：自然键 -> ID
         let mut commodity_id_cache: HashMap<String, CommodityId> = HashMap::new();
@@ -278,7 +248,7 @@ impl ConfigService {
         // 1. commodities
         for c in &data.commodities {
             let id = tx
-                .commodity_upsert_by_symbol(&c.symbol, &c.name, c.precision)
+                .commodity_upsert_by_symbol(&c.symbol, &c.name, c.precision, &file_lang)
                 .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             commodity_id_cache.insert(c.symbol.clone(), id);
@@ -287,7 +257,7 @@ impl ConfigService {
         // 2. members
         for m in &data.members {
             let id = tx
-                .member_get_or_create_by_name(&m.name)
+                .member_get_or_create_by_name(&m.name, &file_lang)
                 .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             member_id_cache.insert(m.name.clone(), id);
@@ -296,7 +266,7 @@ impl ConfigService {
         // 3. tags
         for t in &data.tags {
             let id = tx
-                .tag_upsert_by_name(&t.name, t.description.as_deref())
+                .tag_upsert_by_name(&t.name, t.description.as_deref(), &file_lang)
                 .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             tag_id_cache.insert(t.name.clone(), id);
@@ -306,7 +276,7 @@ impl ConfigService {
         for a in &data.accounts {
             let path = &a.path;
             let id = tx
-                .account_get_or_create_by_path(path)
+                .account_get_or_create_by_path(path, &file_lang)
                 .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             account_id_cache.insert(path.clone(), id);
@@ -332,7 +302,7 @@ impl ConfigService {
                 .as_ref()
                 .and_then(|path| account_id_cache.get(path).copied());
             let id = tx
-                .channel_upsert_by_name(&c.name, c.description.as_deref(), account_id)
+                .channel_upsert_by_name(&c.name, c.description.as_deref(), account_id, &file_lang)
                 .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
             channel_id_cache.insert(c.name.clone(), id);
@@ -399,18 +369,13 @@ impl ConfigService {
                 })?;
                 limits.push((account_id, amount));
             }
-            tx.budget_upsert_by_name(&budget.name, period, commodity_id, &limits)
+            tx.budget_upsert_by_name(&budget.name, period, commodity_id, &limits, &file_lang)
                 .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
         // 9. rebuild account ancestors
         tx.account_rebuild_ancestors()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-
-        // 10. update settings language if needed
-        tx.set_setting("language", &file_lang)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
@@ -439,7 +404,7 @@ fn parse_budget_period(s: &str) -> Result<FinancePeriod, AccountingError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::dto::YamlBudget;
+    use crate::config::dto::{Settings, YamlAccount, YamlBudget, YamlCommodity};
     use accounting::finance_period::FinancePeriod;
     use accounting::id::CommodityId;
     use rust_decimal::Decimal;
@@ -447,7 +412,7 @@ mod tests {
 
     async fn setup_db() -> SqliteDatabase {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("zh-CN")).await.unwrap();
+        db.initialize().await.unwrap();
         db
     }
 
@@ -465,20 +430,23 @@ mod tests {
         let db = setup_db().await;
 
         // Create some config data
-        db.commodity_upsert_by_symbol("USD", "美元", 2)
+        db.commodity_upsert_by_symbol("USD", "美元", 2, "zh-CN")
             .await
             .unwrap();
-        let member_id = db.member_get_or_create_by_name("Alice").await.unwrap();
-        let _tag_id = db.tag_upsert_by_name("trip", None).await.unwrap();
+        let member_id = db
+            .member_get_or_create_by_name("Alice", "en")
+            .await
+            .unwrap();
+        let _tag_id = db.tag_upsert_by_name("trip", None, "en").await.unwrap();
         let account_id = db
-            .account_get_or_create_by_path("Assets:Bank:Checking")
+            .account_get_or_create_by_path("Assets:Bank:Checking", "en")
             .await
             .unwrap();
         db.account_update_by_path("Assets:Bank:Checking", None, Some(5), Some(25))
             .await
             .unwrap();
         let channel_id = db
-            .channel_upsert_by_name("支付宝", Some("测试"), Some(account_id))
+            .channel_upsert_by_name("微信", Some("测试"), Some(account_id), "zh-CN")
             .await
             .unwrap();
         db.account_set_owners(account_id, &[member_id])
@@ -498,13 +466,14 @@ mod tests {
             FinancePeriod::Monthly,
             CommodityId(1),
             &[(account_id, Decimal::from_str("3000.00").unwrap())],
+            "zh-CN",
         )
         .await
         .unwrap();
 
         // Export
         let service = ConfigService::new(db.clone());
-        let exported = service.export().await.unwrap();
+        let exported = service.export("en").await.unwrap();
 
         assert_eq!(exported.version, "1.0");
         assert!(
@@ -521,7 +490,7 @@ mod tests {
                 .iter()
                 .any(|a| a.path == "Assets:Bank:Checking")
         );
-        assert!(exported.channels.iter().any(|c| c.name == "支付宝"));
+        assert!(exported.channels.iter().any(|c| c.name == "微信"));
         assert_eq!(exported.account_owners.len(), 1);
         assert_eq!(exported.account_mappings.len(), 1);
         assert_eq!(exported.budgets.len(), 1);
@@ -532,7 +501,7 @@ mod tests {
         service2.import(&exported).await.unwrap();
 
         // Verify imported data
-        let imported = service2.export().await.unwrap();
+        let imported = service2.export("en").await.unwrap();
         assert!(
             imported
                 .commodities
@@ -547,7 +516,7 @@ mod tests {
                 .iter()
                 .any(|a| a.path == "Assets:Bank:Checking")
         );
-        assert!(imported.channels.iter().any(|c| c.name == "支付宝"));
+        assert!(imported.channels.iter().any(|c| c.name == "微信"));
         assert_eq!(imported.account_owners.len(), 1);
         assert_eq!(imported.account_mappings.len(), 1);
         assert_eq!(imported.budgets.len(), 1);
@@ -564,17 +533,22 @@ mod tests {
             repayment_day: None,
         });
 
-        let service = ConfigService::new(db);
+        let service = ConfigService::new(db.clone());
         service.import(&config).await.unwrap();
 
-        let exported = service.export().await.unwrap();
-        assert!(exported.accounts.iter().any(|a| a.path == "Assets"));
-        assert!(exported.accounts.iter().any(|a| a.path == "Assets:Bank"));
+        // 路径各层级均可按名字命中
+        assert!(db.account_get_by_name("Assets").await.unwrap().is_some());
         assert!(
-            exported
-                .accounts
-                .iter()
-                .any(|a| a.path == "Assets:Bank:Checking")
+            db.account_get_by_name("Assets:Bank")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            db.account_get_by_name("Assets:Bank:Checking")
+                .await
+                .unwrap()
+                .is_some()
         );
     }
 
@@ -600,19 +574,7 @@ mod tests {
         assert!(result.is_err());
 
         // Verify commodity was not committed
-        let exported = service.export().await.unwrap();
-        assert!(!exported.commodities.iter().any(|c| c.symbol == "USD"));
-    }
-
-    #[tokio::test]
-    async fn test_import_language_mismatch_rejected() {
-        let db = setup_db().await;
-        let config = config_with_lang("en");
-
-        let service = ConfigService::new(db);
-        let result = service.import(&config).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("语言不一致"));
+        assert!(db.commodity_get_by_symbol("USD").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -634,7 +596,7 @@ mod tests {
     #[tokio::test]
     async fn test_import_merge_update() {
         let db = setup_db().await;
-        db.commodity_upsert_by_symbol("USD", "美元", 2)
+        db.commodity_upsert_by_symbol("USD", "美元", 2, "zh-CN")
             .await
             .unwrap();
 
@@ -642,25 +604,21 @@ mod tests {
         config.commodities.push(YamlCommodity {
             symbol: "USD".to_string(),
             name: "US Dollar".to_string(),
-            precision: 2,
+            precision: 4,
         });
 
-        let service = ConfigService::new(db);
+        let service = ConfigService::new(db.clone());
         service.import(&config).await.unwrap();
 
-        let exported = service.export().await.unwrap();
-        let usd = exported
-            .commodities
-            .iter()
-            .find(|c| c.symbol == "USD")
-            .unwrap();
-        assert_eq!(usd.name, "US Dollar");
+        // 合并语义：同 symbol 更新精度（名字不做覆盖更新）
+        let usd = db.commodity_get_by_symbol("USD").await.unwrap().unwrap();
+        assert_eq!(usd.precision, 4);
     }
 
     #[tokio::test]
     async fn test_account_path_change_creates_new_account() {
         let db = setup_db().await;
-        db.account_get_or_create_by_path("Assets:Bank:Checking")
+        db.account_get_or_create_by_path("Assets:Bank:Checking", "zh-CN")
             .await
             .unwrap();
 
@@ -672,21 +630,21 @@ mod tests {
             repayment_day: None,
         });
 
-        let service = ConfigService::new(db);
+        let service = ConfigService::new(db.clone());
         service.import(&config).await.unwrap();
 
-        let exported = service.export().await.unwrap();
+        // 旧路径保留，新路径创建
         assert!(
-            exported
-                .accounts
-                .iter()
-                .any(|a| a.path == "Assets:Bank:Checking")
+            db.account_get_by_name("Assets:Bank:Checking")
+                .await
+                .unwrap()
+                .is_some()
         );
         assert!(
-            exported
-                .accounts
-                .iter()
-                .any(|a| a.path == "Assets:Bank:SalaryCard")
+            db.account_get_by_name("Assets:Bank:SalaryCard")
+                .await
+                .unwrap()
+                .is_some()
         );
     }
 }

@@ -6,11 +6,11 @@ use rust_decimal::Decimal;
 use sqlx::{FromRow, SqliteConnection};
 
 use crate::error::DbError;
+use crate::names::BUDGET_NAMES;
 
 #[derive(FromRow)]
 struct BudgetRow {
     id: i64,
-    name: String,
     period: i64,
     commodity_id: i64,
 }
@@ -22,7 +22,6 @@ impl BudgetRow {
         })?;
         Ok(Budget {
             id: BudgetId(self.id),
-            name: self.name,
             period,
             commodity_id: CommodityId(self.commodity_id),
         })
@@ -39,6 +38,7 @@ struct BudgetLimitRow {
 pub async fn budget_create(
     conn: &mut SqliteConnection,
     name: &str,
+    lang: &str,
     period: FinancePeriod,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
@@ -50,15 +50,24 @@ pub async fn budget_create(
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
 
+    // 名字全局唯一（不区分大小写），校验通过才创建
+    BUDGET_NAMES
+        .ensure_available(conn, None, None, name)
+        .await?;
+
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO budgets (name, period, commodity_id) VALUES (?1, ?2, ?3) RETURNING id",
+        "INSERT INTO budgets (period, commodity_id) VALUES (?1, ?2) RETURNING id",
     )
-    .bind(name)
     .bind(period.as_i64())
     .bind(commodity_id.0)
     .fetch_one(&mut *conn)
     .await
     .map_err(|e| DbError::Database(e.to_string()))?;
+
+    // 名字语言由调用方传入
+    BUDGET_NAMES
+        .insert(conn, id, lang, name, false, true)
+        .await?;
 
     for (account_id, amount) in limits {
         let db_amount = amount::to_db_amount(*amount, precision as u8);
@@ -81,9 +90,9 @@ pub async fn budget_get(
     id: BudgetId,
 ) -> Result<Option<Budget>, DbError> {
     let row: Option<BudgetRow> =
-        sqlx::query_as("SELECT id, name, period, commodity_id FROM budgets WHERE id = ?1")
+        sqlx::query_as("SELECT id, period, commodity_id FROM budgets WHERE id = ?1")
             .bind(id.0)
-            .fetch_optional(conn)
+            .fetch_optional(&mut *conn)
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
     match row {
@@ -94,7 +103,7 @@ pub async fn budget_get(
 
 pub async fn budget_list(conn: &mut SqliteConnection) -> Result<Vec<Budget>, DbError> {
     let rows: Vec<BudgetRow> =
-        sqlx::query_as("SELECT id, name, period, commodity_id FROM budgets ORDER BY id")
+        sqlx::query_as("SELECT id, period, commodity_id FROM budgets ORDER BY id")
             .fetch_all(conn)
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
@@ -108,9 +117,9 @@ pub async fn budget_get_by_name(
     name: &str,
 ) -> Result<Option<Budget>, DbError> {
     let row: Option<BudgetRow> =
-        sqlx::query_as("SELECT id, name, period, commodity_id FROM budgets WHERE name = ?1")
+        sqlx::query_as("SELECT b.id, b.period, b.commodity_id FROM budgets b JOIN budget_names bn ON bn.budget_id = b.id WHERE bn.name = ?1")
             .bind(name)
-            .fetch_optional(conn)
+            .fetch_optional(&mut *conn)
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
     match row {
@@ -123,6 +132,7 @@ pub async fn budget_update(
     conn: &mut SqliteConnection,
     budget_id: BudgetId,
     name: &str,
+    lang: &str,
     period: FinancePeriod,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
@@ -135,15 +145,13 @@ pub async fn budget_update(
         .map_err(|e| DbError::Database(e.to_string()))?;
 
     // Update budget header
-    let result =
-        sqlx::query("UPDATE budgets SET name = ?1, period = ?2, commodity_id = ?3 WHERE id = ?4")
-            .bind(name)
-            .bind(period.as_i64())
-            .bind(commodity_id.0)
-            .bind(budget_id.0)
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| DbError::Database(e.to_string()))?;
+    let result = sqlx::query("UPDATE budgets SET period = ?1, commodity_id = ?2 WHERE id = ?3")
+        .bind(period.as_i64())
+        .bind(commodity_id.0)
+        .bind(budget_id.0)
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
 
     if result.rows_affected() == 0 {
         return Err(DbError::Database(format!(
@@ -151,6 +159,11 @@ pub async fn budget_update(
             budget_id.0
         )));
     }
+
+    // 改名：(budget, lang) 显示名更新为新文本；撞名拒绝
+    BUDGET_NAMES
+        .rename_display(conn, budget_id.0, None, lang, name)
+        .await?;
 
     // Delete old limits and insert new ones
     sqlx::query("DELETE FROM budget_limits WHERE budget_id = ?1")
@@ -190,20 +203,26 @@ pub async fn budget_list_all_with_limits(
 pub async fn budget_upsert_by_name(
     conn: &mut SqliteConnection,
     name: &str,
+    lang: &str,
     period: FinancePeriod,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
 ) -> Result<BudgetId, DbError> {
-    let existing = budget_list(conn)
-        .await?
-        .into_iter()
-        .find(|b| b.name == name);
+    // Find existing budget by name via budget_names table
+    let existing_id: Option<i64> = sqlx::query_scalar(
+        "SELECT b.id FROM budgets b JOIN budget_names bn ON bn.budget_id = b.id WHERE bn.name = ?1",
+    )
+    .bind(name)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
 
-    if let Some(budget) = existing {
-        budget_update(conn, budget.id, name, period, commodity_id, limits).await?;
-        Ok(budget.id)
+    if let Some(budget_id) = existing_id {
+        let budget_id = BudgetId(budget_id);
+        budget_update(conn, budget_id, name, lang, period, commodity_id, limits).await?;
+        Ok(budget_id)
     } else {
-        budget_create(conn, name, period, commodity_id, limits).await
+        budget_create(conn, name, lang, period, commodity_id, limits).await
     }
 }
 
@@ -274,9 +293,7 @@ mod tests {
             .await
             .unwrap();
         crate::schema::initialize_schema(&mut conn).await.unwrap();
-        crate::schema::insert_seed_data(&mut conn, "en")
-            .await
-            .unwrap();
+        crate::schema::insert_seed_data(&mut conn).await.unwrap();
         conn
     }
 
@@ -288,25 +305,50 @@ mod tests {
             .id;
         let account = Account {
             id: AccountId(0),
-            name: name.to_string(),
             parent_id: Some(root_id),
             closed_at: None,
             is_system: false,
             billing_day: None,
             repayment_day: None,
         };
-        account_create_with_closure(conn, &account).await.unwrap()
+        let id = account_create_with_closure(conn, &account).await.unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display) VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(id.0)
+        .bind(name)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+        id
     }
 
     async fn ensure_test_member(conn: &mut SqliteConnection) -> i64 {
-        sqlx::query("INSERT OR IGNORE INTO members (name) VALUES ('Test Member')")
-            .execute(&mut *conn)
+        // Check if member already exists via member_names
+        if let Some(id) = sqlx::query_scalar::<_, i64>(
+            "SELECT member_id FROM member_names WHERE name = ?1 AND lang = 'en' LIMIT 1",
+        )
+        .bind("Test Member")
+        .fetch_optional(&mut *conn)
+        .await
+        .unwrap()
+        {
+            return id;
+        }
+        let id: i64 = sqlx::query_scalar("INSERT INTO members DEFAULT VALUES RETURNING id")
+            .fetch_one(&mut *conn)
             .await
             .unwrap();
-        sqlx::query_scalar("SELECT id FROM members WHERE name = 'Test Member'")
-            .fetch_one(conn)
-            .await
-            .unwrap()
+        sqlx::query(
+            "INSERT INTO member_names (member_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(id)
+        .bind("Test Member")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+        id
     }
 
     async fn insert_transaction_at(
@@ -350,6 +392,7 @@ mod tests {
         let id = budget_create(
             &mut conn,
             "Monthly Life",
+            "en",
             FinancePeriod::Monthly,
             CommodityId(1),
             &[
@@ -361,7 +404,6 @@ mod tests {
         .unwrap();
 
         let budget = budget_get(&mut conn, id).await.unwrap().unwrap();
-        assert_eq!(budget.name, "Monthly Life");
         assert_eq!(budget.period, FinancePeriod::Monthly);
         assert_eq!(budget.commodity_id, CommodityId(1));
 
@@ -370,11 +412,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_budget_create_duplicate_name_rejected() {
+        let mut conn = setup().await;
+        budget_create(
+            &mut conn,
+            "Monthly Life",
+            "en",
+            FinancePeriod::Monthly,
+            CommodityId(1),
+            &[(AccountId(1), Decimal::from_str("2000").unwrap())],
+        )
+        .await
+        .unwrap();
+
+        // 同名（NOCASE）再次创建 → 拒绝
+        let result = budget_create(
+            &mut conn,
+            "monthly life",
+            "en",
+            FinancePeriod::Yearly,
+            CommodityId(1),
+            &[(AccountId(1), Decimal::from_str("100").unwrap())],
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("已存在"));
+    }
+
+    #[tokio::test]
     async fn test_budget_list() {
         let mut conn = setup().await;
         budget_create(
             &mut conn,
             "Budget A",
+            "en",
             FinancePeriod::Monthly,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
@@ -384,6 +455,7 @@ mod tests {
         budget_create(
             &mut conn,
             "Budget B",
+            "en",
             FinancePeriod::Yearly,
             CommodityId(1),
             &[(AccountId(2), Decimal::from_str("20000").unwrap())],
@@ -401,6 +473,7 @@ mod tests {
         let id = budget_create(
             &mut conn,
             "Old Name",
+            "en",
             FinancePeriod::Monthly,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
@@ -412,6 +485,7 @@ mod tests {
             &mut conn,
             id,
             "New Name",
+            "en",
             FinancePeriod::Yearly,
             CommodityId(1),
             &[
@@ -423,11 +497,64 @@ mod tests {
         .unwrap();
 
         let budget = budget_get(&mut conn, id).await.unwrap().unwrap();
-        assert_eq!(budget.name, "New Name");
         assert_eq!(budget.period, FinancePeriod::Yearly);
 
         let limits = budget_get_limits(&mut conn, id).await.unwrap();
         assert_eq!(limits.len(), 2);
+
+        // 改名真正生效：新名字命中，旧名字不再命中
+        assert!(
+            budget_get_by_name(&mut conn, "New Name")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            budget_get_by_name(&mut conn, "Old Name")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_budget_update_rename_collision_rejected() {
+        let mut conn = setup().await;
+        let id_a = budget_create(
+            &mut conn,
+            "Budget A",
+            "en",
+            FinancePeriod::Monthly,
+            CommodityId(1),
+            &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+        )
+        .await
+        .unwrap();
+        budget_create(
+            &mut conn,
+            "Budget B",
+            "en",
+            FinancePeriod::Monthly,
+            CommodityId(1),
+            &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+        )
+        .await
+        .unwrap();
+
+        // 改名为另一预算已占用的名字 → 拒绝
+        assert!(
+            budget_update(
+                &mut conn,
+                id_a,
+                "budget b",
+                "en",
+                FinancePeriod::Monthly,
+                CommodityId(1),
+                &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -436,6 +563,7 @@ mod tests {
         let id = budget_create(
             &mut conn,
             "To Delete",
+            "en",
             FinancePeriod::Monthly,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
@@ -517,7 +645,7 @@ mod tests {
 
         // Create "exclude-from-budget" tag
         let exclude_tag_id: i64 =
-            sqlx::query_scalar("SELECT id FROM tags WHERE name = 'exclude-from-budget'")
+            sqlx::query_scalar("SELECT t.id FROM tags t JOIN tag_names tn ON tn.tag_id = t.id WHERE tn.name = 'exclude-from-budget'")
                 .fetch_one(&mut conn)
                 .await
                 .unwrap();

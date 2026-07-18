@@ -37,13 +37,11 @@ impl MemberService {
     }
 
     /// 添加成员
-    pub async fn add(&self, name: String) -> Result<MemberId, AccountingError> {
-        let member = Member {
-            id: MemberId(0),
-            name,
-        };
+    ///
+    /// 名字按 `lang` 语言写入名字表；同名成员已存在时返回既有成员 ID。
+    pub async fn add(&self, name: String, lang: &str) -> Result<MemberId, AccountingError> {
         self.db
-            .member_create(&member)
+            .member_get_or_create_by_name(&name, lang)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
@@ -73,17 +71,25 @@ mod tests {
     #[tokio::test]
     async fn test_member_lifecycle() {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
-        db.initialize(Some("en")).await.unwrap();
+        db.initialize().await.unwrap();
         let service = MemberService::new(db);
 
-        let id = service.add("Alice".to_string()).await.unwrap();
+        let id = service.add("Alice".to_string(), "en").await.unwrap();
         assert!(id.0 > 0);
 
         let list = service.list(None, None).await.unwrap();
-        assert!(list.iter().any(|m| m.name == "Alice"));
+        assert!(list.iter().any(|m| m.id == id));
+        assert!(
+            service
+                .db
+                .member_get_by_name("Alice")
+                .await
+                .unwrap()
+                .is_some()
+        );
 
         service.delete(id).await.unwrap();
         let list = service.list(None, None).await.unwrap();
-        assert!(!list.iter().any(|m| m.name == "Alice"));
+        assert!(!list.iter().any(|m| m.id == id));
     }
 }

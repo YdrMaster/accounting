@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import Decimal from 'decimal.js'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { TransactionDto } from '../types/api'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   tx: TransactionDto
@@ -106,7 +109,9 @@ function onDblClick() {
     @touchend="onTouchEnd"
   >
     <div class="tx-top">
-      <span v-if="isTransfer() && !isPureImport()" class="transfer-label">转账</span>
+      <span v-if="isTransfer() && !isPureImport()" class="transfer-label">{{
+        t('txCard.transfer')
+      }}</span>
       <span v-else-if="!isPureImport()" class="ie-accounts">{{
         getIncomeExpenseAccounts().join(' ')
       }}</span>
@@ -118,7 +123,7 @@ function onDblClick() {
     </div>
     <div class="tx-middle">
       <span class="tx-name" :class="{ refund: isRefund() }">
-        {{ isRefund() ? '退款 · ' : '' }}{{ tx.description || '' }}
+        {{ isRefund() ? t('txCard.refundPrefix') : '' }}{{ tx.description || '' }}
       </span>
       <div
         v-if="!isPureImport()"
