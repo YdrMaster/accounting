@@ -872,6 +872,15 @@ impl SqliteDatabase {
         crate::repo::posting::posting_summary(&mut conn, start, end).await
     }
 
+    pub async fn posting_daily_summary(
+        &self,
+        start: chrono::NaiveDate,
+        end: chrono::NaiveDate,
+    ) -> Result<Vec<crate::repo::posting::DailySummaryRow>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::posting::posting_daily_summary(&mut conn, start, end).await
+    }
+
     // === Settings ===
 
     pub async fn get_setting(&self, key: &str) -> Result<Option<String>, DbError> {

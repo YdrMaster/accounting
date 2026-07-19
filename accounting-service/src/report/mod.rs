@@ -6,3 +6,5 @@ pub mod balance_sheet;
 pub mod budget;
 /// 资金流量表
 pub mod cash_flow;
+/// 按天收支汇总
+pub mod daily_summary;

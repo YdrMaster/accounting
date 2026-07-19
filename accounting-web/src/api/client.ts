@@ -27,6 +27,7 @@ import type {
   CreateAccountRequest,
   CreateBudgetRequest,
   CreateTransactionData,
+  DailySummaryDto,
   MemberDto,
   MoveAccountRequest,
   TagDto,
@@ -181,6 +182,11 @@ export async function deleteTransaction(id: number): Promise<void> {
 
 export async function fetchBalanceSheet(): Promise<BalanceSheetDto> {
   return apiFetch<BalanceSheetDto>('/reports/balance-sheet')
+}
+
+export async function fetchDailySummary(from: string, to: string): Promise<DailySummaryDto[]> {
+  const qs = new URLSearchParams({ from, to }).toString()
+  return apiFetch<DailySummaryDto[]>(`/reports/daily-summary?${qs}`)
 }
 
 // ─── 预算 CRUD ───

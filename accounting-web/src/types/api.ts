@@ -34,6 +34,12 @@ export interface SummaryDto {
   expense: string
 }
 
+export interface DailySummaryDto {
+  date: string
+  income: string
+  expense: string
+}
+
 export interface MemberDto {
   id: number
   name: string

@@ -417,6 +417,74 @@ pub async fn posting_summary(
     Ok(PostingSummary { income, expense })
 }
 
+/// 按天收支汇总行
+pub struct DailySummaryRow {
+    /// 日期
+    pub date: chrono::NaiveDate,
+    /// 收入（资产类分录正金额之和）
+    pub income: Decimal,
+    /// 支出（资产类分录负金额绝对值之和）
+    pub expense: Decimal,
+}
+
+/// 按天汇总资产类（Assets/Equity 根下）分录的收支
+///
+/// 仅返回 [start, end] 范围内有分录的日期，按日期升序；多币种按各自精度换算后合并。
+pub async fn posting_daily_summary(
+    conn: &mut SqliteConnection,
+    start: chrono::NaiveDate,
+    end: chrono::NaiveDate,
+) -> Result<Vec<DailySummaryRow>, DbError> {
+    let precisions = load_precisions(conn).await?;
+
+    let rows: Vec<(String, i64, i64, i64)> = sqlx::query_as(
+        "SELECT date(t.date_time) AS day, p.commodity_id,
+                SUM(CASE WHEN p.amount > 0 THEN p.amount ELSE 0 END),
+                SUM(CASE WHEN p.amount < 0 THEN -p.amount ELSE 0 END)
+         FROM postings p
+         JOIN accounts a ON p.account_id = a.id
+         JOIN account_ancestors aa ON a.id = aa.account_id
+         JOIN account_names an ON aa.ancestor_id = an.account_id AND aa.depth = (
+             SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id
+         )
+         JOIN transactions t ON p.transaction_id = t.id
+         WHERE an.is_system = 1 AND an.name IN ('Assets', 'Equity')
+           AND t.date_time >= ?1 AND t.date_time <= ?2
+         GROUP BY day, p.commodity_id
+         ORDER BY day",
+    )
+    .bind(datetime_utils::start_of_day(start).to_string())
+    .bind(datetime_utils::end_of_day(end).to_string())
+    .fetch_all(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+
+    // 同一天可能有多个币种，按天合并
+    let mut result: Vec<DailySummaryRow> = Vec::new();
+    for (day, commodity_id, pos, neg) in rows {
+        let precision = precisions
+            .get(&CommodityId(commodity_id))
+            .copied()
+            .unwrap_or(2);
+        let date = chrono::NaiveDate::parse_from_str(&day, "%Y-%m-%d")
+            .map_err(|e| DbError::Database(e.to_string()))?;
+        let income = from_db_amount(pos, precision);
+        let expense = from_db_amount(neg, precision);
+        match result.last_mut() {
+            Some(last) if last.date == date => {
+                last.income += income;
+                last.expense += expense;
+            }
+            _ => result.push(DailySummaryRow {
+                date,
+                income,
+                expense,
+            }),
+        }
+    }
+    Ok(result)
+}
+
 fn apply_posting_filter(
     builder: &mut QueryBuilder<sqlx::Sqlite>,
     filter: &TransactionFilter,

@@ -6,9 +6,11 @@ use accounting::finance_period::FinancePeriod;
 use accounting::id::{AccountId, CommodityId};
 use accounting_service::report::balance_sheet::BalanceSheetService;
 use accounting_service::report::cash_flow::CashFlowService;
+use accounting_service::report::daily_summary::DailySummaryService;
 use axum::{
     Json, Router,
     extract::{Query, State},
+    http::StatusCode,
     routing::get,
 };
 use chrono::NaiveDate;
@@ -200,9 +202,61 @@ async fn cash_flow(
     }))
 }
 
+/// 按天收支汇总查询参数
+#[derive(serde::Deserialize)]
+pub struct DailySummaryQuery {
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+/// 按天收支汇总项
+#[derive(Serialize)]
+struct DailySummaryItem {
+    date: String,
+    income: String,
+    expense: String,
+}
+
+/// 获取按天收支汇总（仅返回有交易的日期，按日期升序）
+async fn daily_summary(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DailySummaryQuery>,
+) -> Result<Json<Vec<DailySummaryItem>>, (StatusCode, String)> {
+    let bad_request = || {
+        (
+            StatusCode::BAD_REQUEST,
+            "参数 from/to 必填，格式为 YYYY-MM-DD".to_string(),
+        )
+    };
+    let (Some(from), Some(to)) = (query.from, query.to) else {
+        return Err(bad_request());
+    };
+    let from = NaiveDate::parse_from_str(&from, "%Y-%m-%d").map_err(|_| bad_request())?;
+    let to = NaiveDate::parse_from_str(&to, "%Y-%m-%d").map_err(|_| bad_request())?;
+
+    let db = state.db();
+    let service = DailySummaryService::new(db.clone());
+    let items = service
+        .daily_summary(from, to)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(
+        items
+            .into_iter()
+            .map(|i| DailySummaryItem {
+                date: i.date.to_string(),
+                income: i.income.to_string(),
+                expense: i.expense.to_string(),
+            })
+            .collect(),
+    ))
+}
+
 /// 报表路由
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/reports/balance-sheet", get(balance_sheet))
         .route("/api/reports/cash-flow", get(cash_flow))
+        .route("/api/reports/daily-summary", get(daily_summary))
 }

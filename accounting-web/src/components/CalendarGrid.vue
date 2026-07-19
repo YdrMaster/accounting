@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import type { DailySummaryDto } from '../types/api'
+import { formatCalendarAmount } from '../utils/amount'
 
-const { t, tm } = useI18n()
+const { t, tm, locale } = useI18n()
 
 const props = defineProps<{
-  transactionDates?: Set<string>
+  dailyStats?: Record<string, DailySummaryDto>
   selectedDate?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'selectDate', date: string): void
   (e: 'update:selectedDate', date: string): void
+  (e: 'visibleRangeChange', from: string, to: string): void
 }>()
 
 const currentDate = ref(new Date())
@@ -30,8 +33,18 @@ interface CalendarDay {
   day: number
   isCurrentMonth: boolean
   isToday: boolean
-  hasTransaction: boolean
+  expense: string | null
+  income: string | null
   isSelected: boolean
+}
+
+function dayAmounts(dateStr: string): { expense: string | null; income: string | null } {
+  const stat = props.dailyStats?.[dateStr]
+  if (!stat) return { expense: null, income: null }
+  return {
+    expense: Number(stat.expense) !== 0 ? formatCalendarAmount(stat.expense, locale.value) : null,
+    income: Number(stat.income) !== 0 ? formatCalendarAmount(stat.income, locale.value) : null,
+  }
 }
 
 const calendarDays = computed<CalendarDay[]>(() => {
@@ -55,7 +68,7 @@ const calendarDays = computed<CalendarDay[]>(() => {
       day,
       isCurrentMonth: false,
       isToday: false,
-      hasTransaction: props.transactionDates?.has(dateStr) ?? false,
+      ...dayAmounts(dateStr),
       isSelected: props.selectedDate === dateStr,
     })
   }
@@ -70,7 +83,7 @@ const calendarDays = computed<CalendarDay[]>(() => {
       day,
       isCurrentMonth: true,
       isToday: dateStr === todayStr,
-      hasTransaction: props.transactionDates?.has(dateStr) ?? false,
+      ...dayAmounts(dateStr),
       isSelected: props.selectedDate === dateStr,
     })
   }
@@ -84,7 +97,7 @@ const calendarDays = computed<CalendarDay[]>(() => {
         day,
         isCurrentMonth: false,
         isToday: false,
-        hasTransaction: props.transactionDates?.has(dateStr) ?? false,
+        ...dayAmounts(dateStr),
         isSelected: props.selectedDate === dateStr,
       })
     }
@@ -92,6 +105,21 @@ const calendarDays = computed<CalendarDay[]>(() => {
 
   return days
 })
+
+// 网格可见范围（含前后月补位天），挂载与翻月时通知父组件加载统计
+const visibleRange = computed(() => {
+  const days = calendarDays.value
+  if (days.length === 0) return null
+  return { from: days[0].date, to: days[days.length - 1].date }
+})
+
+watch(
+  visibleRange,
+  range => {
+    if (range) emit('visibleRangeChange', range.from, range.to)
+  },
+  { immediate: true }
+)
 
 function formatDateStr(year: number, month: number, day: number): string {
   const m = String(month + 1).padStart(2, '0')
@@ -137,13 +165,13 @@ function onDayClick(day: CalendarDay) {
         :class="{
           'other-month': !day.isCurrentMonth,
           today: day.isToday,
-          'has-transaction': day.hasTransaction,
           selected: day.isSelected,
         }"
         @click="onDayClick(day)"
       >
         <span class="day-number">{{ day.day }}</span>
-        <span v-if="day.hasTransaction" class="transaction-dot"></span>
+        <span v-if="day.expense" class="day-amount expense">{{ day.expense }}</span>
+        <span v-if="day.income" class="day-amount income">{{ day.income }}</span>
       </div>
     </div>
   </div>
@@ -207,15 +235,15 @@ function onDayClick(day: CalendarDay) {
 }
 
 .day-cell {
-  position: relative;
-  aspect-ratio: 1;
+  min-height: 3.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  padding: 0.25rem 0.125rem;
   border-radius: 0.375rem;
   cursor: pointer;
   transition: background 0.15s;
+  overflow: hidden;
 }
 
 .day-cell:hover {
@@ -259,20 +287,17 @@ function onDayClick(day: CalendarDay) {
   color: #fff;
 }
 
-.transaction-dot {
-  position: absolute;
-  bottom: 0.25rem;
-  width: 0.25rem;
-  height: 0.25rem;
-  border-radius: 50%;
-  background: #4ade80;
+.day-amount {
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
-.day-cell.today .transaction-dot {
-  background: var(--accent, #646cff);
+.day-amount.expense {
+  color: #e74c3c;
 }
 
-.day-cell.selected .transaction-dot {
-  background: #fff;
+.day-amount.income {
+  color: #4ade80;
 }
 </style>
