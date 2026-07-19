@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import CalendarGrid from '../components/CalendarGrid.vue'
 import TransactionList from '../components/TransactionList.vue'
 import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.vue'
+import { panelActionKey } from '../components/layout/panelAction'
 import { useTransactionStore } from '../stores/transaction'
 import { todayStr } from '../utils/date'
 
@@ -57,15 +58,19 @@ function onFormClosed() {
 function onFormSaved() {
   // Data is already updated via create/update in store
 }
+
+const panelAction = inject(panelActionKey, null)
+watchEffect(() => {
+  if (!panelAction) return
+  panelAction.value = showFormOverlay.value
+    ? null
+    : { label: t('calendar.newTransaction'), disabled: false, onClick: onNewTx }
+})
 </script>
 
 <template>
   <div class="calendar-view" :class="{ 'no-scroll': showFormOverlay }">
     <template v-if="!showFormOverlay">
-      <div class="header-actions">
-        <button class="new-tx-btn" @click="onNewTx">+ {{ t('calendar.newTransaction') }}</button>
-      </div>
-
       <CalendarGrid
         :transaction-dates="txStore.transactionDates"
         :selected-date="selectedDate"
@@ -107,26 +112,6 @@ function onFormSaved() {
 
 .calendar-view::-webkit-scrollbar {
   display: none;
-}
-
-.header-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.new-tx-btn {
-  background: var(--accent, #646cff);
-  color: #fff;
-  border: none;
-  border-radius: 0.5rem;
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.new-tx-btn:hover {
-  opacity: 0.9;
 }
 
 .loading,

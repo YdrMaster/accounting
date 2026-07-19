@@ -63,6 +63,13 @@ pub struct SetAccountOwnersRequest {
     pub owner_ids: Vec<i64>,
 }
 
+/// 变更账户父节点请求。
+#[derive(Deserialize)]
+pub struct SetAccountParentRequest {
+    /// 新父账户 ID（必填，不允许移动为根账户）。
+    pub parent_id: i64,
+}
+
 /// 链路节点响应。
 #[derive(Serialize)]
 pub struct ChannelPathNodeDto {

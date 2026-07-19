@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { inject, onMounted, ref, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AccountPicker from '../components/layout/AccountPicker.vue'
+import { panelActionKey } from '../components/layout/panelAction'
 import { useAccountStore } from '../stores/account'
 import { useBudgetStore } from '../stores/budget'
 import type { BudgetDto, BudgetLimitRequest } from '../types/api'
@@ -101,16 +102,20 @@ async function submitBudget() {
     alert(t('budget.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
   }
 }
+
+const panelAction = inject(panelActionKey, null)
+watchEffect(() => {
+  if (!panelAction) return
+  panelAction.value = showCreateDrawer.value
+    ? null
+    : { label: t('budget.new'), disabled: false, onClick: onNewBudget }
+})
 </script>
 
 <template>
   <div class="budget" :class="{ 'no-scroll': showCreateDrawer }">
     <!-- Show normal budget view when drawer is not displayed -->
     <template v-if="!showCreateDrawer">
-      <div class="header-actions">
-        <button class="new-budget-btn" @click="onNewBudget">+ {{ t('budget.new') }}</button>
-      </div>
-
       <div v-if="budgetStore.loading" class="loading">{{ t('common.loading') }}</div>
       <div v-else-if="budgetStore.error" class="error">{{ budgetStore.error }}</div>
       <template v-else>
@@ -206,26 +211,6 @@ async function submitBudget() {
 
 .budget.no-scroll {
   overflow: hidden;
-}
-
-.header-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.new-budget-btn {
-  background: var(--accent, #646cff);
-  color: #fff;
-  border: none;
-  border-radius: 0.5rem;
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.new-budget-btn:hover {
-  opacity: 0.9;
 }
 
 .loading,

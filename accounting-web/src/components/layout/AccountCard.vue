@@ -5,15 +5,24 @@ const props = defineProps<{
   item: GridItem
   isExpanded?: boolean
   isSelected?: boolean
+  isDragSource?: boolean
+  isDropTarget?: boolean
 }>()
 
 const emit = defineEmits<{
   click: [account: NonNullable<GridItem['account']>]
+  dragStart: [account: NonNullable<GridItem['account']>, event: PointerEvent]
 }>()
 
 function onClick() {
   if (!props.item.isPlaceholder && props.item.account) {
     emit('click', props.item.account)
+  }
+}
+
+function onPointerDown(event: PointerEvent) {
+  if (!props.item.isPlaceholder && props.item.account) {
+    emit('dragStart', props.item.account, event)
   }
 }
 
@@ -29,8 +38,12 @@ function isClosed(item: GridItem): boolean {
       placeholder: item.isPlaceholder,
       selected: !item.isPlaceholder && isSelected,
       closed: isClosed(item),
+      'drag-source': isDragSource,
+      'drop-target': isDropTarget,
     }"
+    :data-account-id="item.account?.id"
     @click="onClick"
+    @pointerdown="onPointerDown"
   >
     <template v-if="!item.isPlaceholder && item.account">
       <span v-if="item.hasChildren" class="expand-indicator">
@@ -54,6 +67,9 @@ function isClosed(item: GridItem): boolean {
   gap: 0.25rem;
   overflow: hidden;
   transition: background 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
 }
 
 .account-card:hover {
@@ -74,6 +90,15 @@ function isClosed(item: GridItem): boolean {
 .account-card.closed {
   opacity: 0.5;
   text-decoration: line-through;
+}
+
+.account-card.drag-source {
+  opacity: 0.4;
+}
+
+.account-card.drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .expand-indicator {

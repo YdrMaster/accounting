@@ -10,10 +10,13 @@ const props = defineProps<{
   typeLabel: string
   rows: GridRow[]
   selectedAccountId: number | null
+  draggingId?: number | null
+  dropTargetId?: number | null
 }>()
 
 const emit = defineEmits<{
   click: [account: AccountDto]
+  dragStart: [account: AccountDto, event: PointerEvent]
   columnsChange: [columns: number]
 }>()
 
@@ -42,7 +45,10 @@ watch(
           :key="index"
           :node="node"
           :selected-account-id="selectedAccountId"
+          :dragging-id="draggingId"
+          :drop-target-id="dropTargetId"
           @click="emit('click', $event)"
+          @drag-start="(account, event) => emit('dragStart', account, event)"
         />
       </div>
     </div>

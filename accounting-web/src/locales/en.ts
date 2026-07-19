@@ -23,6 +23,9 @@ export default {
   },
   accounts: {
     createAccount: 'New Account',
+    moveTypeChangeConfirm:
+      'After moving, this account and its sub-accounts will become "{type}" type. Continue?',
+    moveFailed: 'Failed to move: {message}',
     types: {
       Asset: 'Asset',
       Income: 'Income',
@@ -108,16 +111,11 @@ export default {
     title: 'New Account',
     nameLabel: 'Account name',
     namePlaceholder: 'Enter account name',
-    typeLabel: 'Account type',
-    parentLabel: 'Parent account (optional)',
-    parentNone: 'None (create as root account)',
+    parentLabel: 'Parent account',
+    parentHint: 'Will be created as a child of "{name}"',
     creating: 'Creating...',
     confirmCreate: 'Create',
     nameRequired: 'Please enter an account name',
-    typeAsset: 'Asset',
-    typeIncome: 'Income',
-    typeExpense: 'Expense',
-    typeEquity: 'Equity',
   },
   txForm: {
     createTitle: 'New Transaction',

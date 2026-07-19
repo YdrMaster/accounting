@@ -325,6 +325,89 @@ impl AccountService {
         Ok(())
     }
 
+    /// 变更账户父节点（整棵子树跟随移动）
+    ///
+    /// 校验（按序）：被移动账户存在、非系统账户、非根账户；目标父账户存在；
+    /// 目标非自身且不在被移动账户的后代中（防成环）；目标父账户下无同名账户。
+    /// 不校验账户类型（允许跨类型移动）；已关闭账户允许移动，关闭状态不变。
+    /// `lang` 用于解析被移动账户的显示名以做同级重名检查。
+    pub async fn reparent(
+        &self,
+        id: AccountId,
+        new_parent_id: AccountId,
+        lang: &str,
+    ) -> Result<(), AccountingError> {
+        let mut tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        let account = tx
+            .account_get(id)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+            .ok_or_else(|| {
+                AccountingError::AccountNotFound(t!("account_not_found_id", id = id).to_string())
+            })?;
+        if account.is_system {
+            return Err(AccountingError::InvalidTransaction(
+                t!("cannot_move_system_account").to_string(),
+            ));
+        }
+        if account.parent_id.is_none() {
+            return Err(AccountingError::InvalidTransaction(
+                t!("cannot_move_root_account").to_string(),
+            ));
+        }
+
+        let target = tx
+            .account_get(new_parent_id)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        if target.is_none() {
+            return Err(AccountingError::AccountNotFound(format!(
+                "{}",
+                t!("parent_account_not_found", id = new_parent_id)
+            )));
+        }
+
+        // 防成环：目标是被移动账户自身或其后代
+        if new_parent_id == id
+            || tx
+                .account_is_descendant_of(new_parent_id, id)
+                .await
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+        {
+            return Err(AccountingError::InvalidTransaction(
+                t!("cannot_move_into_own_subtree").to_string(),
+            ));
+        }
+
+        // 目标父账户下同级重名检查（名字按请求语言解析，与既有重名校验行为一致）
+        if let Some(name) = tx
+            .account_display_name(id, lang)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+            && let Some(dup) = tx
+                .account_get_by_parent_and_name(Some(new_parent_id), &name)
+                .await
+                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+            && dup.id != id
+        {
+            return Err(AccountingError::AccountAlreadyExists(name));
+        }
+
+        tx.account_update_parent(id, new_parent_id)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        Ok(())
+    }
+
     /// 列出账户
     pub async fn list(
         &self,
@@ -604,5 +687,238 @@ mod tests {
         // Bank 不是系统根账户，ensure_cascading 应拒绝
         let result = service.ensure_cascading("Bank:SubAccount").await;
         assert!(result.is_err(), "非系统根账户应报错");
+    }
+
+    /// 在 Assets 下建 Bank→Sub，在 Expenses 下建 Food，返回 (assets, bank, sub, food)。
+    async fn build_move_fixture(
+        service: &AccountService,
+    ) -> (AccountId, AccountId, AccountId, AccountId) {
+        let assets = service
+            .db
+            .account_get_by_name("Assets")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let expenses = service
+            .db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let bank = service
+            .create(bare_account(Some(assets)), "Bank", "en")
+            .await
+            .unwrap();
+        let sub = service
+            .create(bare_account(Some(bank)), "Sub", "en")
+            .await
+            .unwrap();
+        let food = service
+            .create(bare_account(Some(expenses)), "Food", "en")
+            .await
+            .unwrap();
+        (assets, bank, sub, food)
+    }
+
+    #[tokio::test]
+    async fn test_reparent_success_moves_subtree() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (assets, bank, sub, _food) = build_move_fixture(&service).await;
+        let broker = service
+            .create(bare_account(Some(assets)), "Broker", "en")
+            .await
+            .unwrap();
+
+        service.reparent(bank, broker, "en").await.unwrap();
+
+        let moved = service.get(bank).await.unwrap().unwrap();
+        assert_eq!(moved.parent_id, Some(broker));
+        // 子账户跟随移动：Sub 以 Broker 为祖先，根仍是 Assets
+        assert!(
+            service
+                .db
+                .account_is_descendant_of(sub, broker)
+                .await
+                .unwrap()
+        );
+        assert_eq!(service.db.account_find_root_id(sub).await.unwrap(), assets);
+        // 移动后可按新路径按名查找
+        assert!(
+            service
+                .db
+                .account_get_by_name("Assets:Broker:Bank:Sub")
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reparent_cross_type_allowed() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (_assets, bank, _sub, food) = build_move_fixture(&service).await;
+
+        // 不校验账户类型：Assets 子树可移动到 Expenses 下
+        service.reparent(bank, food, "en").await.unwrap();
+
+        let expenses = service
+            .db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        assert_eq!(
+            service.db.account_find_root_id(bank).await.unwrap(),
+            expenses
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reparent_closed_account_allowed() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (assets, bank, _sub, _food) = build_move_fixture(&service).await;
+        let broker = service
+            .create(bare_account(Some(assets)), "Broker", "en")
+            .await
+            .unwrap();
+
+        service.close(bank).await.unwrap();
+        service.reparent(bank, broker, "en").await.unwrap();
+
+        // 关闭状态不变
+        let moved = service.get(bank).await.unwrap().unwrap();
+        assert!(moved.closed_at.is_some());
+        assert_eq!(moved.parent_id, Some(broker));
+    }
+
+    #[tokio::test]
+    async fn test_reparent_rejects_root_account() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (_assets, bank, _sub, food) = build_move_fixture(&service).await;
+
+        // 非系统根账户（repo 层直建，绕开 create 的根名校验）
+        let custom_root = service
+            .db
+            .account_create_with_name(&bare_account(None), "CustomRoot", "en")
+            .await
+            .unwrap();
+        let result = service.reparent(custom_root, food, "en").await;
+        assert!(matches!(
+            result,
+            Err(AccountingError::InvalidTransaction(_))
+        ));
+
+        //  sanity：普通账户移动正常
+        assert!(service.reparent(bank, food, "en").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_reparent_rejects_system_account() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (_assets, _bank, _sub, food) = build_move_fixture(&service).await;
+
+        // 种子系统子账户 Assets:Cash（is_system 且非根）
+        let cash = service
+            .db
+            .account_get_by_name("Assets:Cash")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(cash.is_system);
+        let result = service.reparent(cash.id, food, "en").await;
+        assert!(matches!(
+            result,
+            Err(AccountingError::InvalidTransaction(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_reparent_rejects_missing_account_or_target() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (_assets, bank, _sub, food) = build_move_fixture(&service).await;
+
+        let result = service.reparent(AccountId(99999), food, "en").await;
+        assert!(matches!(result, Err(AccountingError::AccountNotFound(_))));
+
+        let result = service.reparent(bank, AccountId(99999), "en").await;
+        assert!(matches!(result, Err(AccountingError::AccountNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_reparent_rejects_self_and_descendant() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (_assets, bank, sub, _food) = build_move_fixture(&service).await;
+
+        // 移动到自身
+        let result = service.reparent(bank, bank, "en").await;
+        assert!(matches!(
+            result,
+            Err(AccountingError::InvalidTransaction(_))
+        ));
+
+        // 移动到后代 → 成环
+        let result = service.reparent(bank, sub, "en").await;
+        assert!(matches!(
+            result,
+            Err(AccountingError::InvalidTransaction(_))
+        ));
+
+        // 校验失败后原结构不变
+        let unchanged = service.get(bank).await.unwrap().unwrap();
+        assert_eq!(
+            unchanged.parent_id,
+            Some(
+                service
+                    .db
+                    .account_get_by_name("Assets")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .id
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reparent_rejects_duplicate_name_under_target() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (assets, bank, _sub, _food) = build_move_fixture(&service).await;
+
+        // 目标父 Assets 下已有名为 Sub 的账户时，把另一个 Sub 移入 → 拒绝
+        let expenses = service
+            .db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let other_sub = service
+            .create(bare_account(Some(expenses)), "Sub", "en")
+            .await
+            .unwrap();
+        let result = service.reparent(other_sub, bank, "en").await;
+        assert!(matches!(
+            result,
+            Err(AccountingError::AccountAlreadyExists(_))
+        ));
+
+        // 同名但目标父下无冲突 → 允许（bank 在 Assets 下，Assets 下无 Sub 之外的 Bank）
+        let food_bank = service
+            .create(bare_account(Some(expenses)), "Bank2", "en")
+            .await
+            .unwrap();
+        assert!(service.reparent(food_bank, assets, "en").await.is_ok());
+        let _ = bank;
     }
 }

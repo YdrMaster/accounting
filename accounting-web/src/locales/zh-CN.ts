@@ -23,6 +23,8 @@ export default {
   },
   accounts: {
     createAccount: '新建账户',
+    moveTypeChangeConfirm: '移动后该账户及其子账户将变为「{type}」类型，确定移动吗？',
+    moveFailed: '移动失败: {message}',
     types: {
       Asset: '资产',
       Income: '收入',
@@ -108,16 +110,11 @@ export default {
     title: '新建账户',
     nameLabel: '账户名称',
     namePlaceholder: '输入账户名称',
-    typeLabel: '账户类型',
-    parentLabel: '父账户（可选）',
-    parentNone: '无（创建为根账户）',
+    parentLabel: '父账户',
+    parentHint: '将作为「{name}」的子账户创建',
     creating: '创建中...',
     confirmCreate: '确认创建',
     nameRequired: '请输入账户名称',
-    typeAsset: '资产',
-    typeIncome: '收入',
-    typeExpense: '支出',
-    typeEquity: '权益',
   },
   txForm: {
     createTitle: '新建交易',

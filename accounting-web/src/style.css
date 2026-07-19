@@ -49,3 +49,9 @@ body {
 button {
   font-family: inherit;
 }
+
+body.account-drag-active {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing;
+}

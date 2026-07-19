@@ -2,7 +2,7 @@
 
 use crate::dto::{
     AccountDto, CreateAccountRequest, RenameAccountRequest, SetAccountOwnersRequest,
-    UpdateAccountRequest,
+    SetAccountParentRequest, UpdateAccountRequest,
 };
 use crate::handlers::{Lang, member::AppState};
 use accounting::account::Account;
@@ -263,6 +263,58 @@ async fn update_account(
     Ok("updated".to_string())
 }
 
+/// 变更账户父节点（整棵子树跟随移动）
+async fn set_parent(
+    State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
+    Path(id): Path<i64>,
+    Json(req): Json<SetAccountParentRequest>,
+) -> Result<Json<AccountDto>, String> {
+    let db = state.db();
+    let service = accounting_service::account_service::AccountService::new(db.clone());
+    service
+        .reparent(AccountId(id), AccountId(req.parent_id), &lang)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 返回更新后的账户（与列表端点的 DTO 口径一致）
+    let account = db
+        .account_get(AccountId(id))
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or(t!("account_not_found", locale = lang.as_str()).to_string())?;
+    let names = db
+        .account_display_names(&[account.id], &lang)
+        .await
+        .map_err(|e| e.to_string())?;
+    let account_type = db
+        .account_find_root_name(account.id, &lang)
+        .await
+        .ok()
+        .and_then(|n| AccountType::from_str(&n).ok())
+        .map(|ty| format!("{:?}", ty))
+        .unwrap_or_else(|| "Asset".to_string());
+    let owner_ids: Vec<i64> = db
+        .account_get_owners(account.id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|m| m.0)
+        .collect();
+
+    Ok(Json(AccountDto {
+        id: account.id.0,
+        name: names.get(&account.id).cloned().unwrap_or_default(),
+        account_type,
+        parent_id: account.parent_id.map(|id| id.0),
+        closed_at: account.closed_at.map(|d| d.to_string()),
+        is_system: account.is_system,
+        billing_day: account.billing_day,
+        repayment_day: account.repayment_day,
+        owner_ids,
+    }))
+}
+
 /// 账户路由
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -271,7 +323,240 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/accounts/{id}/owner", put(set_owner))
         .route("/api/accounts/{id}/rename", put(rename_account))
         .route("/api/accounts/{id}/fields", put(update_account))
+        .route("/api/accounts/{id}/parent", put(set_parent))
         .route("/api/accounts/{id}/close", put(close_account))
         .route("/api/accounts/{id}/open", put(reopen_account))
         .route("/api/accounts/{id}", delete(delete_account))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use accounting_sql::SqliteDatabase;
+
+    async fn setup() -> Arc<AppState> {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize().await.unwrap();
+        Arc::new(AppState { db })
+    }
+
+    async fn account_id_by_name(state: &Arc<AppState>, name: &str) -> i64 {
+        state
+            .db()
+            .account_get_by_name(name)
+            .await
+            .unwrap()
+            .unwrap()
+            .id
+            .0
+    }
+
+    async fn create_child(state: &Arc<AppState>, parent_id: i64, name: &str) -> i64 {
+        let service = accounting_service::account_service::AccountService::new(state.db().clone());
+        let account = Account {
+            id: AccountId(0),
+            parent_id: Some(AccountId(parent_id)),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        service.create(account, name, "en").await.unwrap().0
+    }
+
+    #[tokio::test]
+    async fn set_parent_moves_account_and_returns_updated_dto() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let bank = create_child(&state, assets, "Bank").await;
+        let sub = create_child(&state, bank, "Sub").await;
+        let broker = create_child(&state, assets, "Broker").await;
+
+        let dto = set_parent(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(bank),
+            Json(SetAccountParentRequest { parent_id: broker }),
+        )
+        .await
+        .unwrap()
+        .0;
+
+        assert_eq!(dto.id, bank);
+        assert_eq!(dto.parent_id, Some(broker));
+        assert_eq!(dto.name, "Bank");
+        assert_eq!(dto.account_type, "Asset");
+        // 子账户跟随移动
+        assert!(
+            state
+                .db()
+                .account_is_descendant_of(AccountId(sub), AccountId(broker))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn set_parent_cross_type_move_updates_account_type() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let expenses = account_id_by_name(&state, "Expenses").await;
+        let bank = create_child(&state, assets, "Bank").await;
+        let food = create_child(&state, expenses, "Food").await;
+
+        let dto = set_parent(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(bank),
+            Json(SetAccountParentRequest { parent_id: food }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(dto.account_type, "Expense");
+    }
+
+    #[tokio::test]
+    async fn set_parent_closed_account_keeps_closed_state() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let card = create_child(&state, assets, "Card").await;
+        let broker = create_child(&state, assets, "Broker").await;
+
+        close_account(State(state.clone()), Path(card))
+            .await
+            .unwrap();
+        let dto = set_parent(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(card),
+            Json(SetAccountParentRequest { parent_id: broker }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert!(dto.closed_at.is_some());
+        assert_eq!(dto.parent_id, Some(broker));
+    }
+
+    #[tokio::test]
+    async fn set_parent_rejects_root_account() {
+        let state = setup().await;
+        let expenses = account_id_by_name(&state, "Expenses").await;
+        // 非系统根账户（repo 层直建）
+        let custom_root = state
+            .db()
+            .account_create_with_name(
+                &Account {
+                    id: AccountId(0),
+                    parent_id: None,
+                    closed_at: None,
+                    is_system: false,
+                    billing_day: None,
+                    repayment_day: None,
+                },
+                "CustomRoot",
+                "en",
+            )
+            .await
+            .unwrap();
+
+        let result = set_parent(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(custom_root.0),
+            Json(SetAccountParentRequest {
+                parent_id: expenses,
+            }),
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn set_parent_rejects_system_account() {
+        let state = setup().await;
+        let expenses = account_id_by_name(&state, "Expenses").await;
+        let cash = account_id_by_name(&state, "Assets:Cash").await;
+
+        let result = set_parent(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(cash),
+            Json(SetAccountParentRequest {
+                parent_id: expenses,
+            }),
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn set_parent_rejects_missing_target() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let bank = create_child(&state, assets, "Bank").await;
+
+        let result = set_parent(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(bank),
+            Json(SetAccountParentRequest { parent_id: 99999 }),
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn set_parent_rejects_self_and_descendant() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let bank = create_child(&state, assets, "Bank").await;
+        let sub = create_child(&state, bank, "Sub").await;
+
+        let to_self = set_parent(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(bank),
+            Json(SetAccountParentRequest { parent_id: bank }),
+        )
+        .await;
+        assert!(to_self.is_err());
+
+        let to_descendant = set_parent(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(bank),
+            Json(SetAccountParentRequest { parent_id: sub }),
+        )
+        .await;
+        assert!(to_descendant.is_err());
+
+        // 校验失败后结构不变
+        let unchanged = state
+            .db()
+            .account_get(AccountId(bank))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(unchanged.parent_id, Some(AccountId(assets)));
+    }
+
+    #[tokio::test]
+    async fn set_parent_rejects_duplicate_name_under_target() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let expenses = account_id_by_name(&state, "Expenses").await;
+        let _bank = create_child(&state, assets, "Bank").await;
+        let other_bank = create_child(&state, expenses, "Bank").await;
+
+        let result = set_parent(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(other_bank),
+            Json(SetAccountParentRequest { parent_id: assets }),
+        )
+        .await;
+        assert!(result.is_err());
+    }
 }

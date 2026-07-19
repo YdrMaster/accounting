@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import Decimal from 'decimal.js'
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TransactionList from '../components/TransactionList.vue'
 import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.vue'
+import { panelActionKey } from '../components/layout/panelAction'
 import { useTransactionStore } from '../stores/transaction'
 import { monthOf, todayStr } from '../utils/date'
 
@@ -103,6 +104,14 @@ function onFormClosed() {
 function onFormSaved() {
   // Data is already updated via create/update in store
 }
+
+const panelAction = inject(panelActionKey, null)
+watchEffect(() => {
+  if (!panelAction) return
+  panelAction.value = showFormOverlay.value
+    ? null
+    : { label: t('transactions.new'), disabled: false, onClick: onNewTx }
+})
 </script>
 
 <template>
@@ -113,10 +122,6 @@ function onFormSaved() {
     @scroll="onScroll"
   >
     <template v-if="!showFormOverlay">
-      <div class="header-actions">
-        <button class="new-tx-btn" @click="onNewTx">+ {{ t('transactions.new') }}</button>
-      </div>
-
       <div class="hero">
         <p class="month-label">
           {{
@@ -175,27 +180,6 @@ function onFormSaved() {
 
 .transaction::-webkit-scrollbar {
   display: none;
-}
-
-.header-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-shrink: 0;
-}
-
-.new-tx-btn {
-  background: var(--accent, #646cff);
-  color: #fff;
-  border: none;
-  border-radius: 0.5rem;
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.new-tx-btn:hover {
-  opacity: 0.9;
 }
 
 .hero {

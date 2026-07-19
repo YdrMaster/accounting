@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { createAccount, fetchAccounts } from '../../api/client'
+import { createAccount } from '../../api/client'
 import type { AccountDto } from '../../types/api'
 
 const { t } = useI18n()
+
+const props = defineProps<{
+  parentAccount: AccountDto
+}>()
 
 const emit = defineEmits<{
   close: []
@@ -12,40 +16,8 @@ const emit = defineEmits<{
 }>()
 
 const name = ref('')
-const accountType = ref('Asset')
-const parentId = ref<number | null>(null)
-const accounts = ref<AccountDto[]>([])
 const error = ref<string | null>(null)
 const submitting = ref(false)
-
-const typeOptions = computed(() => [
-  { value: 'Asset', label: t('createDrawer.typeAsset') },
-  { value: 'Income', label: t('createDrawer.typeIncome') },
-  { value: 'Expense', label: t('createDrawer.typeExpense') },
-  { value: 'Equity', label: t('createDrawer.typeEquity') },
-])
-
-onMounted(async () => {
-  try {
-    accounts.value = await fetchAccounts()
-  } catch {
-    // ignore
-  }
-})
-
-const parentCandidates = computed(() => {
-  return accounts.value.filter(a => {
-    const rootType = findRootType(a)
-    return rootType === accountType.value || a.parent_id === null
-  })
-})
-
-function findRootType(account: AccountDto): string | null {
-  if (account.parent_id === null) return account.account_type
-  const parent = accounts.value.find(a => a.id === account.parent_id)
-  if (!parent) return null
-  return findRootType(parent)
-}
 
 async function handleSubmit() {
   if (!name.value.trim()) {
@@ -57,7 +29,7 @@ async function handleSubmit() {
   try {
     await createAccount({
       name: name.value.trim(),
-      parent_id: parentId.value ?? undefined,
+      parent_id: props.parentAccount.id,
       owner_ids: [],
     })
     emit('created')
@@ -71,7 +43,6 @@ async function handleSubmit() {
 
 <template>
   <div class="drawer-container">
-    <div class="drawer-backdrop" @click="emit('close')" />
     <div class="drawer">
       <div class="drawer-header">
         <div class="drag-handle" />
@@ -88,22 +59,10 @@ async function handleSubmit() {
         </div>
 
         <div class="field">
-          <label>{{ t('createDrawer.typeLabel') }}</label>
-          <select v-model="accountType">
-            <option v-for="opt in typeOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-        </div>
-
-        <div class="field">
           <label>{{ t('createDrawer.parentLabel') }}</label>
-          <select v-model="parentId">
-            <option :value="null">{{ t('createDrawer.parentNone') }}</option>
-            <option v-for="a in parentCandidates" :key="a.id" :value="a.id">
-              {{ a.name }}
-            </option>
-          </select>
+          <div class="parent-hint">
+            {{ t('createDrawer.parentHint', { name: parentAccount.name }) }}
+          </div>
         </div>
 
         <button class="submit-btn" :disabled="submitting || !name.trim()" @click="handleSubmit">
@@ -122,12 +81,7 @@ async function handleSubmit() {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-}
-
-.drawer-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.3);
+  pointer-events: none;
 }
 
 .drawer {
@@ -141,6 +95,7 @@ async function handleSubmit() {
   display: flex;
   flex-direction: column;
   animation: slideUp 0.25s ease-out;
+  pointer-events: auto;
 }
 
 @keyframes slideUp {
@@ -214,8 +169,7 @@ async function handleSubmit() {
   font-size: 0.8125rem;
 }
 
-.field input,
-.field select {
+.field input {
   background: var(--card-bg-alt, #252525);
   border: 1px solid var(--border);
   border-radius: 0.5rem;
@@ -225,9 +179,14 @@ async function handleSubmit() {
   outline: none;
 }
 
-.field input:focus,
-.field select:focus {
+.field input:focus {
   border-color: var(--accent, #646cff);
+}
+
+.parent-hint {
+  padding: 0.5rem 0.75rem;
+  color: var(--text-heading);
+  font-size: 0.875rem;
 }
 
 .submit-btn {

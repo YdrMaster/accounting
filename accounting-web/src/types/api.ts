@@ -170,3 +170,7 @@ export interface CreateAccountRequest {
   repayment_day?: number
   owner_ids: number[]
 }
+
+export interface MoveAccountRequest {
+  parent_id: number
+}

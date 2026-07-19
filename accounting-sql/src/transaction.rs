@@ -164,6 +164,30 @@ impl<'a> SqliteTransaction<'a> {
         crate::repo::account::account_rebuild_ancestors(&mut self.tx).await
     }
 
+    pub async fn account_is_descendant_of(
+        &mut self,
+        account_id: accounting::id::AccountId,
+        ancestor_id: accounting::id::AccountId,
+    ) -> Result<bool, DbError> {
+        crate::repo::account::account_is_descendant_of(&mut self.tx, account_id, ancestor_id).await
+    }
+
+    pub async fn account_update_parent(
+        &mut self,
+        id: accounting::id::AccountId,
+        new_parent_id: accounting::id::AccountId,
+    ) -> Result<(), DbError> {
+        crate::repo::account::account_update_parent(&mut self.tx, id, new_parent_id).await
+    }
+
+    pub async fn account_display_name(
+        &mut self,
+        id: accounting::id::AccountId,
+        lang: &str,
+    ) -> Result<Option<String>, DbError> {
+        crate::repo::account::account_display_name(&mut self.tx, id, lang).await
+    }
+
     // === Commodity ===
 
     pub async fn commodity_get_by_symbol(

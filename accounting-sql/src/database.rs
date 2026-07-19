@@ -237,6 +237,33 @@ impl SqliteDatabase {
         crate::repo::account::account_delete(&mut conn, id).await
     }
 
+    pub async fn account_update_parent(
+        &self,
+        id: accounting::id::AccountId,
+        new_parent_id: accounting::id::AccountId,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_update_parent(&mut conn, id, new_parent_id).await
+    }
+
+    pub async fn account_is_descendant_of(
+        &self,
+        account_id: accounting::id::AccountId,
+        ancestor_id: accounting::id::AccountId,
+    ) -> Result<bool, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_is_descendant_of(&mut conn, account_id, ancestor_id).await
+    }
+
+    pub async fn account_display_name(
+        &self,
+        id: accounting::id::AccountId,
+        lang: &str,
+    ) -> Result<Option<String>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_display_name(&mut conn, id, lang).await
+    }
+
     pub async fn account_get_owners(
         &self,
         account_id: accounting::id::AccountId,

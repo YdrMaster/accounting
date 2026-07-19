@@ -6,10 +6,16 @@ import AccountCard from './AccountCard.vue'
 const props = defineProps<{
   node: RowNode
   selectedAccountId: number | null
+  draggingId?: number | null
+  dropTargetId?: number | null
 }>()
 
 const emit = defineEmits<{
   click: [account: NonNullable<RowNode['row']['items'][number]['account']>]
+  dragStart: [
+    account: NonNullable<RowNode['row']['items'][number]['account']>,
+    event: PointerEvent,
+  ]
 }>()
 
 const paperBgStyle = computed(() => {
@@ -30,7 +36,10 @@ const paperBgStyle = computed(() => {
       :item="item"
       :is-selected="!!item.account && item.account.id === selectedAccountId"
       :is-expanded="node.row.expandedAccountId === item.account?.id"
+      :is-drag-source="!!item.account && item.account.id === draggingId"
+      :is-drop-target="!!item.account && item.account.id === dropTargetId"
       @click="emit('click', $event)"
+      @drag-start="(account, event) => emit('dragStart', account, event)"
     />
   </div>
   <div
@@ -43,7 +52,10 @@ const paperBgStyle = computed(() => {
       :key="index"
       :node="child"
       :selected-account-id="selectedAccountId"
+      :dragging-id="draggingId"
+      :drop-target-id="dropTargetId"
       @click="emit('click', $event)"
+      @drag-start="(account, event) => emit('dragStart', account, event)"
     />
   </div>
 </template>

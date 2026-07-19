@@ -63,6 +63,22 @@ export const useAccountStore = defineStore('account', () => {
     return false
   }
 
+  function getRootType(account: AccountDto): string | null {
+    let current: AccountDto | undefined = account
+    while (current) {
+      if (current.parent_id === null) return current.account_type
+      current = accounts.value.find(a => a.id === current!.parent_id)
+    }
+    return null
+  }
+
+  function setAccountParent(id: number, parentId: number | null) {
+    const acc = accounts.value.find(a => a.id === id)
+    if (acc) {
+      acc.parent_id = parentId
+    }
+  }
+
   return {
     accounts,
     loading,
@@ -74,5 +90,7 @@ export const useAccountStore = defineStore('account', () => {
     groupedAccounts,
     getChildren,
     isDescendant,
+    getRootType,
+    setAccountParent,
   }
 })

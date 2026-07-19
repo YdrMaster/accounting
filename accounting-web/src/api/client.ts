@@ -28,6 +28,7 @@ import type {
   CreateBudgetRequest,
   CreateTransactionData,
   MemberDto,
+  MoveAccountRequest,
   TagDto,
   TransactionDto,
 } from '../types/api'
@@ -115,6 +116,19 @@ export async function createAccount(data: CreateAccountRequest): Promise<number>
     throw new Error(text || res.statusText)
   }
   return res.json() as Promise<number>
+}
+
+export async function moveAccount(id: number, parentId: number): Promise<AccountDto> {
+  const res = await fetch(apiUrl(`/accounts/${id}/parent`), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent_id: parentId } satisfies MoveAccountRequest),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<AccountDto>
 }
 
 // ─── 交易 CRUD ───
