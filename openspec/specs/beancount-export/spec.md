@@ -1,5 +1,7 @@
 # beancount-export
 
+## Purpose
+
 Beancount 格式导出功能——将数据库中的全部数据（商品、账户、成员、渠道、交易、附件）导出为 beancount 文本格式，实现完整数据保真与跨系统迁移。
 
 ## Requirements

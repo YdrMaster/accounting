@@ -1,6 +1,8 @@
 # transaction-summary-api
 
-收支汇总 API——提供基于日期范围的收支汇总查询功能，返回周期内资产类分录的收入和支出汇总。
+## Purpose
+
+收支汇总 API——提供基于日期范围的收支汇总查询功能，包括周期汇总 `GET /api/reports/summary` 和按天汇总 `GET /api/reports/daily-summary` 两个端点。用于报表展示，返回周期内资产根（Assets）分录的收入和支出汇总，权益根（Equity）分录不计入收支统计。
 
 ## Requirements
 

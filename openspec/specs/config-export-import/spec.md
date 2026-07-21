@@ -1,5 +1,7 @@
 # config-export-import
 
+## Purpose
+
 配置导出与导入功能——将数据库中的配置信息导出为 YAML 文件，以及从 YAML 文件导入配置到目标数据库，支持按自然键合并更新。
 
 ## Requirements

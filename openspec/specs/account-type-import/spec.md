@@ -1,11 +1,13 @@
 # account-type-import
 
-Import 账户类型——已移除。
+## Purpose
+
+移除独立的 Import 账户类型——导入交易不再落入专用 Import 根账户，而是按其实际收支角色归入 Assets、Equity、Income 或 Expenses 下的 Import 子账户，保证账户分类语义准确、账户体系结构清晰。
 
 ## Requirements
 
 ### Requirement: 移除 Import 账户类型
-系统不再定义 `AccountType::Import` 枚举变体，也不再提供 `导入/Import` 系统根账户。通过导入创建的账户按其实际角色归入 `Assets`、`Equity`、`Income` 或 `Expenses` 下的 `Import` 子账户。
+系统 SHALL NOT 定义 `AccountType::Import` 枚举变体，也 SHALL NOT 提供 `导入/Import` 系统根账户。通过导入创建的账户 SHALL 按其实际角色归入 `Assets`、`Equity`、`Income` 或 `Expenses` 下的 `Import` 子账户。
 
 #### Scenario: 系统初始化时不再创建 Import 根账户
 - **WHEN** 系统初始化数据库
