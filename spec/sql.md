@@ -145,11 +145,11 @@ erDiagram
 | Income | 3 (Income) | 1970-01-01 |
 | Expenses | 4 (Expense) | 1970-01-01 |
 | Equity:OpeningBalances | 2 (Equity) | 1970-01-01 |
+| Equity:Cashback | 2 (Equity) | 1970-01-01 |
+| Equity:Discounts | 2 (Equity) | 1970-01-01 |
 | Expenses:Fees | 4 (Expense) | 1970-01-01 |
-| Expenses:Discounts | 4 (Expense) | 1970-01-01 |
 | Expenses:InstallmentFees | 4 (Expense) | 1970-01-01 |
 | Assets:Cash | 1 (Asset) | 1970-01-01 |
-| Assets:Cashback | 1 (Asset) | 1970-01-01 |
 
 ### 2.3 `account_ancestors`
 

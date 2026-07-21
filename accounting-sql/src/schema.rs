@@ -71,10 +71,10 @@ pub async fn insert_seed_data(conn: &mut SqliteConnection) -> Result<(), DbError
     let child_specs: &[(&str, &str, i64)] = &[
         ("OpeningBalances", "期初余额", equity_id),
         ("Fees", "手续费", expenses_id),
-        ("Discounts", "折扣", expenses_id),
         ("InstallmentFees", "分期手续费", expenses_id),
         ("Cash", "现金", assets_id),
-        ("Cashback", "返现", assets_id),
+        ("Discounts", "折扣", equity_id),
+        ("Cashback", "返现", equity_id),
     ];
 
     let mut child_ids = Vec::new();
@@ -917,6 +917,26 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 16);
+
+        // Cashback 与 Discounts 挂在 Equity 根下（返现/折扣是权益调整项，非资产/支出）
+        let equity_id: i64 = sqlx::query_scalar(
+            "SELECT account_id FROM account_names WHERE name='Equity' AND lang='en' AND is_system=1",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        for leaf in ["Cashback", "Discounts"] {
+            let parent_id: Option<i64> = sqlx::query_scalar(
+                "SELECT a.parent_id FROM accounts a
+                 JOIN account_names an ON an.account_id = a.id
+                 WHERE an.name=?1 AND an.lang='en' AND an.is_system=1",
+            )
+            .bind(leaf)
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+            assert_eq!(parent_id, Some(equity_id), "{} 应挂在 Equity 根下", leaf);
+        }
     }
 
     #[tokio::test]

@@ -227,4 +227,50 @@ mod tests {
 
         assert!(items.is_empty());
     }
+
+    #[tokio::test]
+    async fn test_daily_summary_excludes_equity_postings() {
+        let db = setup_db().await;
+        let member_id = create_test_member(&db).await;
+        let acc = create_accounts(&db).await;
+        let service = DailySummaryService::new(db.clone());
+
+        let opening_id = db
+            .account_get_by_name("Equity:OpeningBalances")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let cashback_id = db
+            .account_get_by_name("Equity:Cashback")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+
+        let day = NaiveDate::from_ymd_opt(2024, 3, 15).unwrap();
+        // 期初余额入账：资产 +1000 / 权益 -1000
+        insert_tx(
+            &db,
+            member_id,
+            day,
+            &[(acc.bank, "1000"), (opening_id, "-1000")],
+        )
+        .await;
+        // 返现：资产 +10 / 权益 -10
+        insert_tx(
+            &db,
+            member_id,
+            day,
+            &[(acc.cash, "10"), (cashback_id, "-10")],
+        )
+        .await;
+
+        let items = service.daily_summary(day, day).await.unwrap();
+
+        // 仅资产侧计入：income = 1000 + 10；权益侧分录不计入，expense 不双计
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].income, Decimal::from_str("1010").unwrap());
+        assert_eq!(items[0].expense, Decimal::from_str("0").unwrap());
+    }
 }

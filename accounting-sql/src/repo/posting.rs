@@ -421,13 +421,16 @@ pub async fn posting_summary(
 pub struct DailySummaryRow {
     /// 日期
     pub date: chrono::NaiveDate,
-    /// 收入（资产类分录正金额之和）
+    /// 收入（资产根 Assets 分录正金额之和）
     pub income: Decimal,
-    /// 支出（资产类分录负金额绝对值之和）
+    /// 支出（资产根 Assets 分录负金额绝对值之和）
     pub expense: Decimal,
 }
 
-/// 按天汇总资产类（Assets/Equity 根下）分录的收支
+/// 按天汇总资产根（Assets）分录的收支
+///
+/// 权益根（Equity）分录不计入：权益是净资产的直接调整项（期初余额、返现、折扣），
+/// 资产↔权益划转只体现资产侧变动。口径与 `posting_summary` 一致。
 ///
 /// 仅返回 [start, end] 范围内有分录的日期，按日期升序；多币种按各自精度换算后合并。
 pub async fn posting_daily_summary(
@@ -448,7 +451,7 @@ pub async fn posting_daily_summary(
              SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id
          )
          JOIN transactions t ON p.transaction_id = t.id
-         WHERE an.is_system = 1 AND an.name IN ('Assets', 'Equity')
+         WHERE an.is_system = 1 AND an.name = 'Assets'
            AND t.date_time >= ?1 AND t.date_time <= ?2
          GROUP BY day, p.commodity_id
          ORDER BY day",
