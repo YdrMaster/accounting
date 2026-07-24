@@ -1,123 +1,28 @@
 <script setup lang="ts">
-import Decimal from 'decimal.js'
-import { computed, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useCommodityStore } from '../stores/commodity'
-import { useReportStore } from '../stores/report'
+import BalanceSheetPanel from '../components/BalanceSheetPanel.vue'
+import CashFlowPanel from '../components/CashFlowPanel.vue'
 
-const reportStore = useReportStore()
-const commodityStore = useCommodityStore()
+type Tab = 'balance' | 'cashflow'
+
 const { t } = useI18n()
-
-onMounted(() => {
-  reportStore.loadBalanceSheet()
-  commodityStore.load()
-})
-
-const totalAssets = computed(() => {
-  if (!reportStore.balanceSheet) return new Decimal(0)
-  let sum = new Decimal(0)
-  for (const item of reportStore.balanceSheet.assets) {
-    for (const b of item.balances) {
-      const amt = new Decimal(b.amount)
-      if (amt.gt(0)) sum = sum.plus(amt)
-    }
-  }
-  return sum
-})
-
-const totalLiabilities = computed(() => {
-  if (!reportStore.balanceSheet) return new Decimal(0)
-  let sum = new Decimal(0)
-  for (const item of reportStore.balanceSheet.assets) {
-    for (const b of item.balances) {
-      const amt = new Decimal(b.amount)
-      if (amt.lt(0)) sum = sum.plus(amt.abs())
-    }
-  }
-  return sum
-})
-
-const netWorth = computed(() => totalAssets.value.minus(totalLiabilities.value))
-
-const positiveAccounts = computed(() => {
-  if (!reportStore.balanceSheet) return []
-  return reportStore.balanceSheet.assets.filter(item =>
-    item.balances.some(b => new Decimal(b.amount).gt(0))
-  )
-})
-
-const negativeAccounts = computed(() => {
-  if (!reportStore.balanceSheet) return []
-  return reportStore.balanceSheet.assets.filter(item =>
-    item.balances.some(b => new Decimal(b.amount).lt(0))
-  )
-})
-
-function commoditySymbol(id: number): string {
-  return commodityStore.commodities.find(c => c.id === id)?.symbol ?? `#${id}`
-}
-
-function formatAmount(amt: Decimal): string {
-  const fixed = amt.toFixed(2)
-  const [intPart, decPart] = fixed.split('.')
-  const sign = intPart.startsWith('-') ? '-' : ''
-  const abs = intPart.replace('-', '')
-  const formatted = abs.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  return `${sign}${formatted}.${decPart}`
-}
+const activeTab = ref<Tab>('balance')
 </script>
 
 <template>
   <div class="assets">
-    <div v-if="reportStore.loading" class="loading">{{ t('common.loading') }}</div>
-    <div v-else-if="reportStore.error" class="error">{{ reportStore.error }}</div>
-    <template v-else>
-      <div class="net-worth">
-        <p class="label">{{ t('assets.netWorth') }}</p>
-        <p class="amount">¥{{ formatAmount(netWorth) }}</p>
-        <div class="row">
-          <span>{{ t('assets.totalAssets') }} ¥{{ formatAmount(totalAssets) }}</span>
-          <span>{{ t('assets.totalLiabilities') }} -¥{{ formatAmount(totalLiabilities) }}</span>
-        </div>
-      </div>
+    <div class="tabs">
+      <button :class="{ active: activeTab === 'balance' }" @click="activeTab = 'balance'">
+        {{ t('assets.tabs.balanceSheet') }}
+      </button>
+      <button :class="{ active: activeTab === 'cashflow' }" @click="activeTab = 'cashflow'">
+        {{ t('assets.tabs.cashFlow') }}
+      </button>
+    </div>
 
-      <div v-if="positiveAccounts.length" class="card">
-        <h3>{{ t('nav.assets') }}</h3>
-        <div v-for="item in positiveAccounts" :key="item.account" class="account-item">
-          <span class="account-name">{{ item.account }}</span>
-          <div class="balances">
-            <span
-              v-for="b in item.balances.filter(b => new Decimal(b.amount).gt(0))"
-              :key="b.commodity_id"
-              class="balance positive"
-            >
-              {{ formatAmount(new Decimal(b.amount)) }} {{ commoditySymbol(b.commodity_id) }}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="negativeAccounts.length" class="card">
-        <h3>{{ t('assets.liabilities') }}</h3>
-        <div v-for="item in negativeAccounts" :key="item.account" class="account-item">
-          <span class="account-name">{{ item.account }}</span>
-          <div class="balances">
-            <span
-              v-for="b in item.balances.filter(b => new Decimal(b.amount).lt(0))"
-              :key="b.commodity_id"
-              class="balance negative"
-            >
-              {{ formatAmount(new Decimal(b.amount)) }} {{ commoditySymbol(b.commodity_id) }}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="!positiveAccounts.length && !negativeAccounts.length" class="empty">
-        {{ t('assets.noData') }}
-      </div>
-    </template>
+    <BalanceSheetPanel v-if="activeTab === 'balance'" />
+    <CashFlowPanel v-else />
   </div>
 </template>
 
@@ -128,88 +33,24 @@ function formatAmount(amt: Decimal): string {
   gap: 1rem;
 }
 
-.loading,
-.error,
-.empty {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-muted);
-}
-
-.net-worth {
-  text-align: center;
-  background: var(--card-bg-alt);
-  border-radius: 1rem;
-  padding: 1.5rem;
-}
-
-.net-worth .label {
-  margin: 0;
-  color: var(--text-muted);
-}
-
-.net-worth .amount {
-  margin: 0.5rem 0;
-  font-size: 2rem;
-  font-weight: 600;
-  color: var(--text-heading);
-}
-
-.net-worth .row {
+.tabs {
   display: flex;
-  justify-content: space-around;
-  color: var(--text-muted);
-  font-size: 0.875rem;
-}
-
-.card {
-  background: var(--card-bg-alt);
-  border-radius: 1rem;
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
   gap: 0.5rem;
 }
 
-.card h3 {
-  margin: 0 0 0.25rem;
-  color: var(--text-heading);
-  font-size: 0.9375rem;
-}
-
-.account-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.account-item:last-child {
-  border-bottom: none;
-}
-
-.account-name {
-  color: var(--text-heading);
+.tabs button {
+  flex: 1;
+  padding: 0.5rem;
+  background: var(--card-bg-alt);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
   font-size: 0.875rem;
+  cursor: pointer;
 }
 
-.balances {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.balance {
-  font-weight: 500;
-  font-size: 0.875rem;
-  white-space: nowrap;
-}
-
-.balance.positive {
-  color: #4ade80;
-}
-
-.balance.negative {
-  color: #ff7b7b;
+.tabs button.active {
+  color: var(--text-heading);
+  border-color: #4ade80;
 }
 </style>

@@ -73,6 +73,51 @@ export interface BalanceSheetDto {
   assets: AccountBalanceItemDto[]
 }
 
+export type ChartPeriod = 'weekly' | 'monthly' | 'yearly'
+
+export interface NetWorthTrendPointDto {
+  date: string
+  assets: string
+  liabilities: string
+}
+
+export interface NetWorthTrendDto {
+  period: ChartPeriod
+  points: NetWorthTrendPointDto[]
+}
+
+export interface CashFlowItemDto {
+  account: string
+  inflow: string
+  outflow: string
+  net: string
+}
+
+export interface CashFlowTotalDto {
+  inflow: string
+  outflow: string
+  net: string
+}
+
+export interface CashFlowDto {
+  period_start: string
+  period_end: string
+  items: CashFlowItemDto[]
+  total: CashFlowTotalDto
+}
+
+export interface CategoryAmountItemDto {
+  account: string
+  amount: string
+}
+
+export interface CategoryBreakdownDto {
+  period_start: string
+  period_end: string
+  income: CategoryAmountItemDto[]
+  expense: CategoryAmountItemDto[]
+}
+
 // ─── 预算 ───
 
 export interface BudgetDto {

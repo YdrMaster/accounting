@@ -39,6 +39,32 @@ export default {
     totalLiabilities: 'Total Liabilities',
     liabilities: 'Liabilities',
     noData: 'No asset data yet',
+    tabs: {
+      balanceSheet: 'Balance Sheet',
+      cashFlow: 'Cash Flow',
+    },
+    period: {
+      weekly: 'Week',
+      monthly: 'Month',
+      yearly: 'Year',
+    },
+    trend: {
+      empty: 'No trend data yet',
+    },
+    cashFlow: {
+      account: 'Account',
+      inflow: 'Inflow',
+      outflow: 'Outflow',
+      net: 'Net',
+      total: 'Total',
+      periodRange: '{start} to {end}',
+      empty: 'No cash flow data',
+    },
+    category: {
+      income: 'Income',
+      expense: 'Expense',
+      empty: 'No data',
+    },
   },
   calendar: {
     newTransaction: 'New Transaction',

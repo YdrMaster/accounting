@@ -705,6 +705,44 @@ pub async fn posting_sum_all_assets(
         .collect())
 }
 
+/// Assets 根下所有账户按 (account_id, date) 聚合的分录净额增量（仅统计指定币种，按日期升序）
+pub async fn posting_daily_delta_by_account(
+    conn: &mut SqliteConnection,
+    commodity_id: CommodityId,
+) -> Result<Vec<(AccountId, chrono::NaiveDate, Decimal)>, DbError> {
+    let precision = get_precision(conn, commodity_id).await?;
+
+    let rows: Vec<(i64, String, i64)> = sqlx::query_as(
+        "SELECT p.account_id, date(t.date_time) AS day, SUM(p.amount)
+         FROM postings p
+         JOIN accounts a ON p.account_id = a.id
+         JOIN account_ancestors aa ON a.id = aa.account_id
+         JOIN account_names an ON aa.ancestor_id = an.account_id
+           AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
+         JOIN transactions t ON p.transaction_id = t.id
+         WHERE an.is_system = 1 AND an.name = 'Assets'
+           AND p.commodity_id = ?1
+         GROUP BY p.account_id, day
+         ORDER BY day, p.account_id",
+    )
+    .bind(commodity_id.0)
+    .fetch_all(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+
+    rows.into_iter()
+        .map(|(account_id, day, amount)| {
+            let date = chrono::NaiveDate::parse_from_str(&day, "%Y-%m-%d")
+                .map_err(|e| DbError::Database(e.to_string()))?;
+            Ok((
+                AccountId(account_id),
+                date,
+                from_db_amount(amount, precision),
+            ))
+        })
+        .collect()
+}
+
 async fn load_precisions(conn: &mut SqliteConnection) -> Result<HashMap<CommodityId, u8>, DbError> {
     let rows: Vec<(i64, i32)> = sqlx::query_as("SELECT id, precision FROM commodities")
         .fetch_all(conn)
@@ -1345,5 +1383,95 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].2, "私房钱");
+    }
+
+    async fn insert_transaction_on(conn: &mut SqliteConnection, date: &str) -> TransactionId {
+        let member_id = ensure_test_member(conn).await;
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO transactions (date_time, description, member_id) VALUES (?1, 'test', ?2) RETURNING id",
+        )
+        .bind(format!("{} 12:00:00", date))
+        .bind(member_id)
+        .fetch_one(conn)
+        .await
+        .unwrap();
+        TransactionId(id)
+    }
+
+    #[tokio::test]
+    async fn test_daily_delta_by_account_multi_account_multi_day() {
+        let mut conn = setup().await;
+        let a1 = insert_account(&mut conn, "Bank").await;
+        let a2 = insert_account(&mut conn, "Cash").await;
+
+        let tx1 = insert_transaction_on(&mut conn, "2024-01-01").await;
+        posting_insert(&mut conn, &sample_posting(tx1, a1, "5000.00"))
+            .await
+            .unwrap();
+        posting_insert(&mut conn, &sample_posting(tx1, a2, "-2000.00"))
+            .await
+            .unwrap();
+
+        let tx2 = insert_transaction_on(&mut conn, "2024-01-02").await;
+        posting_insert(&mut conn, &sample_posting(tx2, a1, "-1000.00"))
+            .await
+            .unwrap();
+
+        let tx3 = insert_transaction_on(&mut conn, "2024-01-02").await;
+        posting_insert(&mut conn, &sample_posting(tx3, a1, "500.00"))
+            .await
+            .unwrap();
+
+        let deltas = posting_daily_delta_by_account(&mut conn, CommodityId(1))
+            .await
+            .unwrap();
+
+        let d1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2024, 1, 2).unwrap();
+
+        assert_eq!(deltas.len(), 3);
+        assert_eq!(deltas[0], (a1, d1, Decimal::from_str("5000.00").unwrap()));
+        assert_eq!(deltas[1], (a2, d1, Decimal::from_str("-2000.00").unwrap()));
+        // 同一天同一账户的两笔分录合并
+        assert_eq!(deltas[2], (a1, d2, Decimal::from_str("-500.00").unwrap()));
+    }
+
+    #[tokio::test]
+    async fn test_daily_delta_excludes_equity_root() {
+        let mut conn = setup().await;
+        let asset = insert_account(&mut conn, "Wallet").await;
+
+        let equity_root = account_get_by_name(&mut conn, "Equity")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let equity_account = Account {
+            id: AccountId(0),
+            parent_id: Some(equity_root),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let equity_id = account_create_with_closure(&mut conn, &equity_account)
+            .await
+            .unwrap();
+
+        let tx = insert_transaction_on(&mut conn, "2024-03-01").await;
+        posting_insert(&mut conn, &sample_posting(tx, asset, "100.00"))
+            .await
+            .unwrap();
+        posting_insert(&mut conn, &sample_posting(tx, equity_id, "-100.00"))
+            .await
+            .unwrap();
+
+        let deltas = posting_daily_delta_by_account(&mut conn, CommodityId(1))
+            .await
+            .unwrap();
+
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(deltas[0].0, asset);
+        assert!(!deltas.iter().any(|(id, _, _)| *id == equity_id));
     }
 }

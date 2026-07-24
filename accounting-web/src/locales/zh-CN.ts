@@ -38,6 +38,32 @@ export default {
     totalLiabilities: '总负债',
     liabilities: '负债',
     noData: '暂无资产数据',
+    tabs: {
+      balanceSheet: '资产负债表',
+      cashFlow: '现金流量',
+    },
+    period: {
+      weekly: '周',
+      monthly: '月',
+      yearly: '年',
+    },
+    trend: {
+      empty: '暂无趋势数据',
+    },
+    cashFlow: {
+      account: '账户',
+      inflow: '流入',
+      outflow: '流出',
+      net: '净额',
+      total: '合计',
+      periodRange: '{start} 至 {end}',
+      empty: '暂无流量数据',
+    },
+    category: {
+      income: '收入',
+      expense: '支出',
+      empty: '暂无数据',
+    },
   },
   calendar: {
     newTransaction: '新建交易',

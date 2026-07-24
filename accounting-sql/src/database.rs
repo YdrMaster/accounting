@@ -1108,6 +1108,21 @@ impl SqliteDatabase {
         crate::repo::posting::posting_sum_all_assets(&mut conn).await
     }
 
+    pub async fn posting_daily_delta_by_account(
+        &self,
+        commodity_id: accounting::id::CommodityId,
+    ) -> Result<
+        Vec<(
+            accounting::id::AccountId,
+            chrono::NaiveDate,
+            rust_decimal::Decimal,
+        )>,
+        DbError,
+    > {
+        let mut conn = self.acquire().await?;
+        crate::repo::posting::posting_daily_delta_by_account(&mut conn, commodity_id).await
+    }
+
     async fn acquire(&self) -> Result<sqlx::pool::PoolConnection<sqlx::Sqlite>, DbError> {
         self.pool
             .acquire()
