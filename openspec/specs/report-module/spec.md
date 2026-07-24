@@ -2,19 +2,21 @@
 
 ## Purpose
 
-统一的报表模块，聚合资产负债表、资金流量表、预算执行表三个子模块，为记账系统提供完整的财务报表查询能力；该模块取代分散的 `report_service.rs` 与 `budget_service.rs` 旧实现，并移除损益表、收支汇总及多维度统计等冗余功能，让报表职责集中在一处。
+统一的报表模块，聚合资产负债表、资金流量表、预算执行表、资产趋势表、收支分类明细五个子模块，为记账系统提供完整的财务报表查询能力；该模块取代分散的 `report_service.rs` 与 `budget_service.rs` 旧实现，并移除损益表、收支汇总及多维度统计等冗余功能，让报表职责集中在一处。
 
 ## Requirements
 
 ### Requirement: 报表模块结构
-系统 SHALL 在 `accounting-service/src/report/` 目录下提供 3 个子模块：
+系统 SHALL 在 `accounting-service/src/report/` 目录下提供 5 个子模块：
 - `balance_sheet.rs`：资产负债表
 - `cash_flow.rs`：资金流量表
 - `budget.rs`：预算执行表
+- `net_worth_trend.rs`：资产趋势表
+- `category_breakdown.rs`：收支分类明细
 
 #### Scenario: 模块导入
 - **WHEN** 在 `accounting-service/src/lib.rs` 中声明 `pub mod report;`
-- **THEN** 可以通过 `accounting_service::report::balance_sheet` 等路径访问报表功能
+- **THEN** 可以通过 `accounting_service::report::balance_sheet`、`accounting_service::report::net_worth_trend` 等路径访问报表功能
 
 ### Requirement: 移除旧的 service 文件
 系统 SHALL 删除 `report_service.rs` 和 `budget_service.rs`，其功能迁移至 `report/` 模块。

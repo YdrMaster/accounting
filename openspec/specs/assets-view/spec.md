@@ -7,7 +7,7 @@
 ## Requirements
 
 ### Requirement: 资产总览展示
-资产页 SHALL 从 GET /api/reports/balance-sheet 获取数据，展示总资产、总负债、净资产。
+资产页 SHALL 从 GET /api/reports/balance-sheet 获取数据，在「资产负债表」tab（默认 tab）中展示总资产、总负债、净资产；汇总指标上方为资产趋势折线图（见 assets-visual-reports 规格）。
 
 #### Scenario: 加载资产数据
 - **WHEN** 用户切换到资产页
