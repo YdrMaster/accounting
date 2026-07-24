@@ -5,8 +5,10 @@ use accounting::account::Account;
 use accounting::finance_period::FinancePeriod;
 use accounting::id::{AccountId, CommodityId};
 use accounting_service::report::balance_sheet::BalanceSheetService;
+use accounting_service::report::category_breakdown::CategoryBreakdownService;
 use accounting_service::report::cash_flow::CashFlowService;
 use accounting_service::report::daily_summary::DailySummaryService;
+use accounting_service::report::net_worth_trend::NetWorthTrendService;
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -137,8 +139,8 @@ fn into_entry((cid, amount): (CommodityId, Decimal)) -> BalanceEntry {
 fn parse_period(s: &str) -> Result<FinancePeriod, String> {
     match s.to_lowercase().as_str() {
         "daily" => Ok(FinancePeriod::Daily),
+        "weekly" | "weekly-mon" => Ok(FinancePeriod::WeeklyFromMonday),
         "weekly-sun" => Ok(FinancePeriod::WeeklyFromSunday),
-        "weekly-mon" => Ok(FinancePeriod::WeeklyFromMonday),
         "monthly" => Ok(FinancePeriod::Monthly),
         "yearly" => Ok(FinancePeriod::Yearly),
         _ => Err(format!("未知周期类型: {}", s)),
@@ -253,10 +255,160 @@ async fn daily_summary(
     ))
 }
 
+/// 图表周期解析：仅支持 weekly / monthly / yearly（weekly 按周一起始）
+fn parse_chart_period(s: &str) -> Result<FinancePeriod, String> {
+    match s.to_lowercase().as_str() {
+        "weekly" => Ok(FinancePeriod::WeeklyFromMonday),
+        "monthly" => Ok(FinancePeriod::Monthly),
+        "yearly" => Ok(FinancePeriod::Yearly),
+        _ => Err(format!("不支持的周期类型: {}", s)),
+    }
+}
+
+fn chart_period_name(period: FinancePeriod) -> &'static str {
+    match period {
+        FinancePeriod::WeeklyFromMonday => "weekly",
+        FinancePeriod::Monthly => "monthly",
+        FinancePeriod::Yearly => "yearly",
+        _ => "monthly",
+    }
+}
+
+/// 资产趋势查询参数
+#[derive(serde::Deserialize)]
+pub struct NetWorthTrendQuery {
+    pub period: Option<String>,
+    pub commodity: Option<i64>,
+}
+
+/// 资产趋势响应
+#[derive(Serialize)]
+struct NetWorthTrendResponse {
+    period: String,
+    points: Vec<NetWorthTrendPointDto>,
+}
+
+#[derive(Serialize)]
+struct NetWorthTrendPointDto {
+    date: String,
+    assets: String,
+    liabilities: String,
+}
+
+/// 获取资产趋势（全量历史，按周/月/年分桶）
+async fn net_worth_trend(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<NetWorthTrendQuery>,
+) -> Result<Json<NetWorthTrendResponse>, (StatusCode, String)> {
+    let bad_request = |msg: String| (StatusCode::BAD_REQUEST, msg);
+
+    let period = match query.period {
+        Some(p) => parse_chart_period(&p).map_err(bad_request)?,
+        None => FinancePeriod::Monthly,
+    };
+    let commodity_id = CommodityId(query.commodity.unwrap_or(1));
+
+    let db = state.db();
+    let service = NetWorthTrendService::new(db.clone());
+    let points = service
+        .net_worth_trend(period, commodity_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(NetWorthTrendResponse {
+        period: chart_period_name(period).to_string(),
+        points: points
+            .into_iter()
+            .map(|p| NetWorthTrendPointDto {
+                date: p.date.to_string(),
+                assets: p.assets.to_string(),
+                liabilities: p.liabilities.to_string(),
+            })
+            .collect(),
+    }))
+}
+
+/// 收支分类明细查询参数
+#[derive(serde::Deserialize)]
+pub struct CategoryBreakdownQuery {
+    pub date: Option<String>,
+    pub period: Option<String>,
+    pub commodity: Option<i64>,
+}
+
+/// 收支分类明细响应
+#[derive(Serialize)]
+struct CategoryBreakdownResponse {
+    period_start: String,
+    period_end: String,
+    income: Vec<CategoryAmountItem>,
+    expense: Vec<CategoryAmountItem>,
+}
+
+#[derive(Serialize)]
+struct CategoryAmountItem {
+    account: String,
+    amount: String,
+}
+
+/// 获取收支分类明细（Income / Expenses 各层级汇总）
+async fn category_breakdown(
+    State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
+    Query(query): Query<CategoryBreakdownQuery>,
+) -> Result<Json<CategoryBreakdownResponse>, (StatusCode, String)> {
+    let bad_request = |msg: String| (StatusCode::BAD_REQUEST, msg);
+
+    let today = chrono::Local::now().date_naive();
+    let date = match query.date {
+        Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d")
+            .map_err(|e| bad_request(format!("Invalid date: {}", e)))?,
+        None => today,
+    };
+    let period = match query.period {
+        Some(p) => parse_chart_period(&p).map_err(bad_request)?,
+        None => FinancePeriod::Monthly,
+    };
+    let commodity_id = CommodityId(query.commodity.unwrap_or(1));
+
+    let db = state.db();
+    let account_paths = load_account_paths(db, &lang)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let service = CategoryBreakdownService::new(db.clone());
+    let report = service
+        .category_breakdown(date, period, commodity_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let to_items = |items: Vec<accounting_service::report::category_breakdown::CategoryBreakdownItem>| {
+        items
+            .into_iter()
+            .map(|item| CategoryAmountItem {
+                account: account_paths
+                    .get(&item.account.id.0)
+                    .cloned()
+                    .unwrap_or_else(|| item.account.id.0.to_string()),
+                amount: item.amount.to_string(),
+            })
+            .collect()
+    };
+
+    Ok(Json(CategoryBreakdownResponse {
+        period_start: report.period_start.to_string(),
+        period_end: report.period_end.to_string(),
+        income: to_items(report.income),
+        expense: to_items(report.expense),
+    }))
+}
+
 /// 报表路由
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/reports/balance-sheet", get(balance_sheet))
         .route("/api/reports/cash-flow", get(cash_flow))
         .route("/api/reports/daily-summary", get(daily_summary))
+        .route("/api/reports/net-worth-trend", get(net_worth_trend))
+        .route("/api/reports/category-breakdown", get(category_breakdown))
 }

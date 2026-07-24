@@ -1,3 +1,15 @@
+import Decimal from 'decimal.js'
+
+/** 千分位格式化，保留两位小数 */
+export function formatAmount(amt: Decimal): string {
+  const fixed = amt.toFixed(2)
+  const [intPart, decPart] = fixed.split('.')
+  const sign = intPart.startsWith('-') ? '-' : ''
+  const abs = intPart.replace('-', '')
+  const formatted = abs.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return `${sign}${formatted}.${decPart}`
+}
+
 /**
  * 日历格子金额缩写：适应格子宽度，按 locale 选择单位。
  * - 中文：绝对值超过 99999 时以"万"为单位

@@ -22,7 +22,10 @@ import type {
   BudgetDetailDto,
   BudgetDto,
   BudgetStatusDto,
+  CashFlowDto,
+  CategoryBreakdownDto,
   ChannelDto,
+  ChartPeriod,
   CommodityDto,
   CreateAccountRequest,
   CreateBudgetRequest,
@@ -30,6 +33,7 @@ import type {
   DailySummaryDto,
   MemberDto,
   MoveAccountRequest,
+  NetWorthTrendDto,
   TagDto,
   TransactionDto,
 } from '../types/api'
@@ -187,6 +191,24 @@ export async function fetchBalanceSheet(): Promise<BalanceSheetDto> {
 export async function fetchDailySummary(from: string, to: string): Promise<DailySummaryDto[]> {
   const qs = new URLSearchParams({ from, to }).toString()
   return apiFetch<DailySummaryDto[]>(`/reports/daily-summary?${qs}`)
+}
+
+export async function fetchNetWorthTrend(period: ChartPeriod): Promise<NetWorthTrendDto> {
+  const qs = new URLSearchParams({ period }).toString()
+  return apiFetch<NetWorthTrendDto>(`/reports/net-worth-trend?${qs}`)
+}
+
+export async function fetchCategoryBreakdown(
+  date: string,
+  period: ChartPeriod
+): Promise<CategoryBreakdownDto> {
+  const qs = new URLSearchParams({ date, period }).toString()
+  return apiFetch<CategoryBreakdownDto>(`/reports/category-breakdown?${qs}`)
+}
+
+export async function fetchCashFlow(date: string, period: ChartPeriod): Promise<CashFlowDto> {
+  const qs = new URLSearchParams({ date, period }).toString()
+  return apiFetch<CashFlowDto>(`/reports/cash-flow?${qs}`)
 }
 
 // ─── 预算 CRUD ───
