@@ -246,6 +246,7 @@ fn posting_to_dto(p: Posting, ctx: &DisplayContext) -> PostingDto {
     PostingDto {
         id: p.id.0,
         transaction_id: p.transaction_id.0,
+        account_id: p.account_id.0,
         account: ctx
             .account_paths
             .get(&p.account_id.0)

@@ -6,6 +6,10 @@ import type { AccountDto } from '../../types/api'
 import { compileRows, type GridRow } from '../../utils/accountGrid'
 import AccountGrid from './AccountGrid.vue'
 
+const props = defineProps<{
+  currentId?: number | null
+}>()
+
 const emit = defineEmits<{
   close: []
   select: [account: AccountDto]
@@ -13,9 +17,27 @@ const emit = defineEmits<{
 
 const store = useAccountStore()
 
-onMounted(() => {
+const selectedAccountId = ref<number | null>(null)
+const expandedPath = ref<number[]>([])
+const columnsByType = ref<Record<string, number>>({})
+
+onMounted(async () => {
   if (store.accounts.length === 0) {
-    store.loadAccounts()
+    await store.loadAccounts()
+  }
+  if (props.currentId != null) {
+    selectedAccountId.value = props.currentId
+    // 展开当前账户的祖先链（自身若有子账户也展开，与点击选中行为一致）
+    const path: number[] = []
+    let current = store.accounts.find(a => a.id === props.currentId)
+    while (current) {
+      if (store.getChildren(current.id).length > 0) {
+        path.unshift(current.id)
+      }
+      if (current.parent_id === null) break
+      current = store.accounts.find(a => a.id === current!.parent_id)
+    }
+    expandedPath.value = path
   }
 })
 
@@ -29,10 +51,6 @@ const typeLabels: Record<string, string> = {
 }
 
 const typeOrder = ['Asset', 'Income', 'Expense', 'Equity'] as const
-
-const selectedAccountId = ref<number | null>(null)
-const expandedPath = ref<number[]>([])
-const columnsByType = ref<Record<string, number>>({})
 
 function getChildrenOfType(type: string): AccountDto[] {
   const roots = store.groupedAccounts.get(type) ?? []

@@ -8,6 +8,7 @@ export interface ChannelPathNodeDto {
 export interface PostingDto {
   id: number
   transaction_id: number
+  account_id: number
   account: string
   account_type: string
   commodity: string

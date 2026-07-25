@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { fetchTransaction } from '../../api/client'
 import { useChannelStore } from '../../stores/channel'
+import { useAccountStore } from '../../stores/account'
 import { useCommodityStore } from '../../stores/commodity'
 import { useMemberStore } from '../../stores/member'
 import { useTagStore } from '../../stores/tag'
@@ -26,6 +27,7 @@ const memberStore = useMemberStore()
 const commodityStore = useCommodityStore()
 const channelStore = useChannelStore()
 const tagStore = useTagStore()
+const accountStore = useAccountStore()
 
 const { t } = useI18n()
 
@@ -35,6 +37,7 @@ onMounted(async () => {
     commodityStore.load(),
     channelStore.load(),
     tagStore.load(),
+    accountStore.loadAccounts(),
   ])
 
   if (props.editId) {
@@ -92,9 +95,9 @@ function removePosting(index: number) {
   postings.value.splice(index, 1)
 }
 
-function onAccountSelect(index: number, accountId: number, accountName: string) {
+function onAccountSelect(index: number, accountId: number) {
   postings.value[index].accountId = accountId
-  postings.value[index].accountName = accountName
+  postings.value[index].accountName = accountStore.accountPath(accountId)
 }
 
 const isBalanced = computed(() => {
@@ -128,7 +131,7 @@ async function loadTransaction(id: number) {
     }))
 
     postings.value = tx.postings.map(p => ({
-      accountId: null, // We don't have account ID in PostingDto, only account name
+      accountId: p.account_id,
       accountName: p.account,
       commodity: p.commodity,
       amount: p.amount,
@@ -236,9 +239,7 @@ async function handleSubmit() {
             <label>{{ t('txForm.account') }}</label>
             <AccountPicker
               :model-value="posting.accountId"
-              @update:model-value="
-                id => onAccountSelect(index, id, t('txForm.accountNumber', { id }))
-              "
+              @update:model-value="id => onAccountSelect(index, id)"
             />
           </div>
 

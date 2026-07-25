@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAccountStore } from '../../stores/account'
 import type { AccountDto } from '../../types/api'
 import AccountPickerOverlay from './AccountPickerOverlay.vue'
 
-defineProps<{
+const props = defineProps<{
   modelValue: number | null
   placeholder?: string
 }>()
@@ -14,6 +15,20 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+const accountStore = useAccountStore()
+
+onMounted(() => {
+  if (accountStore.accounts.length === 0) {
+    accountStore.loadAccounts()
+  }
+})
+
+const selectedName = computed(() => {
+  if (props.modelValue === null) return null
+  const account = accountStore.accounts.find(a => a.id === props.modelValue)
+  return account ? account.name : `#${props.modelValue}`
+})
 
 const showOverlay = ref(false)
 
@@ -34,14 +49,17 @@ function onSelect(account: AccountDto) {
 <template>
   <div class="account-picker">
     <button class="picker-trigger" @click="onClick">
-      <span v-if="modelValue" class="selected-id">{{
-        t('picker.accountNumber', { id: modelValue })
-      }}</span>
+      <span v-if="modelValue" class="selected-name">{{ selectedName }}</span>
       <span v-else class="placeholder">{{ placeholder || t('picker.selectPlaceholder') }}</span>
     </button>
 
     <Teleport to=".picker-portal">
-      <AccountPickerOverlay v-if="showOverlay" @close="onClose" @select="onSelect" />
+      <AccountPickerOverlay
+        v-if="showOverlay"
+        :current-id="modelValue"
+        @close="onClose"
+        @select="onSelect"
+      />
     </Teleport>
   </div>
 </template>
@@ -73,7 +91,7 @@ function onSelect(account: AccountDto) {
   color: var(--text-muted);
 }
 
-.selected-id {
+.selected-name {
   color: var(--text-heading);
 }
 </style>

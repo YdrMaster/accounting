@@ -72,6 +72,18 @@ export const useAccountStore = defineStore('account', () => {
     return null
   }
 
+  // 账户完整路径（冒号分隔，与后端 account_get_by_name 的解析格式一致）
+  function accountPath(accountId: number): string {
+    const names: string[] = []
+    let current: AccountDto | undefined = accounts.value.find(a => a.id === accountId)
+    while (current) {
+      names.unshift(current.name)
+      if (current.parent_id === null) break
+      current = accounts.value.find(a => a.id === current!.parent_id)
+    }
+    return names.join(':')
+  }
+
   function setAccountParent(id: number, parentId: number | null) {
     const acc = accounts.value.find(a => a.id === id)
     if (acc) {
@@ -91,6 +103,7 @@ export const useAccountStore = defineStore('account', () => {
     getChildren,
     isDescendant,
     getRootType,
+    accountPath,
     setAccountParent,
   }
 })

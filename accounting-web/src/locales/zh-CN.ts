@@ -156,14 +156,12 @@ export default {
     channelPath: '渠道链路',
     postings: '分录',
     account: '账户',
-    accountNumber: '账户 #{id}',
     commodity: '币种',
     amount: '金额',
     reimbursable: '报销',
     addPosting: '+ 添加分录',
   },
   picker: {
-    accountNumber: '账户 #{id}',
     selectPlaceholder: '选择账户',
   },
   pickerOverlay: {

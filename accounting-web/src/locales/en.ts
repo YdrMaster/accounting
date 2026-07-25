@@ -157,14 +157,12 @@ export default {
     channelPath: 'Channel Path',
     postings: 'Postings',
     account: 'Account',
-    accountNumber: 'Account #{id}',
     commodity: 'Currency',
     amount: 'Amount',
     reimbursable: 'Reimbursable',
     addPosting: '+ Add Posting',
   },
   picker: {
-    accountNumber: 'Account #{id}',
     selectPlaceholder: 'Select account',
   },
   pickerOverlay: {

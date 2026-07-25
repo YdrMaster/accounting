@@ -137,6 +137,8 @@ pub struct PostingDto {
     pub id: i64,
     /// 所属交易 ID。
     pub transaction_id: i64,
+    /// 账户 ID。
+    pub account_id: i64,
     /// 账户名称。
     pub account: String,
     /// 账户类型。
