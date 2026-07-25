@@ -1,247 +1,138 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-
-const props = defineProps<{
-  labels: string[]
-  activeIndex: number
-  visibleCount: number
-  startIndex: number
-  isMobile: boolean
-}>()
+import { useElementSize } from '@vueuse/core'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { paneNames, paneLabels, useResponsiveLayout } from '../../composables/useResponsiveLayout'
+import { ringDist, useWheelScroll } from '../../composables/useWheelScroll'
 
 const emit = defineEmits<{
-  goTo: [index: number]
-  left: []
-  right: []
   openConfig: []
 }>()
 
+const { columns, isMobile } = useResponsiveLayout()
+const { scrollPos, isDragging, dragMoved, beginDrag, updateDrag, endDrag, stepBy, spinTo } =
+  useWheelScroll()
+
+const GAP = 4
+const MIN_SCALE = 0.85
+const SINK_PX = 4
+
 const trackRef = ref<HTMLElement | null>(null)
-const labelsRowRef = ref<HTMLElement | null>(null)
-const highlightRef = ref<HTMLElement | null>(null)
-const isDragging = ref(false)
-const dragStartX = ref(0)
-const dragOffset = ref(0)
-const rowOffset = ref(0)
-const isTransitioning = ref(false)
-const highlightStyle = ref({ left: '0px', width: '0px' })
+const { width: trackWidth } = useElementSize(trackRef)
 
-// Rotate labels so visible window is centered
-const rotatedLabels = computed(() => {
-  const len = props.labels.length
-  if (len === 0) return []
-  const count = Math.min(props.visibleCount, len)
-  const start = props.startIndex
+const labels = computed(() => paneNames.map(name => paneLabels[name]))
 
-  // Calculate offset to center the visible window
-  const beforeCount = Math.floor((len - count) / 2)
-  const rotateStart = (start - beforeCount + len) % len
+const labelRefs = ref<HTMLElement[]>([])
+const labelWidths = ref<number[]>([])
+const measured = ref(false)
 
-  const result: Array<{ label: string; originalIndex: number }> = []
-  for (let i = 0; i < len; i++) {
-    const idx = (rotateStart + i) % len
-    result.push({ label: props.labels[idx], originalIndex: idx })
-  }
-  return result
+function setLabelRef(el: unknown, index: number) {
+  if (el) labelRefs.value[index] = el as HTMLElement
+}
+
+function measure() {
+  labelWidths.value = labelRefs.value.map(el => el?.offsetWidth ?? 0)
+  measured.value = true
+}
+
+onMounted(() => nextTick(measure))
+watch(labels, () => nextTick(measure))
+
+const slotWidth = computed(() => {
+  const widest = labelWidths.value.length > 0 ? Math.max(...labelWidths.value) : 0
+  return widest + GAP
 })
 
-// Indices that are in the visible window (should be highlighted)
-const visibleIndices = computed(() => {
-  const len = props.labels.length
-  const count = Math.min(props.visibleCount, len)
-  const start = props.startIndex
-  const indices = new Set<number>()
-  for (let i = 0; i < count; i++) {
-    indices.add((start + i) % len)
-  }
-  return indices
+const windowWidth = computed(() => columns.value * slotWidth.value - GAP)
+
+const highlightStyle = computed(() => ({
+  left: `${(trackWidth.value - windowWidth.value) / 2}px`,
+  width: `${windowWidth.value}px`,
+}))
+
+const labelItems = computed(() => {
+  const center = trackWidth.value / 2
+  const slot = slotWidth.value
+  const cols = columns.value
+  const windowHalf = windowWidth.value / 2
+  const fadeZone = Math.max(1, (trackWidth.value - windowWidth.value) / 2)
+  const leftmost = Math.floor((cols - 1) / 2)
+
+  return labels.value.map((label, index) => {
+    const panePos = ringDist(index, scrollPos.value) + leftmost
+    const x = center + (panePos - (cols - 1) / 2) * slot
+    const distFromCenter = Math.abs(x - center)
+    const progress = Math.max(0, (distFromCenter - windowHalf) / fadeZone)
+    const clamped = Math.min(progress, 1)
+    return {
+      label,
+      index,
+      active: panePos >= -0.01 && panePos < cols - 0.01,
+      style: {
+        transform: `translateX(${x}px) translate(-50%, -50%) translateY(${SINK_PX * clamped}px) scale(${1 - (1 - MIN_SCALE) * clamped})`,
+        opacity: (1 - clamped) * (1 - clamped),
+        visibility: measured.value && progress < 1 ? ('visible' as const) : ('hidden' as const),
+      },
+    }
+  })
 })
 
-function measureLabels(): number[] {
-  const row = labelsRowRef.value
-  if (!row) return []
-  const children = Array.from(row.children) as HTMLElement[]
-  return children.map(el => el.offsetWidth)
+function onMouseDown(event: MouseEvent) {
+  if (isMobile.value) return
+  beginDrag(event.clientX, slotWidth.value)
 }
 
-function updatePosition() {
-  const trackEl = trackRef.value
-  const row = labelsRowRef.value
-  const highlightEl = highlightRef.value
-  if (!trackEl || !row || !highlightEl) return
-
-  const widths = measureLabels()
-  if (widths.length === 0) return
-
-  const trackWidth = trackEl.clientWidth
-  const gap = 4 // matches CSS gap
-
-  const count = Math.min(props.visibleCount, props.labels.length)
-  const beforeCount = Math.floor((props.labels.length - count) / 2)
-
-  const visibleWidth =
-    widths.slice(beforeCount, beforeCount + count).reduce((a, b) => a + b, 0) +
-    Math.max(0, count - 1) * gap
-
-  const visibleStartOffset =
-    widths.slice(0, beforeCount).reduce((a, b) => a + b, 0) + Math.max(0, beforeCount) * gap
-
-  const rowTranslate = (trackWidth - visibleWidth) / 2 - visibleStartOffset
-  rowOffset.value = rowTranslate
-
-  const highlightLeft = visibleStartOffset + rowTranslate
-  highlightStyle.value = {
-    left: `${highlightLeft}px`,
-    width: `${visibleWidth}px`,
-  }
-}
-
-async function updateRowPosition() {
-  await nextTick()
-  updatePosition()
-}
-
-onMounted(() => {
-  updateRowPosition()
-  window.addEventListener('resize', updateRowPosition)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('resize', updateRowPosition)
-})
-
-watch(
-  () => props.activeIndex,
-  () => {
-    isTransitioning.value = true
-    updateRowPosition()
-    setTimeout(() => {
-      isTransitioning.value = false
-    }, 300)
-  }
-)
-
-watch(
-  () => props.startIndex,
-  () => {
-    isTransitioning.value = true
-    updateRowPosition()
-    setTimeout(() => {
-      isTransitioning.value = false
-    }, 300)
-  }
-)
-
-watch(
-  () => props.labels.length,
-  () => {
-    updateRowPosition()
-  }
-)
-
-watch(
-  () => props.visibleCount,
-  () => {
-    updateRowPosition()
-  }
-)
-
-function onTrackMouseDown(event: MouseEvent) {
-  if (props.isMobile) return
-  isDragging.value = true
-  dragStartX.value = event.clientX
-  dragOffset.value = 0
-}
-
-function onTrackTouchStart(event: TouchEvent) {
-  isDragging.value = true
-  dragStartX.value = event.touches[0].clientX
-  dragOffset.value = 0
-}
-
-function onTrackMouseMove(event: MouseEvent) {
+function onMouseMove(event: MouseEvent) {
   if (!isDragging.value) return
-  dragOffset.value = event.clientX - dragStartX.value
+  updateDrag(event.clientX)
 }
 
-function onTrackTouchMove(event: TouchEvent) {
+function onTouchStart(event: TouchEvent) {
+  beginDrag(event.touches[0].clientX, slotWidth.value)
+}
+
+function onTouchMove(event: TouchEvent) {
   if (!isDragging.value) return
-  dragOffset.value = event.touches[0].clientX - dragStartX.value
+  updateDrag(event.touches[0].clientX)
 }
 
-function endDrag() {
-  if (!isDragging.value) return
-  isDragging.value = false
-
-  const threshold = 40
-  if (dragOffset.value < -threshold) {
-    emit('right')
-  } else if (dragOffset.value > threshold) {
-    emit('left')
-  }
-  dragOffset.value = 0
-}
-
-function onLabelClick(originalIndex: number) {
-  emit('goTo', originalIndex)
+function onLabelClick(index: number) {
+  if (dragMoved.value) return
+  spinTo(index)
 }
 </script>
 
 <template>
   <header class="page-switcher">
-    <button v-if="!isMobile" type="button" class="arrow-btn" @click="emit('left')">‹</button>
+    <button v-if="!isMobile" type="button" class="arrow-btn" @click="stepBy(-1)">‹</button>
 
     <div
       ref="trackRef"
       class="switcher-track"
       :class="{ dragging: isDragging }"
-      @mousedown="onTrackMouseDown"
-      @mousemove="onTrackMouseMove"
+      @mousedown="onMouseDown"
+      @mousemove="onMouseMove"
       @mouseup="endDrag"
       @mouseleave="endDrag"
-      @touchstart="onTrackTouchStart"
-      @touchmove="onTrackTouchMove"
+      @touchstart="onTouchStart"
+      @touchmove="onTouchMove"
       @touchend="endDrag"
     >
-      <div
-        ref="highlightRef"
-        class="highlight-box"
-        :style="{
-          left: highlightStyle.left,
-          width: highlightStyle.width,
-          transition: isTransitioning
-            ? 'left 0.3s ease, width 0.3s ease'
-            : isDragging
-              ? 'none'
-              : 'left 0.3s ease, width 0.3s ease',
-        }"
-      />
-      <div
-        ref="labelsRowRef"
-        class="labels-row"
-        :style="{
-          transform: `translateX(${rowOffset + dragOffset}px)`,
-          transition: isTransitioning
-            ? 'transform 0.3s ease'
-            : isDragging
-              ? 'none'
-              : 'transform 0.3s ease',
-        }"
+      <div class="highlight-box" :style="highlightStyle" />
+      <button
+        v-for="item in labelItems"
+        :key="item.index"
+        :ref="(el: unknown) => setLabelRef(el, item.index)"
+        type="button"
+        class="label-btn"
+        :class="{ active: item.active }"
+        :style="item.style"
+        @click="onLabelClick(item.index)"
       >
-        <button
-          v-for="item in rotatedLabels"
-          :key="item.originalIndex"
-          type="button"
-          class="label-btn"
-          :class="{ active: visibleIndices.has(item.originalIndex) }"
-          @click="onLabelClick(item.originalIndex)"
-        >
-          {{ item.label }}
-        </button>
-      </div>
+        {{ item.label }}
+      </button>
     </div>
 
-    <button v-if="!isMobile" type="button" class="arrow-btn" @click="emit('right')">›</button>
+    <button v-if="!isMobile" type="button" class="arrow-btn" @click="stepBy(1)">›</button>
 
     <button type="button" class="config-btn" @click="emit('openConfig')">⚙</button>
   </header>
@@ -278,12 +169,12 @@ function onLabelClick(originalIndex: number) {
 .switcher-track {
   flex: 1;
   position: relative;
+  height: 2.25rem;
   overflow: hidden;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
-  display: flex;
-  align-items: center;
+  touch-action: pan-y;
 }
 
 .switcher-track.dragging {
@@ -300,15 +191,10 @@ function onLabelClick(originalIndex: number) {
   z-index: 0;
 }
 
-.labels-row {
-  display: flex;
-  gap: 0.25rem;
-  position: relative;
-  z-index: 1;
-  will-change: transform;
-}
-
 .label-btn {
+  position: absolute;
+  top: 50%;
+  left: 0;
   padding: 0.4rem 0.75rem;
   border-radius: 0.625rem;
   border: none;
@@ -317,7 +203,9 @@ function onLabelClick(originalIndex: number) {
   font-size: 0.875rem;
   cursor: pointer;
   white-space: nowrap;
+  will-change: transform, opacity;
   transition: color 0.2s;
+  z-index: 1;
 }
 
 .label-btn.active {
