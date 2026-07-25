@@ -203,7 +203,12 @@ async fn import_bill(
         .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
-                t!("import_failed", locale = lang.as_str(), error = e.to_string()).to_string(),
+                t!(
+                    "import_failed",
+                    locale = lang.as_str(),
+                    error = e.to_string()
+                )
+                .to_string(),
             )
         })?;
 
@@ -326,12 +331,7 @@ mod tests {
         .await;
         assert!(result.is_err());
         // 内置渠道不应被篡改
-        let builtin = state
-            .db()
-            .channel_get(ChannelId(1))
-            .await
-            .unwrap()
-            .unwrap();
+        let builtin = state.db().channel_get(ChannelId(1)).await.unwrap().unwrap();
         assert!(builtin.description.is_none());
     }
 
@@ -510,7 +510,9 @@ mod tests {
             State(state.clone()),
             Lang("zh-CN".to_string()),
             Path(channel_id),
-            Query(ImportBillQuery { member_id: member_b.0 }),
+            Query(ImportBillQuery {
+                member_id: member_b.0,
+            }),
             Bytes::from_static(ALIPAY_CSV),
         )
         .await
@@ -518,7 +520,11 @@ mod tests {
 
         let txs = state
             .db()
-            .transaction_list(&accounting::transaction_filter::TransactionFilter::default(), 100, 0)
+            .transaction_list(
+                &accounting::transaction_filter::TransactionFilter::default(),
+                100,
+                0,
+            )
             .await
             .unwrap();
         assert_eq!(txs.len(), 2);

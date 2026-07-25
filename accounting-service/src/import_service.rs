@@ -123,11 +123,10 @@ impl ImportService {
         // 解析本身是同步的，不影响行为）
         let entries: Vec<Result<BillEntry, AdaptError>> = {
             let adapters = builtin_adapters();
-            let adapter = find_adapter(source, &adapters).ok_or_else(|| {
-                ImportError::UnsupportedSource {
+            let adapter =
+                find_adapter(source, &adapters).ok_or_else(|| ImportError::UnsupportedSource {
                     source: source.to_string(),
-                }
-            })?;
+                })?;
             let iter = adapter.parse(data, &ctx).map_err(|e| ImportError::Parse {
                 source: e.to_string(),
             })?;

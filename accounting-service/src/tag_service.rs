@@ -12,7 +12,10 @@ pub fn system_tag_description(en_name: &str, lang: &str) -> Option<String> {
         "repayment" => t!("system_tag_desc_repayment", locale = lang),
         "pending" => t!("system_tag_desc_pending", locale = lang),
         "exclude-from-income-statement" => {
-            t!("system_tag_desc_exclude_from_income_statement", locale = lang)
+            t!(
+                "system_tag_desc_exclude_from_income_statement",
+                locale = lang
+            )
         }
         "exclude-from-budget" => t!("system_tag_desc_exclude_from_budget", locale = lang),
         _ => return None,

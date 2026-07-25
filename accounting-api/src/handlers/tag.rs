@@ -36,11 +36,7 @@ async fn list_tags(
         .await
         .map_err(|e| e.to_string())?;
     // 系统标签的英文系统名，用作描述翻译键
-    let system_ids: Vec<TagId> = tags
-        .iter()
-        .filter(|t| t.is_system)
-        .map(|t| t.id)
-        .collect();
+    let system_ids: Vec<TagId> = tags.iter().filter(|t| t.is_system).map(|t| t.id).collect();
     let en_names = db
         .tag_display_names(&system_ids, "en")
         .await
