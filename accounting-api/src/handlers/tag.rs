@@ -3,6 +3,8 @@
 use crate::dto::TagDto;
 use crate::handlers::{Lang, member::AppState};
 use accounting::id::TagId;
+use accounting::tag::Tag;
+use accounting_service::tag_service::system_tag_description;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -10,6 +12,16 @@ use axum::{
 };
 use rust_i18n::t;
 use std::sync::Arc;
+
+/// 标签描述：系统标签按请求语言取内置译文（以英文系统名为键），其余返回库存原文。
+fn localized_description(tag: &Tag, en_name: Option<&String>, lang: &str) -> Option<String> {
+    if tag.is_system {
+        if let Some(desc) = en_name.and_then(|n| system_tag_description(n, lang)) {
+            return Some(desc);
+        }
+    }
+    tag.description.clone()
+}
 
 /// 获取标签列表
 async fn list_tags(
@@ -23,12 +35,22 @@ async fn list_tags(
         .tag_display_names(&ids, &lang)
         .await
         .map_err(|e| e.to_string())?;
+    // 系统标签的英文系统名，用作描述翻译键
+    let system_ids: Vec<TagId> = tags
+        .iter()
+        .filter(|t| t.is_system)
+        .map(|t| t.id)
+        .collect();
+    let en_names = db
+        .tag_display_names(&system_ids, "en")
+        .await
+        .map_err(|e| e.to_string())?;
     let dtos: Vec<TagDto> = tags
         .iter()
         .map(|t| TagDto {
             id: t.id.0,
             name: names.get(&t.id).cloned().unwrap_or_default(),
-            description: t.description.clone(),
+            description: localized_description(t, en_names.get(&t.id), &lang),
             is_system: t.is_system,
         })
         .collect();
@@ -60,10 +82,14 @@ async fn create_tag(
             .tag_display_names(&[existing.id], &lang)
             .await
             .map_err(|e| e.to_string())?;
+        let en_names = db
+            .tag_display_names(&[existing.id], "en")
+            .await
+            .map_err(|e| e.to_string())?;
         return Ok(Json(TagDto {
             id: existing.id.0,
             name: names.get(&existing.id).cloned().unwrap_or_default(),
-            description: existing.description,
+            description: localized_description(&existing, en_names.get(&existing.id), &lang),
             is_system: existing.is_system,
         }));
     }

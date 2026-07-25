@@ -2,6 +2,24 @@ use accounting::error::AccountingError;
 use accounting::id::TagId;
 use accounting::tag::Tag;
 use accounting_sql::SqliteDatabase;
+use rust_i18n::t;
+
+/// 内置标签描述的本地化文案：按系统英文名映射到翻译键，未知名返回 `None`。
+///
+/// 数据库 `tags.description` 只存英文原文，系统标签的展示文案按请求语言从此处取译。
+pub fn system_tag_description(en_name: &str, lang: &str) -> Option<String> {
+    let desc = match en_name {
+        "repayment" => t!("system_tag_desc_repayment", locale = lang),
+        "pending" => t!("system_tag_desc_pending", locale = lang),
+        "exclude-from-income-statement" => {
+            t!("system_tag_desc_exclude_from_income_statement", locale = lang)
+        }
+        "exclude-from-budget" => t!("system_tag_desc_exclude_from_budget", locale = lang),
+        _ => return None,
+    };
+    Some(desc.to_string())
+}
+
 /// 标签服务
 pub struct TagService {
     db: SqliteDatabase,
@@ -49,6 +67,33 @@ impl TagService {
 mod tests {
     use super::*;
     use accounting_sql::SqliteDatabase;
+
+    #[test]
+    fn test_system_tag_description_bilingual() {
+        // 已知系统标签按语言返回对应文案
+        assert_eq!(
+            system_tag_description("repayment", "en"),
+            Some("Installment or credit card repayment marker".to_string())
+        );
+        assert_eq!(
+            system_tag_description("repayment", "zh-CN"),
+            Some("分期或信用卡还款标记".to_string())
+        );
+        assert_eq!(
+            system_tag_description("exclude-from-income-statement", "zh-CN"),
+            Some("不计入收支统计".to_string())
+        );
+        assert_eq!(
+            system_tag_description("exclude-from-budget", "zh-CN"),
+            Some("不计入预算统计".to_string())
+        );
+        assert_eq!(
+            system_tag_description("pending", "zh-CN"),
+            Some("导入的交易待确认".to_string())
+        );
+        // 未知标签名返回 None
+        assert_eq!(system_tag_description("travel", "zh-CN"), None);
+    }
 
     #[tokio::test]
     async fn test_tag_lifecycle() {

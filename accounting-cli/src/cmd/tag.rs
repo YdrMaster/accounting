@@ -51,9 +51,28 @@ impl TagCmd {
                 let names = db.tag_display_names(&ids, lang).await.map_err(|e| {
                     accounting::error::AccountingError::DatabaseError(e.to_string())
                 })?;
+                // 系统标签的英文系统名，用作描述翻译键
+                let system_ids: Vec<accounting::id::TagId> = tags
+                    .iter()
+                    .filter(|t| t.is_system)
+                    .map(|t| t.id)
+                    .collect();
+                let en_names = db.tag_display_names(&system_ids, "en").await.map_err(|e| {
+                    accounting::error::AccountingError::DatabaseError(e.to_string())
+                })?;
                 let rows: Vec<TagRow> = tags
                     .iter()
-                    .map(|t| TagRow::new(t, names.get(&t.id).cloned().unwrap_or_default()))
+                    .map(|t| {
+                        let mut row = TagRow::new(t, names.get(&t.id).cloned().unwrap_or_default());
+                        if t.is_system {
+                            if let Some(desc) = en_names.get(&t.id).and_then(|n| {
+                                accounting_service::tag_service::system_tag_description(n, lang)
+                            }) {
+                                row.description = desc;
+                            }
+                        }
+                        row
+                    })
                     .collect();
                 print_vec(&rows, format);
             }
