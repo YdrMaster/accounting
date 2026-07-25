@@ -226,6 +226,7 @@ impl ImportService {
                     bp.role,
                     &bp.category,
                     bp.amount,
+                    bp.is_refund,
                     account_service,
                 )
                 .await?;
@@ -295,11 +296,12 @@ impl ImportService {
         role: PostingRole,
         category: &str,
         amount: Decimal,
+        is_refund: bool,
         account_service: &AccountService,
     ) -> Result<AccountId, AccountingError> {
         let (member_id, channel_id) = mapping_key;
         let channel_name = import_ctx;
-        let key = role.to_key(category, amount);
+        let key = role.to_key(category, amount, is_refund);
 
         // 1. 查映射表
         if let Some(mapping) = self
@@ -312,7 +314,7 @@ impl ImportService {
         }
 
         // 2. 无映射 → Import fallback
-        let root = role.fallback_root(category, amount);
+        let root = role.fallback_root(amount, is_refund);
         let path = format!("{}:Import:{}:{}", root, channel_name, category);
         account_service.ensure_cascading(&path).await
     }
@@ -337,6 +339,7 @@ impl ImportService {
 mod tests {
     use super::*;
     use accounting_sql::SqliteDatabase;
+    use rust_decimal::prelude::FromStr;
 
     async fn setup_db() -> SqliteDatabase {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
@@ -574,6 +577,53 @@ mod tests {
         assert!(
             refund.is_some(),
             "退款应作为负支出归入 Expenses:Import:alipay:退款"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_import_alipay_refund_row_with_real_category() {
+        // 交易状态为"退款成功"但分类是真实消费分类的行，
+        // 应作为负支出落入对应分类的 Expenses fallback，而不是 Income 或正支出。
+        let db = setup_db().await;
+        let service = ImportService::new(db.clone());
+
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2024-01-15 12:30:00,餐饮美食,测试商家,test***@test.com,测试商品,不计收支,25.00,蚂蚁宝藏信用卡,退款成功,2024011522001470000001\t,MO20240101\t,,\n",
+        );
+
+        let result = service
+            .import(csv_data.as_bytes(), "alipay", MemberId(1))
+            .await
+            .unwrap();
+
+        assert_eq!(result.imported, 1, "退款行应成功导入");
+        assert_eq!(result.skipped, 0, "不应跳过退款行");
+
+        let account = db
+            .account_get_by_name("Expenses:Import:alipay:餐饮美食")
+            .await
+            .unwrap()
+            .expect("真实分类退款应作为负支出归入 Expenses:Import:alipay:餐饮美食");
+
+        let txs = db
+            .transaction_list(
+                &accounting::transaction_filter::TransactionFilter::default(),
+                10,
+                0,
+            )
+            .await
+            .unwrap();
+        assert_eq!(txs.len(), 1);
+        let postings = db.posting_list_by_transaction(txs[0].id).await.unwrap();
+        let expense_posting = postings
+            .iter()
+            .find(|p| p.account_id == account.id)
+            .expect("应存在收支侧分录");
+        assert_eq!(
+            expense_posting.amount,
+            Decimal::from_str("-25.00").unwrap(),
+            "退款应为负支出"
         );
     }
 

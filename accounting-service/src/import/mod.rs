@@ -52,6 +52,8 @@ pub struct BillPosting {
     pub commodity_symbol: String,
     /// 金额（收支侧：支出为正、收入为负；资产侧：与收支侧相反）
     pub amount: Decimal,
+    /// 是否为退款事件（由适配器依据源数据显式标记，如支付宝的"退款成功"状态）
+    pub is_refund: bool,
     /// 是否可报销
     pub is_reimbursable: bool,
 }

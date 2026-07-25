@@ -10,17 +10,12 @@ pub enum PostingRole {
 }
 
 impl PostingRole {
-    /// 判断给定分类是否是退款
-    pub fn is_refund_category(category: &str) -> bool {
-        category == "退款" || category == "Refund"
-    }
-
     /// 生成映射 key
     ///
     /// - Asset 角色使用 `Assets:<category>`
-    /// - IncomeExpense 角色：退款或金额为正则使用 `Expenses:<category>`，金额为负则使用 `Income:<category>`
-    pub fn to_key(&self, category: &str, amount: Decimal) -> String {
-        format!("{}:{}", self.fallback_root(category, amount), category)
+    /// - IncomeExpense 角色：退款（`is_refund`）或金额为正则使用 `Expenses:<category>`，金额为负则使用 `Income:<category>`
+    pub fn to_key(&self, category: &str, amount: Decimal, is_refund: bool) -> String {
+        format!("{}:{}", self.fallback_root(amount, is_refund), category)
     }
 
     /// 从映射 key 解析出 (PostingRole, 原始分类名)
@@ -39,12 +34,12 @@ impl PostingRole {
     /// 返回 Import fallback 账户路径应使用的 beancount 根账户名
     ///
     /// - Asset 角色返回 `Assets`
-    /// - IncomeExpense 角色：退款或金额为正返回 `Expenses`，金额为负返回 `Income`
-    pub fn fallback_root(&self, category: &str, amount: Decimal) -> &'static str {
+    /// - IncomeExpense 角色：退款（`is_refund`）或金额为正返回 `Expenses`，金额为负返回 `Income`
+    pub fn fallback_root(&self, amount: Decimal, is_refund: bool) -> &'static str {
         match self {
             PostingRole::Asset => "Assets",
             PostingRole::IncomeExpense => {
-                if Self::is_refund_category(category) || amount > Decimal::ZERO {
+                if is_refund || amount > Decimal::ZERO {
                     "Expenses"
                 } else {
                     "Income"
@@ -62,7 +57,7 @@ mod tests {
     #[test]
     fn test_to_key_asset() {
         assert_eq!(
-            PostingRole::Asset.to_key("蚂蚁宝藏信用卡", Decimal::from_str("-4.80").unwrap()),
+            PostingRole::Asset.to_key("蚂蚁宝藏信用卡", Decimal::from_str("-4.80").unwrap(), false),
             "Assets:蚂蚁宝藏信用卡"
         );
     }
@@ -70,7 +65,11 @@ mod tests {
     #[test]
     fn test_to_key_expense() {
         assert_eq!(
-            PostingRole::IncomeExpense.to_key("餐饮美食", Decimal::from_str("4.80").unwrap()),
+            PostingRole::IncomeExpense.to_key(
+                "餐饮美食",
+                Decimal::from_str("4.80").unwrap(),
+                false
+            ),
             "Expenses:餐饮美食"
         );
     }
@@ -78,7 +77,7 @@ mod tests {
     #[test]
     fn test_to_key_income() {
         assert_eq!(
-            PostingRole::IncomeExpense.to_key("工资", Decimal::from_str("-100.00").unwrap()),
+            PostingRole::IncomeExpense.to_key("工资", Decimal::from_str("-100.00").unwrap(), false),
             "Income:工资"
         );
     }
@@ -86,8 +85,22 @@ mod tests {
     #[test]
     fn test_to_key_refund_as_expense() {
         assert_eq!(
-            PostingRole::IncomeExpense.to_key("退款", Decimal::from_str("-36.75").unwrap()),
+            PostingRole::IncomeExpense.to_key("退款", Decimal::from_str("-36.75").unwrap(), true),
             "Expenses:退款"
+        );
+    }
+
+    #[test]
+    fn test_to_key_refund_with_real_category() {
+        // 退款行的分类是真实消费分类时，仍归入 Expenses 根（负支出），
+        // 映射 key 与被误判为正支出时一致，既有映射直接生效
+        assert_eq!(
+            PostingRole::IncomeExpense.to_key(
+                "餐饮美食",
+                Decimal::from_str("-36.75").unwrap(),
+                true
+            ),
+            "Expenses:餐饮美食"
         );
     }
 
@@ -121,20 +134,19 @@ mod tests {
     #[test]
     fn test_fallback_root() {
         assert_eq!(
-            PostingRole::Asset.fallback_root("蚂蚁宝藏信用卡", Decimal::from_str("-4.80").unwrap()),
+            PostingRole::Asset.fallback_root(Decimal::from_str("-4.80").unwrap(), false),
             "Assets"
         );
         assert_eq!(
-            PostingRole::IncomeExpense
-                .fallback_root("餐饮美食", Decimal::from_str("4.80").unwrap()),
+            PostingRole::IncomeExpense.fallback_root(Decimal::from_str("4.80").unwrap(), false),
             "Expenses"
         );
         assert_eq!(
-            PostingRole::IncomeExpense.fallback_root("工资", Decimal::from_str("-100.00").unwrap()),
+            PostingRole::IncomeExpense.fallback_root(Decimal::from_str("-100.00").unwrap(), false),
             "Income"
         );
         assert_eq!(
-            PostingRole::IncomeExpense.fallback_root("退款", Decimal::from_str("-36.75").unwrap()),
+            PostingRole::IncomeExpense.fallback_root(Decimal::from_str("-36.75").unwrap(), true),
             "Expenses"
         );
     }

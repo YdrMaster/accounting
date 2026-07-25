@@ -153,19 +153,20 @@ fn parse_alipay_row(
         });
     }
 
-    // 判断是否为退款行：导入的银行/支付渠道退款是独立的资金回流事件，
-    // 系统中 TransactionKind::Refund 要求关联到已存在的原分录，导入时无法确定，
-    // 因此按普通交易导入，由用户后续映射到合适的收入/折扣账户。
-    let is_refund = category == "退款";
+    // 判断是否为退款行：以交易状态精确匹配"退款成功"为准（部分退款的行
+    // 交易分类仍是真实消费分类，不能按分类名判定）。导入的退款是独立的
+    // 资金回流事件，系统中 TransactionKind::Refund 要求关联到已存在的原分录，
+    // 导入时无法确定，因此按普通交易导入（负支出），由用户后续映射到合适账户。
+    let is_refund = status == "退款成功";
     let kind = TransactionKind::Normal;
 
     // 判断金额方向（绝对值）
     let abs_amount = amount.abs();
 
-    // 收支侧金额：支出为正（Expense 增加），收入/退款为负（Income 增加）
+    // 收支侧金额：支出为正（Expense 增加），收入/退款为负（退款为负支出，冲减消费）
     // 资产侧金额：与收支侧相反
     let (income_expense_amount, asset_amount) = if is_refund {
-        // 退款：收支侧为负（收入类账户增加），资产侧为正（资产增加）
+        // 退款：收支侧为负（负支出），资产侧为正（资金回流）
         (-abs_amount, abs_amount)
     } else if direction.contains("支") {
         // 支出：收支侧为正（支出类账户增加），资产侧为负（资产减少）
@@ -210,6 +211,7 @@ fn parse_alipay_row(
         category: category.to_string(),
         commodity_symbol: commodity_symbol.clone(),
         amount: income_expense_amount,
+        is_refund,
         is_reimbursable: false,
     }];
 
@@ -223,6 +225,7 @@ fn parse_alipay_row(
             } else {
                 Decimal::ZERO
             },
+            is_refund: false,
             is_reimbursable: false,
         });
     }
@@ -238,12 +241,20 @@ fn parse_alipay_row(
 }
 
 /// 解析日期时间字符串
+///
+/// 支付宝不同版本导出的格式不同：旧版为 `2026-06-30 19:29:03`（短横线带秒），
+/// 新版为 `2026/7/25 11:43`（斜杠、月日不补零、无秒）。
 fn parse_datetime(row: usize, s: &str) -> Result<NaiveDateTime, AdaptError> {
-    if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
-        return Ok(dt);
-    }
-    if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y/%m/%d %H:%M:%S") {
-        return Ok(dt);
+    const FORMATS: &[&str] = &[
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+    ];
+    for fmt in FORMATS {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(s, fmt) {
+            return Ok(dt);
+        }
     }
     Err(AdaptError::Row {
         row,
@@ -336,18 +347,75 @@ mod tests {
         let entry = iter.next().unwrap().unwrap();
         // 导入的退款行是独立的资金回流事件，按普通交易导入。
         assert_eq!(entry.kind, TransactionKind::Normal);
-        // 退款：收支侧为负（收入类账户增加），资产侧为正（资产增加）
+        // 退款：收支侧为负（负支出），资产侧为正（资金回流）
         assert_eq!(entry.postings[0].role, PostingRole::IncomeExpense);
         assert_eq!(entry.postings[0].category, "退款");
+        assert!(entry.postings[0].is_refund);
         assert_eq!(
             entry.postings[0].amount,
             Decimal::from_str("-36.75").unwrap()
         );
         assert_eq!(entry.postings[1].role, PostingRole::Asset);
         assert_eq!(entry.postings[1].category, "招商银行信用卡");
+        assert!(!entry.postings[1].is_refund);
         assert_eq!(
             entry.postings[1].amount,
             Decimal::from_str("36.75").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_parse_refund_row_with_real_category() {
+        // 部分退款/售后退款的行，交易分类是真实消费分类而非"退款"，
+        // 必须按交易状态"退款成功"判定为退款（负支出），而不是按"不计收支"记成正支出。
+        let adapter = AlipayAdapter;
+        let ctx = test_context();
+
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2026-06-15 10:20:30,餐饮美食,某餐厅,rest***@example.com,餐费退款,不计收支,25.00,余额宝,退款成功,2026061523001170791449999999\t,T200P330836772299999999\t,,\n",
+        );
+
+        let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
+        let entry = iter.next().unwrap().unwrap();
+        assert_eq!(entry.kind, TransactionKind::Normal);
+        assert_eq!(entry.postings[0].role, PostingRole::IncomeExpense);
+        assert_eq!(entry.postings[0].category, "餐饮美食");
+        assert!(entry.postings[0].is_refund);
+        assert_eq!(
+            entry.postings[0].amount,
+            Decimal::from_str("-25.00").unwrap()
+        );
+        assert_eq!(
+            entry.postings[1].amount,
+            Decimal::from_str("25.00").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_parse_new_format_slash_date_without_seconds() {
+        // 新版支付宝导出的日期为斜杠、月日不补零、无秒（如 "2026/7/21 19:00"）
+        let adapter = AlipayAdapter;
+        let ctx = test_context();
+
+        let csv_data = concat!(
+            "交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注,\n",
+            "2026/7/21 19:00,退款,宽福**店,365***@qq.com,退款-猫湿粮,不计收支,5.50,余额宝,退款成功,2026072123001170791449999999\t,T200P330836772299999999\t,,\n",
+        );
+
+        let mut iter = adapter.parse(csv_data.as_bytes(), &ctx).unwrap();
+        let entry = iter
+            .next()
+            .expect("新版日期格式的行应能解析")
+            .expect("新版日期格式的行不应报错");
+        assert_eq!(
+            entry.date_time,
+            NaiveDateTime::parse_from_str("2026-07-21 19:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
+        );
+        assert!(entry.postings[0].is_refund);
+        assert_eq!(
+            entry.postings[0].amount,
+            Decimal::from_str("-5.50").unwrap()
         );
     }
 
