@@ -208,6 +208,18 @@ export interface ChannelDto {
   has_import_adapter: boolean
 }
 
+export interface ImportRowErrorDto {
+  row: number
+  detail: string
+}
+
+export interface ImportResultDto {
+  imported: number
+  skipped: number
+  pending_tag_name: string | null
+  errors: ImportRowErrorDto[]
+}
+
 export interface MappingDto {
   member_id: number
   channel_id: number

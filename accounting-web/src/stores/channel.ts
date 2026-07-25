@@ -1,12 +1,20 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { createChannel, deleteChannel, fetchChannels, updateChannel } from '../api/client'
-import type { ChannelDto } from '../types/api'
+import {
+  createChannel,
+  deleteChannel,
+  fetchChannels,
+  importBill,
+  updateChannel,
+} from '../api/client'
+import type { ChannelDto, ImportResultDto } from '../types/api'
 
 export const useChannelStore = defineStore('channel', () => {
   const channels = ref<ChannelDto[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  /** 正在导入的渠道 id（null = 无导入进行中） */
+  const importingChannelId = ref<number | null>(null)
 
   async function load(force = false) {
     if (!force && channels.value.length > 0) return
@@ -65,5 +73,23 @@ export const useChannelStore = defineStore('channel', () => {
     }
   }
 
-  return { channels, loading, error, load, create, update, remove }
+  async function importFile(
+    id: number,
+    file: File,
+    memberId: number
+  ): Promise<ImportResultDto | undefined> {
+    if (importingChannelId.value !== null) return undefined
+    importingChannelId.value = id
+    error.value = null
+    try {
+      return await importBill(id, memberId, file)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return undefined
+    } finally {
+      importingChannelId.value = null
+    }
+  }
+
+  return { channels, loading, error, importingChannelId, load, create, update, remove, importFile }
 })

@@ -31,6 +31,7 @@ import type {
   CreateBudgetRequest,
   CreateTransactionData,
   DailySummaryDto,
+  ImportResultDto,
   MappingDto,
   MemberDto,
   MoveAccountRequest,
@@ -308,6 +309,23 @@ export async function deleteChannel(id: number): Promise<void> {
     const text = await res.text()
     throw new Error(text || res.statusText)
   }
+}
+
+export async function importBill(
+  channelId: number,
+  memberId: number,
+  file: File
+): Promise<ImportResultDto> {
+  const res = await fetch(apiUrl(`/channels/${channelId}/import?member_id=${memberId}`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<ImportResultDto>
 }
 
 export async function fetchTags(): Promise<TagDto[]> {

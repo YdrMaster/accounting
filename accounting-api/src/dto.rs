@@ -233,6 +233,28 @@ pub struct UpdateChannelRequest {
     pub account_id: Option<Option<i64>>,
 }
 
+/// 账单导入结果。
+#[derive(Debug, Serialize)]
+pub struct ImportResultDto {
+    /// 成功导入条数。
+    pub imported: usize,
+    /// 跳过条数。
+    pub skipped: usize,
+    /// 导入交易挂载的待处理标签系统名（无系统标签时为 None）。
+    pub pending_tag_name: Option<String>,
+    /// 逐行错误明细。
+    pub errors: Vec<ImportRowErrorDto>,
+}
+
+/// 账单导入的逐行错误。
+#[derive(Debug, Serialize)]
+pub struct ImportRowErrorDto {
+    /// 源文件行号。
+    pub row: usize,
+    /// 人类可读的错误描述。
+    pub detail: String,
+}
+
 /// 标签响应。
 #[derive(Serialize)]
 pub struct TagDto {
@@ -257,22 +279,6 @@ pub struct CommodityDto {
     pub name: String,
     /// 精度（小数位数）。
     pub precision: u8,
-}
-
-/// 当前用户响应。
-#[derive(Serialize)]
-pub struct MeDto {
-    /// 当前成员 ID。
-    pub member_id: i64,
-    /// 当前成员名称。
-    pub member_name: String,
-}
-
-/// 切换当前用户请求。
-#[derive(Deserialize)]
-pub struct SetMeRequest {
-    /// 目标成员 ID。
-    pub member_id: i64,
 }
 
 /// 重命名账户请求。

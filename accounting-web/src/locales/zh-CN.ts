@@ -199,6 +199,13 @@ export default {
     importRules: '导入规则',
     mappingCategoryPlaceholder: '格式如 Expenses:餐饮美食',
     mappingAccountPlaceholder: '选择目标账户',
+    importBill: '导入账单',
+    importing: '导入中…',
+    importMemberLabel: '导入到成员',
+    importSummary: '导入 {imported} 条，跳过 {skipped} 条',
+    importFailed: '导入失败：{message}',
+    importErrorDetails: '跳过明细',
+    importErrorRow: '第 {row} 行：{detail}',
   },
   language: {
     label: '显示语言',

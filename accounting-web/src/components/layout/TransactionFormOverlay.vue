@@ -40,9 +40,8 @@ onMounted(async () => {
   if (props.editId) {
     await loadTransaction(props.editId)
   } else {
-    // Default values for new transaction
+    // Default values for new transaction（成员默认未选中，用户手工选择）
     dateTime.value = formatDateTime(new Date())
-    memberId.value = memberStore.currentMemberId
     addPosting()
     addPosting()
   }

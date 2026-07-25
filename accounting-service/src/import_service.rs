@@ -69,12 +69,15 @@ impl ImportService {
         source: &str,
         member_id: MemberId,
     ) -> Result<ImportResult, ImportError> {
-        // 1. 查找适配器
-        let adapters = builtin_adapters();
-        let adapter =
-            find_adapter(source, &adapters).ok_or_else(|| ImportError::UnsupportedSource {
-                source: source.to_string(),
-            })?;
+        // 1. 校验 source 有适配器（块作用域：`Box<dyn BillAdapter>` 非 Send，不得跨越 await）
+        {
+            let adapters = builtin_adapters();
+            if find_adapter(source, &adapters).is_none() {
+                return Err(ImportError::UnsupportedSource {
+                    source: source.to_string(),
+                });
+            }
+        }
 
         // 2. 解析 source 为 ChannelId（支持别名与大小写不敏感，命中名字表任意语言名字）
         let channel =
@@ -115,10 +118,21 @@ impl ImportService {
             channel_name: channel_name.clone(),
         };
 
-        // 7. 调用适配器解析
-        let iter = adapter.parse(data, &ctx).map_err(|e| ImportError::Parse {
-            source: e.to_string(),
-        })?;
+        // 7. 调用适配器解析并一次性收集结果（块作用域：`Box<dyn BillAdapter>`
+        // 与 `Box<dyn Iterator>` 均非 Send，收集后不得跨越后续 await；
+        // 解析本身是同步的，不影响行为）
+        let entries: Vec<Result<BillEntry, AdaptError>> = {
+            let adapters = builtin_adapters();
+            let adapter = find_adapter(source, &adapters).ok_or_else(|| {
+                ImportError::UnsupportedSource {
+                    source: source.to_string(),
+                }
+            })?;
+            let iter = adapter.parse(data, &ctx).map_err(|e| ImportError::Parse {
+                source: e.to_string(),
+            })?;
+            iter.collect()
+        };
 
         // 8. 迭代 BillEntry 逐条处理
         let account_service = AccountService::new(self.db.clone());
@@ -132,7 +146,7 @@ impl ImportService {
             errors: Vec::new(),
         };
 
-        for entry_result in iter {
+        for entry_result in entries {
             let entry = match entry_result {
                 Ok(e) => e,
                 Err(e) => {

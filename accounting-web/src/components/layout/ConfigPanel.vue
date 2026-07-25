@@ -157,6 +157,102 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
   if (accountId === channel.account_id) return
   channelStore.update(channel.id, { account_id: accountId })
 }
+
+// ─── 渠道导入 ───
+const importFileInput = ref<HTMLInputElement | null>(null)
+const pendingImportChannel = ref<ChannelDto | null>(null)
+const dragOverChannelId = ref<number | null>(null)
+
+interface ImportToast {
+  kind: 'success' | 'error'
+  message: string
+  errors?: { row: number; detail: string }[]
+}
+
+const importToast = ref<ImportToast | null>(null)
+const importToastExpanded = ref(false)
+let importToastTimer: ReturnType<typeof setTimeout> | undefined
+
+function showImportToast(toast: ImportToast) {
+  importToast.value = toast
+  importToastExpanded.value = false
+  clearTimeout(importToastTimer)
+  importToastTimer = setTimeout(() => (importToast.value = null), 5000)
+}
+
+async function doImport(channel: ChannelDto, file: File, memberId: number) {
+  if (channelStore.importingChannelId !== null) return
+  const result = await channelStore.importFile(channel.id, file, memberId)
+  if (result) {
+    showImportToast({
+      kind: 'success',
+      message: t('config.importSummary', { imported: result.imported, skipped: result.skipped }),
+      errors: result.errors,
+    })
+  } else {
+    showImportToast({
+      kind: 'error',
+      message: t('config.importFailed', { message: channelStore.error ?? '' }),
+    })
+  }
+}
+
+// 成员确认对话框：暂存待导入的渠道与文件
+const importConfirm = ref<{ channel: ChannelDto; file: File } | null>(null)
+const importMemberId = ref<number | null>(null)
+
+function openImportConfirm(channel: ChannelDto, file: File) {
+  if (channelStore.importingChannelId !== null) return
+  importConfirm.value = { channel, file }
+  importMemberId.value = memberStore.members[0]?.id ?? null
+}
+
+function confirmImport() {
+  const pending = importConfirm.value
+  const memberId = importMemberId.value
+  importConfirm.value = null
+  if (pending && memberId !== null) doImport(pending.channel, pending.file, memberId)
+}
+
+function cancelImportConfirm() {
+  importConfirm.value = null
+}
+
+function triggerImport(channel: ChannelDto) {
+  if (channelStore.importingChannelId !== null) return
+  pendingImportChannel.value = channel
+  const input = importFileInput.value
+  if (!input) return
+  input.value = ''
+  input.click()
+}
+
+function onImportFilePicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  const channel = pendingImportChannel.value
+  input.value = ''
+  pendingImportChannel.value = null
+  if (file && channel) openImportConfirm(channel, file)
+}
+
+function onChannelDragOver(channel: ChannelDto, event: DragEvent) {
+  if (!channel.has_import_adapter || channelStore.importingChannelId !== null) return
+  event.preventDefault()
+  dragOverChannelId.value = channel.id
+}
+
+function onChannelDragLeave(channel: ChannelDto) {
+  if (dragOverChannelId.value === channel.id) dragOverChannelId.value = null
+}
+
+function onChannelDrop(channel: ChannelDto, event: DragEvent) {
+  if (!channel.has_import_adapter || channelStore.importingChannelId !== null) return
+  event.preventDefault()
+  dragOverChannelId.value = null
+  const file = event.dataTransfer?.files?.[0]
+  if (file) openImportConfirm(channel, file)
+}
 </script>
 
 <template>
@@ -239,14 +335,35 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
         <!-- 渠道 tab -->
         <div v-if="activeTab === 'channel'" class="list-section">
           <div v-if="channelStore.error" class="store-error">{{ channelStore.error }}</div>
-          <div v-for="channel in channelStore.channels" :key="channel.id" class="channel-card">
+          <div
+            v-for="channel in channelStore.channels"
+            :key="channel.id"
+            class="channel-card"
+            :class="{ 'drag-over': dragOverChannelId === channel.id }"
+            @dragover="onChannelDragOver(channel, $event)"
+            @dragleave="onChannelDragLeave(channel)"
+            @drop="onChannelDrop(channel, $event)"
+          >
             <div class="channel-header" @click="toggleChannel(channel.id)">
               <span class="expand-icon">
                 {{ expandedChannelId === channel.id ? '▾' : '▸' }}
               </span>
               <span class="item-name">{{ channel.name }}</span>
               <button
-                v-if="!channel.is_system"
+                v-if="channel.has_import_adapter"
+                type="button"
+                class="import-btn"
+                :disabled="channelStore.importingChannelId === channel.id"
+                @click.stop="triggerImport(channel)"
+              >
+                {{
+                  channelStore.importingChannelId === channel.id
+                    ? t('config.importing')
+                    : t('config.importBill')
+                }}
+              </button>
+              <button
+                v-else-if="!channel.is_system"
                 type="button"
                 class="delete-btn"
                 @click.stop="removeChannel(channel.id)"
@@ -293,6 +410,13 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
             <button type="button" class="add-btn" @click="addChannel">{{ t('common.add') }}</button>
           </div>
           <div class="picker-portal" />
+          <input
+            ref="importFileInput"
+            type="file"
+            class="import-file-input"
+            hidden
+            @change="onImportFilePicked"
+          />
         </div>
 
         <!-- 标签 tab -->
@@ -356,6 +480,52 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- 导入成员确认对话框 -->
+      <div v-if="importConfirm" class="import-dialog-overlay" @click.self="cancelImportConfirm">
+        <div class="import-dialog">
+          <h3 class="import-dialog-title">{{ t('config.importBill') }}</h3>
+          <div class="field">
+            <label class="field-label">{{ t('config.importMemberLabel') }}</label>
+            <select v-model="importMemberId" class="field-input import-member-select">
+              <option v-for="member in memberStore.members" :key="member.id" :value="member.id">
+                {{ member.name }}
+              </option>
+            </select>
+          </div>
+          <div class="import-dialog-actions">
+            <button type="button" class="dialog-cancel-btn" @click="cancelImportConfirm">
+              {{ t('common.cancel') }}
+            </button>
+            <button
+              type="button"
+              class="dialog-confirm-btn"
+              :disabled="importMemberId === null"
+              @click="confirmImport"
+            >
+              {{ t('common.confirm') }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 导入结果 toast -->
+      <div v-if="importToast" class="import-toast" :class="importToast.kind">
+        <span class="import-toast-message">{{ importToast.message }}</span>
+        <button
+          v-if="importToast.errors && importToast.errors.length > 0"
+          type="button"
+          class="import-toast-toggle"
+          @click="importToastExpanded = !importToastExpanded"
+        >
+          {{ t('config.importErrorDetails') }}
+        </button>
+        <ul v-if="importToastExpanded" class="import-toast-errors">
+          <li v-for="err in importToast.errors" :key="err.row">
+            {{ t('config.importErrorRow', { row: err.row, detail: err.detail }) }}
+          </li>
+        </ul>
       </div>
     </div>
   </div>
@@ -637,6 +807,139 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
 
 .picker-portal > * {
   pointer-events: auto;
+}
+
+/* 渠道导入 */
+.import-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.import-dialog {
+  width: 80%;
+  max-width: 320px;
+  padding: 1rem 1.25rem;
+  border-radius: 0.75rem;
+  background: var(--bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.import-dialog-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.import-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.dialog-cancel-btn {
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.dialog-confirm-btn {
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.dialog-confirm-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.import-btn {
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.import-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.import-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.channel-card.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: var(--card-bg-alt);
+}
+
+.import-toast {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-width: 90%;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.5rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  font-size: 0.8125rem;
+  color: var(--text-heading);
+}
+
+.import-toast.error {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+.import-toast-toggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.import-toast-errors {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
 }
 
 .lang-options {

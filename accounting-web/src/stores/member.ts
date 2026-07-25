@@ -5,7 +5,6 @@ import type { MemberDto } from '../types/api'
 
 export const useMemberStore = defineStore('member', () => {
   const members = ref<MemberDto[]>([])
-  const currentMemberId = ref<number | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -16,9 +15,6 @@ export const useMemberStore = defineStore('member', () => {
     error.value = null
     try {
       members.value = await fetchMembers()
-      if (members.value.length > 0 && currentMemberId.value === null) {
-        currentMemberId.value = members.value[0].id
-      }
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
@@ -61,5 +57,5 @@ export const useMemberStore = defineStore('member', () => {
     }
   }
 
-  return { members, currentMemberId, loading, error, load, create, rename, remove }
+  return { members, loading, error, load, create, rename, remove }
 })

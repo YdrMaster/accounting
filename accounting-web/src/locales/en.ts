@@ -200,6 +200,13 @@ export default {
     importRules: 'Import Rules',
     mappingCategoryPlaceholder: 'e.g. Expenses:Dining',
     mappingAccountPlaceholder: 'Select target account',
+    importBill: 'Import Bill',
+    importing: 'Importing…',
+    importMemberLabel: 'Import as member',
+    importSummary: 'Imported {imported}, skipped {skipped}',
+    importFailed: 'Import failed: {message}',
+    importErrorDetails: 'Skipped details',
+    importErrorRow: 'Row {row}: {detail}',
   },
   language: {
     label: 'Display language',

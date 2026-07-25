@@ -20,7 +20,6 @@ pub fn create_app(state: Arc<handlers::member::AppState>, static_dir: &str) -> R
         .merge(handlers::tag::router())
         .merge(handlers::mapping::router())
         .merge(handlers::report::router())
-        .merge(handlers::me::router())
         .route("/api/health", axum::routing::get(|| async { "ok" }))
         .fallback_service(
             ServeDir::new(static_dir)
