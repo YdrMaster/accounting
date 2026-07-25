@@ -482,6 +482,15 @@ impl SqliteDatabase {
         crate::repo::channel::channel_list(&mut conn).await
     }
 
+    /// 获取渠道的全部名字（任意语言）
+    pub async fn channel_names_by_id(
+        &self,
+        id: accounting::id::ChannelId,
+    ) -> Result<Vec<String>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::channel::channel_names_by_id(&mut conn, id).await
+    }
+
     pub async fn channel_count_transactions_by_id(
         &self,
         channel_id: accounting::id::ChannelId,

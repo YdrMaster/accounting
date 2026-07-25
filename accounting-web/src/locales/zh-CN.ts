@@ -196,6 +196,9 @@ export default {
     channelDescPlaceholder: '输入描述...',
     linkedAccount: '关联账户',
     notLinked: '未关联',
+    importRules: '导入规则',
+    mappingCategoryPlaceholder: '格式如 Expenses:餐饮美食',
+    mappingAccountPlaceholder: '选择目标账户',
   },
   language: {
     label: '显示语言',

@@ -31,6 +31,7 @@ import type {
   CreateBudgetRequest,
   CreateTransactionData,
   DailySummaryDto,
+  MappingDto,
   MemberDto,
   MoveAccountRequest,
   NetWorthTrendDto,
@@ -311,6 +312,46 @@ export async function deleteChannel(id: number): Promise<void> {
 
 export async function fetchTags(): Promise<TagDto[]> {
   return apiFetch<TagDto[]>('/tags')
+}
+
+// ─── 导入映射 ───
+
+export async function fetchMappings(memberId: number, channelId: number): Promise<MappingDto[]> {
+  const qs = new URLSearchParams({
+    member_id: String(memberId),
+    channel_id: String(channelId),
+  }).toString()
+  return apiFetch<MappingDto[]>(`/mappings?${qs}`)
+}
+
+export async function upsertMapping(dto: MappingDto): Promise<string> {
+  const res = await fetch(apiUrl(`/mappings`), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dto),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.text()
+}
+
+export async function deleteMapping(
+  memberId: number,
+  channelId: number,
+  category: string
+): Promise<void> {
+  const qs = new URLSearchParams({
+    member_id: String(memberId),
+    channel_id: String(channelId),
+    category,
+  }).toString()
+  const res = await fetch(apiUrl(`/mappings?${qs}`), { method: 'DELETE' })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
 }
 
 export async function createTag(data: { name: string; description?: string }): Promise<TagDto> {

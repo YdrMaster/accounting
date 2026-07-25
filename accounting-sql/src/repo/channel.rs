@@ -137,6 +137,20 @@ pub async fn channel_upsert_by_name(
     }
 }
 
+/// 获取渠道的全部名字（任意语言）
+pub async fn channel_names_by_id(
+    conn: &mut SqliteConnection,
+    channel_id: ChannelId,
+) -> Result<Vec<String>, DbError> {
+    let names: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM channel_names WHERE channel_id = ?1")
+            .bind(channel_id.0)
+            .fetch_all(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(names)
+}
+
 pub async fn channel_count_transactions_by_id(
     conn: &mut SqliteConnection,
     channel_id: ChannelId,
@@ -429,5 +443,31 @@ mod tests {
 
         let found = channel_resolve_by_name(&mut conn, "支付宝").await.unwrap();
         assert!(found.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_channel_names_by_id_returns_all_lang_names() {
+        let mut conn = setup().await;
+        let alipay = channel_resolve_by_name(&mut conn, "alipay")
+            .await
+            .unwrap()
+            .unwrap();
+        let names = channel_names_by_id(&mut conn, alipay.id).await.unwrap();
+        assert!(names.contains(&"Alipay".to_string()));
+        assert!(names.contains(&"支付宝".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_channel_names_by_id_empty_for_nameless_channel() {
+        let mut conn = setup().await;
+        let channel = Channel {
+            id: ChannelId(0),
+            description: None,
+            account_id: None,
+            is_system: false,
+        };
+        let id = channel_create(&mut conn, &channel).await.unwrap();
+        let names = channel_names_by_id(&mut conn, id).await.unwrap();
+        assert!(names.is_empty());
     }
 }

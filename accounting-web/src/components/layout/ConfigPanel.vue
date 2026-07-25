@@ -8,6 +8,7 @@ import { useMemberStore } from '../../stores/member'
 import { useTagStore } from '../../stores/tag'
 import type { ChannelDto, MemberDto, TagDto } from '../../types/api'
 import AccountPicker from './AccountPicker.vue'
+import ChannelMappingSection from './ChannelMappingSection.vue'
 
 const emit = defineEmits<{
   close: []
@@ -244,7 +245,12 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
                 {{ expandedChannelId === channel.id ? '▾' : '▸' }}
               </span>
               <span class="item-name">{{ channel.name }}</span>
-              <button type="button" class="delete-btn" @click.stop="removeChannel(channel.id)">
+              <button
+                v-if="!channel.is_system"
+                type="button"
+                class="delete-btn"
+                @click.stop="removeChannel(channel.id)"
+              >
                 &times;
               </button>
             </div>
@@ -274,6 +280,7 @@ function onChannelAccountChange(channel: ChannelDto, accountId: number) {
                   @update:model-value="id => onChannelAccountChange(channel, id)"
                 />
               </div>
+              <ChannelMappingSection v-if="channel.has_import_adapter" :channel="channel" />
             </div>
           </div>
           <div class="add-row">

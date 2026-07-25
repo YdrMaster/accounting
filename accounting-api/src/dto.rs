@@ -207,6 +207,8 @@ pub struct ChannelDto {
     pub account_id: Option<i64>,
     /// 是否为系统内置渠道。
     pub is_system: bool,
+    /// 是否关联了内置账单导入适配器。
+    pub has_import_adapter: bool,
 }
 
 /// 创建渠道请求。
@@ -383,6 +385,32 @@ pub struct UpdateBudgetRequest {
     pub commodity_id: i64,
     /// 限额列表。
     pub limits: Vec<BudgetLimitRequest>,
+}
+
+/// 账户映射响应。
+#[derive(Serialize)]
+pub struct MappingDto {
+    /// 成员 ID。
+    pub member_id: i64,
+    /// 渠道 ID。
+    pub channel_id: i64,
+    /// 映射 key（分类字符串）。
+    pub category: String,
+    /// 目标账户 ID。
+    pub account_id: i64,
+}
+
+/// 设置账户映射请求。
+#[derive(Deserialize)]
+pub struct SetMappingRequest {
+    /// 成员 ID。
+    pub member_id: i64,
+    /// 渠道 ID。
+    pub channel_id: i64,
+    /// 映射 key（分类字符串）。
+    pub category: String,
+    /// 目标账户 ID。
+    pub account_id: i64,
 }
 
 /// 解析周期字符串为 FinancePeriod。

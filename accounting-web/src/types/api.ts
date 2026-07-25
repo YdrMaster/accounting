@@ -205,6 +205,14 @@ export interface ChannelDto {
   description: string | null
   account_id: number | null
   is_system: boolean
+  has_import_adapter: boolean
+}
+
+export interface MappingDto {
+  member_id: number
+  channel_id: number
+  category: string
+  account_id: number
 }
 
 export interface TagDto {

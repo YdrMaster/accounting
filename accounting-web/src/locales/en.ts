@@ -197,6 +197,9 @@ export default {
     channelDescPlaceholder: 'Enter a description...',
     linkedAccount: 'Linked account',
     notLinked: 'Not linked',
+    importRules: 'Import Rules',
+    mappingCategoryPlaceholder: 'e.g. Expenses:Dining',
+    mappingAccountPlaceholder: 'Select target account',
   },
   language: {
     label: 'Display language',
