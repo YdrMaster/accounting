@@ -88,8 +88,12 @@ impl ReportCmd {
                 let service =
                     accounting_service::report::cash_flow::CashFlowService::new(db.clone());
                 let report = service.cash_flow_report(date, period, commodity_id).await?;
-                let account_ids: Vec<accounting::id::AccountId> =
-                    report.items.iter().map(|item| item.account.id).collect();
+                let account_ids: Vec<accounting::id::AccountId> = report
+                    .income
+                    .iter()
+                    .chain(report.expense.iter())
+                    .map(|item| item.account.id)
+                    .collect();
                 let names = db
                     .account_display_names(&account_ids, lang)
                     .await
@@ -104,28 +108,60 @@ impl ReportCmd {
                     )
                 );
                 println!();
-                println!(
-                    "{:<30} {:>12} {:>12} {:>12}",
-                    "Account", "Inflow", "Outflow", "Net"
-                );
-                for item in &report.items {
-                    let account_name = names
-                        .get(&item.account.id)
-                        .cloned()
-                        .unwrap_or_else(|| item.account.id.to_string());
-                    println!(
-                        "{:<30} {:>12} {:>12} {:>12}",
-                        account_name, item.inflow, item.outflow, item.net
-                    );
-                }
-                println!("{}", "-".repeat(70));
-                println!(
-                    "{:<30} {:>12} {:>12} {:>12}",
-                    "Total", report.total.inflow, report.total.outflow, report.total.net
-                );
+                print_cash_flow_section(&report.income, &names);
+                print_cash_flow_section(&report.expense, &names);
             }
         }
         Ok(())
+    }
+}
+
+/// 打印资金流量表一节（Income 或 Expenses）：树状缩进，每级按金额降序
+fn print_cash_flow_section(
+    items: &[accounting_service::report::cash_flow::CashFlowItem],
+    names: &std::collections::HashMap<accounting::id::AccountId, String>,
+) {
+    use accounting::id::AccountId;
+    use accounting_service::report::cash_flow::CashFlowItem;
+    use std::collections::HashMap;
+
+    let by_id: HashMap<AccountId, &CashFlowItem> =
+        items.iter().map(|i| (i.account.id, i)).collect();
+    let mut children: HashMap<AccountId, Vec<&CashFlowItem>> = HashMap::new();
+    let mut roots: Vec<&CashFlowItem> = Vec::new();
+    for item in items {
+        match item.account.parent_id {
+            Some(pid) if by_id.contains_key(&pid) => {
+                children.entry(pid).or_default().push(item);
+            }
+            _ => roots.push(item),
+        }
+    }
+
+    fn walk(
+        item: &CashFlowItem,
+        depth: usize,
+        children: &HashMap<AccountId, Vec<&CashFlowItem>>,
+        names: &HashMap<AccountId, String>,
+    ) {
+        let name = names
+            .get(&item.account.id)
+            .cloned()
+            .unwrap_or_else(|| item.account.id.to_string());
+        println!(
+            "{:<30} {:>12}",
+            format!("{}{}", "  ".repeat(depth), name),
+            item.amount
+        );
+        let mut kids = children.get(&item.account.id).cloned().unwrap_or_default();
+        kids.sort_by_key(|k| std::cmp::Reverse(k.amount));
+        for kid in kids {
+            walk(kid, depth + 1, children, names);
+        }
+    }
+
+    for root in roots {
+        walk(root, 0, &children, names);
     }
 }
 

@@ -506,7 +506,7 @@ mod tests {
             .unwrap();
         let channel_id = alipay_channel_id(&state).await;
 
-        import_bill(
+        let _ = import_bill(
             State(state.clone()),
             Lang("zh-CN".to_string()),
             Path(channel_id),

@@ -16,7 +16,7 @@ export default {
   },
   nav: {
     transaction: '交易',
-    assets: '资产',
+    assets: '报表',
     accounts: '账户',
     calendar: '日历',
     budget: '预算',
@@ -37,6 +37,7 @@ export default {
     totalAssets: '总资产',
     totalLiabilities: '总负债',
     liabilities: '负债',
+    assetAccounts: '资产',
     noData: '暂无资产数据',
     tabs: {
       balanceSheet: '资产负债表',
@@ -51,13 +52,8 @@ export default {
       empty: '暂无趋势数据',
     },
     cashFlow: {
-      account: '账户',
-      inflow: '流入',
-      outflow: '流出',
-      net: '净额',
-      total: '合计',
       periodRange: '{start} 至 {end}',
-      empty: '暂无流量数据',
+      empty: '暂无收支数据',
     },
     category: {
       income: '收入',

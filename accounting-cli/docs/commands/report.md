@@ -19,7 +19,7 @@ accounting my.db report bs
 
 ## report cashflow
 
-资金流量表，统计指定周期内各账户的流入、流出和净流入。
+资金流量表，统计指定周期内收支账户（Income / Expenses 两根下）各层级的变动金额，分 Income、Expenses 两节树状输出，每级按金额降序；排除带"不计预算"标签的分录。
 
 | 选项 | 说明 |
 |------|------|

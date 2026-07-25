@@ -12,25 +12,10 @@ use std::collections::HashMap;
 /// 资金流量项
 #[derive(Debug, Clone)]
 pub struct CashFlowItem {
-    /// 账户信息
+    /// 账户信息（含每一层祖先的汇总）
     pub account: Account,
-    /// 流入（正金额之和）
-    pub inflow: Decimal,
-    /// 流出（负金额绝对值之和）
-    pub outflow: Decimal,
-    /// 净额 = inflow - outflow
-    pub net: Decimal,
-}
-
-/// 总资产汇总
-#[derive(Debug, Clone)]
-pub struct CashFlowTotal {
-    /// 总流入
-    pub inflow: Decimal,
-    /// 总流出
-    pub outflow: Decimal,
-    /// 总净额
-    pub net: Decimal,
+    /// 周期内净额汇总（绝对值）
+    pub amount: Decimal,
 }
 
 /// 资金流量表
@@ -40,10 +25,10 @@ pub struct CashFlowReport {
     pub period_start: NaiveDate,
     /// 周期结束日期
     pub period_end: NaiveDate,
-    /// 各资产账户流量明细
-    pub items: Vec<CashFlowItem>,
-    /// 总资产汇总
-    pub total: CashFlowTotal,
+    /// 收入明细（Income 根下各层级汇总）
+    pub income: Vec<CashFlowItem>,
+    /// 支出明细（Expenses 根下各层级汇总）
+    pub expense: Vec<CashFlowItem>,
 }
 
 /// 资金流量表服务
@@ -59,7 +44,8 @@ impl CashFlowService {
 
     /// 生成资金流量表
     ///
-    /// 统计指定周期内每个资产账户的流入、流出、净额，以及总资产汇总。
+    /// 分别汇总 Income 与 Expenses 根下每个账户（含各层祖先）在周期内的净额，
+    /// 金额取绝对值，排除"不计预算"标签的分录。
     pub async fn cash_flow_report(
         &self,
         date: NaiveDate,
@@ -67,91 +53,93 @@ impl CashFlowService {
         commodity_id: CommodityId,
     ) -> Result<CashFlowReport, AccountingError> {
         let (period_start, period_end) = period.period_range(date);
-
-        let accounts = self
-            .db
-            .account_list()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-
-        let asset_accounts: Vec<Account> = self.get_asset_accounts(&accounts).await?;
-
-        let account_ids: Vec<AccountId> = asset_accounts.iter().map(|a| a.id).collect();
         let exclude_tag_ids = self.get_exclude_budget_tag_ids().await?;
 
-        let sums = self
-            .db
-            .posting_sum_by_period(
-                &account_ids,
+        let income = self
+            .sum_by_root(
+                "Income",
                 period_start,
                 period_end,
                 &exclude_tag_ids,
                 commodity_id,
             )
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-
-        let sum_map: HashMap<AccountId, Decimal> = sums.into_iter().collect();
-        let account_map: HashMap<AccountId, Account> =
-            asset_accounts.into_iter().map(|a| (a.id, a)).collect();
-
-        let mut items: Vec<CashFlowItem> = sum_map
-            .into_iter()
-            .filter_map(|(account_id, net)| {
-                account_map.get(&account_id).map(|account| {
-                    let inflow = if net.is_sign_positive() {
-                        net
-                    } else {
-                        Decimal::ZERO
-                    };
-                    let outflow = if net.is_sign_negative() {
-                        net.abs()
-                    } else {
-                        Decimal::ZERO
-                    };
-                    CashFlowItem {
-                        account: account.clone(),
-                        inflow,
-                        outflow,
-                        net,
-                    }
-                })
-            })
-            .collect();
-
-        items.sort_by_key(|i| i.account.id);
-
-        let total = CashFlowTotal {
-            inflow: items.iter().map(|i| i.inflow).sum(),
-            outflow: items.iter().map(|i| i.outflow).sum(),
-            net: items.iter().map(|i| i.net).sum(),
-        };
+            .await?;
+        let expense = self
+            .sum_by_root(
+                "Expenses",
+                period_start,
+                period_end,
+                &exclude_tag_ids,
+                commodity_id,
+            )
+            .await?;
 
         Ok(CashFlowReport {
             period_start,
             period_end,
-            items,
-            total,
+            income,
+            expense,
         })
     }
 
-    async fn get_asset_accounts(
+    async fn sum_by_root(
         &self,
-        accounts: &[Account],
-    ) -> Result<Vec<Account>, AccountingError> {
-        let mut asset_accounts = Vec::new();
+        root_name: &str,
+        start: NaiveDate,
+        end: NaiveDate,
+        exclude_tag_ids: &[TagId],
+        commodity_id: CommodityId,
+    ) -> Result<Vec<CashFlowItem>, AccountingError> {
+        // 收集该根下的所有账户（含根本身）；聚合查询按传入的祖先 ID 分组，
+        // 必须传入全部层级才能拿到每一层的汇总
+        let accounts = self
+            .db
+            .account_list()
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        let mut root_accounts: Vec<Account> = Vec::new();
         for account in accounts {
-            // 根账户类型判定为内部逻辑，固定按 en 解析（系统根账户必有 en 系统名）
-            let root_name = self
+            // 根账户类型判定为内部逻辑，固定按 en 解析
+            let found = self
                 .db
                 .account_find_root_name(account.id, accounting::name::lang::EN)
                 .await
                 .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-            if root_name == "Assets" {
-                asset_accounts.push(account.clone());
+            if found == root_name {
+                root_accounts.push(account);
             }
         }
-        Ok(asset_accounts)
+        if root_accounts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let account_ids: Vec<AccountId> = root_accounts.iter().map(|a| a.id).collect();
+        let sums = self
+            .db
+            .sum_by_account_with_descendants(
+                &account_ids,
+                start,
+                end,
+                exclude_tag_ids,
+                commodity_id,
+            )
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+
+        let account_map: HashMap<AccountId, Account> =
+            root_accounts.into_iter().map(|a| (a.id, a)).collect();
+
+        let mut items: Vec<CashFlowItem> = sums
+            .into_iter()
+            .filter_map(|(account_id, amount)| {
+                account_map.get(&account_id).map(|account| CashFlowItem {
+                    account: account.clone(),
+                    amount: amount.abs(),
+                })
+            })
+            .collect();
+        items.sort_by_key(|i| i.account.id);
+        Ok(items)
     }
 
     /// 查找"不计预算"系统标签 ID（按系统名单次查询；该标签双语名字挂在同一实体上）
@@ -168,13 +156,10 @@ impl CashFlowService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use accounting::account::Account;
-    use accounting::id::{AccountId, MemberId, PostingId, TransactionId};
+    use accounting::id::{MemberId, PostingId, TransactionId};
     use accounting::posting::Posting;
     use accounting::transaction::{Transaction, TransactionKind};
     use accounting::transaction_filter::TransactionFilter;
-    use accounting_sql::SqliteDatabase;
-    use rust_decimal::Decimal;
     use std::str::FromStr;
 
     fn bare_account(parent_id: Option<AccountId>) -> Account {
@@ -213,47 +198,57 @@ mod tests {
         db.member_get_or_create_by_name("Test", "en").await.unwrap()
     }
 
+    async fn insert_tx_with_postings(
+        db: &SqliteDatabase,
+        member_id: MemberId,
+        date: NaiveDate,
+        postings: &[(AccountId, &str)],
+        tags: &[TagId],
+    ) {
+        let tx = Transaction {
+            id: TransactionId(0),
+            date_time: date.and_hms_opt(0, 0, 0).unwrap(),
+            description: "test".to_string(),
+            kind: TransactionKind::Normal,
+            member_id,
+        };
+        let tx_id = db.transaction_insert(&tx, tags).await.unwrap();
+        for (account_id, amount) in postings {
+            let mut p = sample_posting(*account_id, amount);
+            p.transaction_id = tx_id;
+            db.posting_insert(&p).await.unwrap();
+        }
+    }
+
     #[tokio::test]
-    async fn test_cash_flow_report() {
+    async fn test_multi_level_aggregation() {
         let db = setup_db().await;
         let service = CashFlowService::new(db.clone());
         let member_id = create_test_member(&db).await;
 
-        let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
         let expenses_id = db
             .account_get_by_name("Expenses")
             .await
             .unwrap()
             .unwrap()
             .id;
-
-        let bank_id = db
-            .account_create_with_name(&bare_account(Some(assets_id)), "Bank", "en")
-            .await
-            .unwrap();
         let food_id = db
-            .account_create_with_name(&bare_account(Some(expenses_id)), "Food", "en")
+            .account_create_with_name(&bare_account(Some(expenses_id)), "餐饮", "en")
+            .await
+            .unwrap();
+        let takeout_id = db
+            .account_create_with_name(&bare_account(Some(food_id)), "外卖", "en")
             .await
             .unwrap();
 
-        let tx = Transaction {
-            id: TransactionId(0),
-            date_time: NaiveDate::from_ymd_opt(2024, 6, 15)
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap(),
-            description: "Expense".to_string(),
-            kind: TransactionKind::Normal,
+        insert_tx_with_postings(
+            &db,
             member_id,
-        };
-        let tx_id = db.transaction_insert(&tx, &[]).await.unwrap();
-
-        let mut p1 = sample_posting(bank_id, "-100");
-        p1.transaction_id = tx_id;
-        let mut p2 = sample_posting(food_id, "100");
-        p2.transaction_id = tx_id;
-        db.posting_insert(&p1).await.unwrap();
-        db.posting_insert(&p2).await.unwrap();
+            NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(),
+            &[(takeout_id, "500")],
+            &[],
+        )
+        .await;
 
         let report = service
             .cash_flow_report(
@@ -264,20 +259,167 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            report.period_start,
-            NaiveDate::from_ymd_opt(2024, 6, 1).unwrap()
-        );
-        assert_eq!(
-            report.period_end,
-            NaiveDate::from_ymd_opt(2024, 6, 30).unwrap()
-        );
-        assert_eq!(report.items.len(), 1);
-        assert_eq!(report.items[0].account.id, bank_id);
-        assert_eq!(report.items[0].outflow, Decimal::from_str("100").unwrap());
-        assert_eq!(report.items[0].net, Decimal::from_str("-100").unwrap());
-        assert_eq!(report.total.outflow, Decimal::from_str("100").unwrap());
-        assert_eq!(report.total.net, Decimal::from_str("-100").unwrap());
+        // 外卖、餐饮、Expenses 三层各一行
+        assert_eq!(report.expense.len(), 3);
+        let amounts: HashMap<AccountId, Decimal> = report
+            .expense
+            .iter()
+            .map(|i| (i.account.id, i.amount))
+            .collect();
+        let expected = Decimal::from_str("500").unwrap();
+        assert_eq!(amounts[&takeout_id], expected);
+        assert_eq!(amounts[&food_id], expected);
+        assert_eq!(amounts[&expenses_id], expected);
+        assert!(report.income.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_income_negative_normalized() {
+        let db = setup_db().await;
+        let service = CashFlowService::new(db.clone());
+        let member_id = create_test_member(&db).await;
+
+        let income_id = db.account_get_by_name("Income").await.unwrap().unwrap().id;
+        let salary_id = db
+            .account_create_with_name(&bare_account(Some(income_id)), "工资", "en")
+            .await
+            .unwrap();
+
+        insert_tx_with_postings(
+            &db,
+            member_id,
+            NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+            &[(salary_id, "-15000")],
+            &[],
+        )
+        .await;
+
+        let report = service
+            .cash_flow_report(
+                NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(),
+                FinancePeriod::Monthly,
+                CommodityId(1),
+            )
+            .await
+            .unwrap();
+
+        let salary = report
+            .income
+            .iter()
+            .find(|i| i.account.id == salary_id)
+            .unwrap();
+        assert_eq!(salary.amount, Decimal::from_str("15000").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_refund_offsets_net() {
+        let db = setup_db().await;
+        let service = CashFlowService::new(db.clone());
+        let member_id = create_test_member(&db).await;
+
+        let expenses_id = db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let food_id = db
+            .account_create_with_name(&bare_account(Some(expenses_id)), "餐饮", "en")
+            .await
+            .unwrap();
+
+        insert_tx_with_postings(
+            &db,
+            member_id,
+            NaiveDate::from_ymd_opt(2024, 6, 10).unwrap(),
+            &[(food_id, "500")],
+            &[],
+        )
+        .await;
+        // 退款：负支出，冲抵净额
+        insert_tx_with_postings(
+            &db,
+            member_id,
+            NaiveDate::from_ymd_opt(2024, 6, 11).unwrap(),
+            &[(food_id, "-200")],
+            &[],
+        )
+        .await;
+
+        let report = service
+            .cash_flow_report(
+                NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(),
+                FinancePeriod::Monthly,
+                CommodityId(1),
+            )
+            .await
+            .unwrap();
+
+        let food = report
+            .expense
+            .iter()
+            .find(|i| i.account.id == food_id)
+            .unwrap();
+        assert_eq!(food.amount, Decimal::from_str("300").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_exclude_budget_tag() {
+        let db = setup_db().await;
+        let service = CashFlowService::new(db.clone());
+        let member_id = create_test_member(&db).await;
+
+        let expenses_id = db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let food_id = db
+            .account_create_with_name(&bare_account(Some(expenses_id)), "餐饮", "en")
+            .await
+            .unwrap();
+
+        let exclude_tag = db
+            .tag_get_by_name("exclude-from-budget")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+
+        // 带"不计预算"标签的分录应被排除
+        insert_tx_with_postings(
+            &db,
+            member_id,
+            NaiveDate::from_ymd_opt(2024, 6, 10).unwrap(),
+            &[(food_id, "999")],
+            &[exclude_tag],
+        )
+        .await;
+        insert_tx_with_postings(
+            &db,
+            member_id,
+            NaiveDate::from_ymd_opt(2024, 6, 11).unwrap(),
+            &[(food_id, "100")],
+            &[],
+        )
+        .await;
+
+        let report = service
+            .cash_flow_report(
+                NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(),
+                FinancePeriod::Monthly,
+                CommodityId(1),
+            )
+            .await
+            .unwrap();
+
+        let food = report
+            .expense
+            .iter()
+            .find(|i| i.account.id == food_id)
+            .unwrap();
+        assert_eq!(food.amount, Decimal::from_str("100").unwrap());
     }
 
     /// 报表聚合的显示名按回退链批量解析：请求语言无显示名时回退到 zh-CN

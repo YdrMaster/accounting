@@ -6,7 +6,6 @@ use accounting::finance_period::FinancePeriod;
 use accounting::id::{AccountId, CommodityId};
 use accounting_service::report::balance_sheet::BalanceSheetService;
 use accounting_service::report::cash_flow::CashFlowService;
-use accounting_service::report::category_breakdown::CategoryBreakdownService;
 use accounting_service::report::daily_summary::DailySummaryService;
 use accounting_service::report::net_worth_trend::NetWorthTrendService;
 use axum::{
@@ -54,23 +53,17 @@ pub struct CashFlowQuery {
 struct CashFlowResponse {
     period_start: String,
     period_end: String,
-    items: Vec<CashFlowItem>,
-    total: CashFlowTotal,
+    income: Vec<CashFlowItem>,
+    expense: Vec<CashFlowItem>,
 }
 
+/// 资金流量明细项：account_id / parent_id 为关联键，name 仅用于展示
 #[derive(Serialize)]
 struct CashFlowItem {
-    account: String,
-    inflow: String,
-    outflow: String,
-    net: String,
-}
-
-#[derive(Serialize)]
-struct CashFlowTotal {
-    inflow: String,
-    outflow: String,
-    net: String,
+    account_id: i64,
+    parent_id: Option<i64>,
+    name: String,
+    amount: String,
 }
 
 /// 批量加载账户表与按请求语言解析的显示路径
@@ -168,39 +161,44 @@ async fn cash_flow(
     };
     let commodity_id = CommodityId(query.commodity.unwrap_or(1));
 
-    let account_paths = load_account_paths(db, &lang).await?;
-
     let service = CashFlowService::new(db.clone());
     let report = service
         .cash_flow_report(date, period, commodity_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    let mut items: Vec<CashFlowItem> = report
-        .items
-        .into_iter()
-        .map(|item| CashFlowItem {
-            account: account_paths
-                .get(&item.account.id.0)
-                .cloned()
-                .unwrap_or_else(|| item.account.id.0.to_string()),
-            inflow: item.inflow.to_string(),
-            outflow: item.outflow.to_string(),
-            net: item.net.to_string(),
-        })
+    // 显示名按请求语言的回退链批量解析，仅作展示；关联一律用 account_id
+    let account_ids: Vec<AccountId> = report
+        .income
+        .iter()
+        .chain(report.expense.iter())
+        .map(|item| item.account.id)
         .collect();
-    // 按请求语言的账户显示名排序
-    items.sort_by(|a, b| a.account.cmp(&b.account));
+    let names = db
+        .account_display_names(&account_ids, &lang)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let to_items = |items: Vec<accounting_service::report::cash_flow::CashFlowItem>| {
+        items
+            .into_iter()
+            .map(|item| CashFlowItem {
+                account_id: item.account.id.0,
+                parent_id: item.account.parent_id.map(|p| p.0),
+                name: names
+                    .get(&item.account.id)
+                    .cloned()
+                    .unwrap_or_else(|| item.account.id.0.to_string()),
+                amount: item.amount.to_string(),
+            })
+            .collect()
+    };
 
     Ok(Json(CashFlowResponse {
         period_start: report.period_start.to_string(),
         period_end: report.period_end.to_string(),
-        items,
-        total: CashFlowTotal {
-            inflow: report.total.inflow.to_string(),
-            outflow: report.total.outflow.to_string(),
-            net: report.total.net.to_string(),
-        },
+        income: to_items(report.income),
+        expense: to_items(report.expense),
     }))
 }
 
@@ -328,82 +326,6 @@ async fn net_worth_trend(
     }))
 }
 
-/// 收支分类明细查询参数
-#[derive(serde::Deserialize)]
-pub struct CategoryBreakdownQuery {
-    pub date: Option<String>,
-    pub period: Option<String>,
-    pub commodity: Option<i64>,
-}
-
-/// 收支分类明细响应
-#[derive(Serialize)]
-struct CategoryBreakdownResponse {
-    period_start: String,
-    period_end: String,
-    income: Vec<CategoryAmountItem>,
-    expense: Vec<CategoryAmountItem>,
-}
-
-#[derive(Serialize)]
-struct CategoryAmountItem {
-    account: String,
-    amount: String,
-}
-
-/// 获取收支分类明细（Income / Expenses 各层级汇总）
-async fn category_breakdown(
-    State(state): State<Arc<AppState>>,
-    Lang(lang): Lang,
-    Query(query): Query<CategoryBreakdownQuery>,
-) -> Result<Json<CategoryBreakdownResponse>, (StatusCode, String)> {
-    let bad_request = |msg: String| (StatusCode::BAD_REQUEST, msg);
-
-    let today = chrono::Local::now().date_naive();
-    let date = match query.date {
-        Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d")
-            .map_err(|e| bad_request(format!("Invalid date: {}", e)))?,
-        None => today,
-    };
-    let period = match query.period {
-        Some(p) => parse_chart_period(&p).map_err(bad_request)?,
-        None => FinancePeriod::Monthly,
-    };
-    let commodity_id = CommodityId(query.commodity.unwrap_or(1));
-
-    let db = state.db();
-    let account_paths = load_account_paths(db, &lang)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-
-    let service = CategoryBreakdownService::new(db.clone());
-    let report = service
-        .category_breakdown(date, period, commodity_id)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let to_items =
-        |items: Vec<accounting_service::report::category_breakdown::CategoryBreakdownItem>| {
-            items
-                .into_iter()
-                .map(|item| CategoryAmountItem {
-                    account: account_paths
-                        .get(&item.account.id.0)
-                        .cloned()
-                        .unwrap_or_else(|| item.account.id.0.to_string()),
-                    amount: item.amount.to_string(),
-                })
-                .collect()
-        };
-
-    Ok(Json(CategoryBreakdownResponse {
-        period_start: report.period_start.to_string(),
-        period_end: report.period_end.to_string(),
-        income: to_items(report.income),
-        expense: to_items(report.expense),
-    }))
-}
-
 /// 报表路由
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -411,5 +333,4 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/reports/cash-flow", get(cash_flow))
         .route("/api/reports/daily-summary", get(daily_summary))
         .route("/api/reports/net-worth-trend", get(net_worth_trend))
-        .route("/api/reports/category-breakdown", get(category_breakdown))
 }

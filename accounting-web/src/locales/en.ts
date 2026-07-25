@@ -16,7 +16,7 @@ export default {
   },
   nav: {
     transaction: 'Transactions',
-    assets: 'Assets',
+    assets: 'Reports',
     accounts: 'Accounts',
     calendar: 'Calendar',
     budget: 'Budget',
@@ -38,6 +38,7 @@ export default {
     totalAssets: 'Total Assets',
     totalLiabilities: 'Total Liabilities',
     liabilities: 'Liabilities',
+    assetAccounts: 'Assets',
     noData: 'No asset data yet',
     tabs: {
       balanceSheet: 'Balance Sheet',
@@ -52,11 +53,6 @@ export default {
       empty: 'No trend data yet',
     },
     cashFlow: {
-      account: 'Account',
-      inflow: 'Inflow',
-      outflow: 'Outflow',
-      net: 'Net',
-      total: 'Total',
       periodRange: '{start} to {end}',
       empty: 'No cash flow data',
     },

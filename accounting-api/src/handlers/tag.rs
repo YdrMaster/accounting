@@ -15,10 +15,10 @@ use std::sync::Arc;
 
 /// 标签描述：系统标签按请求语言取内置译文（以英文系统名为键），其余返回库存原文。
 fn localized_description(tag: &Tag, en_name: Option<&String>, lang: &str) -> Option<String> {
-    if tag.is_system {
-        if let Some(desc) = en_name.and_then(|n| system_tag_description(n, lang)) {
-            return Some(desc);
-        }
+    if tag.is_system
+        && let Some(desc) = en_name.and_then(|n| system_tag_description(n, lang))
+    {
+        return Some(desc);
     }
     tag.description.clone()
 }

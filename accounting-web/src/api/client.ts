@@ -23,7 +23,6 @@ import type {
   BudgetDto,
   BudgetStatusDto,
   CashFlowDto,
-  CategoryBreakdownDto,
   ChannelDto,
   ChartPeriod,
   CommodityDto,
@@ -198,14 +197,6 @@ export async function fetchDailySummary(from: string, to: string): Promise<Daily
 export async function fetchNetWorthTrend(period: ChartPeriod): Promise<NetWorthTrendDto> {
   const qs = new URLSearchParams({ period }).toString()
   return apiFetch<NetWorthTrendDto>(`/reports/net-worth-trend?${qs}`)
-}
-
-export async function fetchCategoryBreakdown(
-  date: string,
-  period: ChartPeriod
-): Promise<CategoryBreakdownDto> {
-  const qs = new URLSearchParams({ date, period }).toString()
-  return apiFetch<CategoryBreakdownDto>(`/reports/category-breakdown?${qs}`)
 }
 
 export async function fetchCashFlow(date: string, period: ChartPeriod): Promise<CashFlowDto> {

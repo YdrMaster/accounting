@@ -91,7 +91,7 @@ function commoditySymbol(id: number): string {
       </div>
 
       <div v-if="positiveAccounts.length" class="card">
-        <h3>{{ t('nav.assets') }}</h3>
+        <h3>{{ t('assets.assetAccounts') }}</h3>
         <div v-for="item in positiveAccounts" :key="item.account" class="account-item">
           <span class="account-name">{{ item.account }}</span>
           <div class="balances">

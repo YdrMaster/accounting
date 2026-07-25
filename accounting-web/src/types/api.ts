@@ -88,35 +88,17 @@ export interface NetWorthTrendDto {
 }
 
 export interface CashFlowItemDto {
-  account: string
-  inflow: string
-  outflow: string
-  net: string
-}
-
-export interface CashFlowTotalDto {
-  inflow: string
-  outflow: string
-  net: string
+  account_id: number
+  parent_id: number | null
+  name: string
+  amount: string
 }
 
 export interface CashFlowDto {
   period_start: string
   period_end: string
-  items: CashFlowItemDto[]
-  total: CashFlowTotalDto
-}
-
-export interface CategoryAmountItemDto {
-  account: string
-  amount: string
-}
-
-export interface CategoryBreakdownDto {
-  period_start: string
-  period_end: string
-  income: CategoryAmountItemDto[]
-  expense: CategoryAmountItemDto[]
+  income: CashFlowItemDto[]
+  expense: CashFlowItemDto[]
 }
 
 // ─── 预算 ───

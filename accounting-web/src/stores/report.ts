@@ -1,18 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import {
-  fetchBalanceSheet,
-  fetchCashFlow,
-  fetchCategoryBreakdown,
-  fetchNetWorthTrend,
-} from '../api/client'
-import type {
-  BalanceSheetDto,
-  CashFlowDto,
-  CategoryBreakdownDto,
-  ChartPeriod,
-  NetWorthTrendDto,
-} from '../types/api'
+import { fetchBalanceSheet, fetchCashFlow, fetchNetWorthTrend } from '../api/client'
+import type { BalanceSheetDto, CashFlowDto, ChartPeriod, NetWorthTrendDto } from '../types/api'
 
 export const useReportStore = defineStore('report', () => {
   const balanceSheet = ref<BalanceSheetDto | null>(null)
@@ -23,7 +12,6 @@ export const useReportStore = defineStore('report', () => {
   const trendLoading = ref(false)
   const trendError = ref<string | null>(null)
 
-  const categoryBreakdown = ref<CategoryBreakdownDto | null>(null)
   const cashFlow = ref<CashFlowDto | null>(null)
   const cashFlowLoading = ref(false)
   const cashFlowError = ref<string | null>(null)
@@ -58,12 +46,7 @@ export const useReportStore = defineStore('report', () => {
     cashFlowLoading.value = true
     cashFlowError.value = null
     try {
-      const [breakdown, flow] = await Promise.all([
-        fetchCategoryBreakdown(date, period),
-        fetchCashFlow(date, period),
-      ])
-      categoryBreakdown.value = breakdown
-      cashFlow.value = flow
+      cashFlow.value = await fetchCashFlow(date, period)
     } catch (e) {
       cashFlowError.value = e instanceof Error ? e.message : String(e)
     } finally {
@@ -85,7 +68,6 @@ export const useReportStore = defineStore('report', () => {
     trendLoading,
     trendError,
     loadNetWorthTrend,
-    categoryBreakdown,
     cashFlow,
     cashFlowLoading,
     cashFlowError,

@@ -1,5 +1,7 @@
 use crate::account_service::AccountService;
-use crate::import::{AdaptError, BillEntry, ImportContext, builtin_adapters, find_adapter};
+use crate::import::{
+    AdaptError, BillEntry, BillPosting, ImportContext, builtin_adapters, find_adapter,
+};
 use crate::transaction_service::TransactionService;
 use accounting::channel_path::ChannelPathNode;
 use accounting::error::AccountingError;
@@ -7,7 +9,6 @@ use accounting::id::{
     AccountId, ChannelId, CommodityId, MemberId, PostingId, TagId, TransactionId,
 };
 use accounting::posting::Posting;
-use accounting::posting_role::PostingRole;
 use accounting::transaction::Transaction;
 use accounting_sql::SqliteDatabase;
 use rust_decimal::Decimal;
@@ -220,15 +221,7 @@ impl ImportService {
         let mut postings = Vec::new();
         for bp in &entry.postings {
             let account_id = self
-                .resolve_account_id(
-                    mapping_key,
-                    import_ctx,
-                    bp.role,
-                    &bp.category,
-                    bp.amount,
-                    bp.is_refund,
-                    account_service,
-                )
+                .resolve_account_id(mapping_key, import_ctx, bp, account_service)
                 .await?;
 
             postings.push(Posting {
@@ -293,15 +286,12 @@ impl ImportService {
         &self,
         mapping_key: MappingKey,
         import_ctx: &ImportCtx,
-        role: PostingRole,
-        category: &str,
-        amount: Decimal,
-        is_refund: bool,
+        bp: &BillPosting,
         account_service: &AccountService,
     ) -> Result<AccountId, AccountingError> {
         let (member_id, channel_id) = mapping_key;
         let channel_name = import_ctx;
-        let key = role.to_key(category, amount, is_refund);
+        let key = bp.role.to_key(&bp.category, bp.amount, bp.is_refund);
 
         // 1. 查映射表
         if let Some(mapping) = self
@@ -314,8 +304,8 @@ impl ImportService {
         }
 
         // 2. 无映射 → Import fallback
-        let root = role.fallback_root(amount, is_refund);
-        let path = format!("{}:Import:{}:{}", root, channel_name, category);
+        let root = bp.role.fallback_root(bp.amount, bp.is_refund);
+        let path = format!("{}:Import:{}:{}", root, channel_name, bp.category);
         account_service.ensure_cascading(&path).await
     }
 

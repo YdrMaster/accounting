@@ -4,14 +4,22 @@ import Decimal from 'decimal.js'
 import type { EChartsType } from 'echarts/core'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { CategoryAmountItemDto } from '../types/api'
+import type { CashFlowItemDto } from '../types/api'
 import { formatAmount } from '../utils/amount'
 import { echarts } from '../utils/echarts'
 import { buildSunburstTree, type SunburstNode } from '../utils/sunburst'
 
-const props = defineProps<{
-  title: string
-  items: CategoryAmountItemDto[]
+const props = withDefaults(
+  defineProps<{
+    title?: string
+    items: CashFlowItemDto[]
+  }>(),
+  { title: '' }
+)
+
+const emit = defineEmits<{
+  /** 钻入某账户 / 返回上级（null = 回到未下钻） */
+  drill: [accountId: number | null]
 }>()
 
 const { t } = useI18n()
@@ -82,7 +90,7 @@ function render() {
           minAngle: 5,
           fontSize: 11,
           // 标签颜色跟随扇区；显式禁用文字描边与阴影（'inherit' 时 ECharts 默认加白色描边，
-          // 仅设 textBorderWidth: 0 不够，需 textBorderColor: 'transparent'）
+          // 仅设 textBorderWidth: 0 不够，需设 textBorderColor: 'transparent'）
           color: 'inherit',
           textBorderColor: 'transparent',
           textBorderWidth: 0,
@@ -100,8 +108,27 @@ function render() {
   })
 }
 
+// 下钻与返回统一由 sunburstRootToNode 动作事件承载（点扇区下钻、点中心虚拟节点返回、
+// 叶子节点缩放都会触发）；目标节点为虚拟根（dataIndex < 0）时回到未下钻（null）。
+// 注意不能用 click 事件：钻入后中心圆是独立的 virtualPiece，点击它不产生携带数据的
+// click 事件，且 viewRoot 自身的 click 会被解绑，导致返回不可靠。
+function onRootToNode(params: unknown) {
+  const node = (params as { targetNode?: unknown }).targetNode as
+    | {
+        dataIndex?: number
+        hostTree?: { data: { getRawDataItem: (idx: number) => unknown } }
+      }
+    | undefined
+  const raw =
+    node?.dataIndex != null && node.dataIndex >= 0
+      ? (node.hostTree?.data.getRawDataItem(node.dataIndex) as SunburstNode | undefined)
+      : undefined
+  emit('drill', raw?.accountId ?? null)
+}
+
 function initChart(el: HTMLDivElement) {
   chart = echarts.init(el)
+  chart.on('sunburstRootToNode', onRootToNode)
   render()
 }
 
@@ -136,7 +163,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="sunburst">
-    <h4 class="title">{{ title }}</h4>
+    <h4 v-if="title" class="title">{{ title }}</h4>
     <div v-if="tree.children.length" ref="containerRef" class="chart"></div>
     <div v-else class="empty">{{ t('assets.category.empty') }}</div>
   </div>

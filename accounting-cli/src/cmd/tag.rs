@@ -61,12 +61,12 @@ impl TagCmd {
                     .iter()
                     .map(|t| {
                         let mut row = TagRow::new(t, names.get(&t.id).cloned().unwrap_or_default());
-                        if t.is_system {
-                            if let Some(desc) = en_names.get(&t.id).and_then(|n| {
+                        if t.is_system
+                            && let Some(desc) = en_names.get(&t.id).and_then(|n| {
                                 accounting_service::tag_service::system_tag_description(n, lang)
-                            }) {
-                                row.description = desc;
-                            }
+                            })
+                        {
+                            row.description = desc;
                         }
                         row
                     })
