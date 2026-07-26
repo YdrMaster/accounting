@@ -23,17 +23,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 /// 交易列表查询参数
-#[derive(serde::Deserialize)]
+///
+/// serde_urlencoded 0.7 无法对 struct 字段反序列化重复键（`?account=1&account=2`
+/// 会被当作重复字段报错），因此 handler 以 `Vec<(String, String)>` 取出全部键值对，
+/// 再通过 [`TxQuery::from_pairs`] 手动构建，天然兼容单值与多值。
 pub struct TxQuery {
     pub from: Option<String>,
     pub to: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_vec_from_single_or_list")]
     pub account: Vec<i64>,
-    #[serde(default, deserialize_with = "deserialize_vec_from_single_or_list")]
     pub member: Vec<i64>,
-    #[serde(default)]
     pub tag: Vec<String>,
-    #[serde(default, deserialize_with = "deserialize_vec_from_single_or_list")]
     pub channel: Vec<i64>,
     pub keyword: Option<String>,
     pub reimbursable: Option<bool>,
@@ -41,22 +40,48 @@ pub struct TxQuery {
     pub offset: Option<i64>,
 }
 
-/// 支持单值或多值反序列化（`?account=1&account=2` 或 `?account=1`）
-fn deserialize_vec_from_single_or_list<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: serde::Deserialize<'de>,
-{
-    #[derive(serde::Deserialize)]
-    #[serde(untagged)]
-    enum SingleOrList<T> {
-        List(Vec<T>),
-        Single(T),
+impl TxQuery {
+    fn from_pairs(pairs: Vec<(String, String)>) -> Result<TxQuery, String> {
+        let mut q = TxQuery {
+            from: None,
+            to: None,
+            account: Vec::new(),
+            member: Vec::new(),
+            tag: Vec::new(),
+            channel: Vec::new(),
+            keyword: None,
+            reimbursable: None,
+            limit: None,
+            offset: None,
+        };
+        for (key, value) in pairs {
+            match key.as_str() {
+                "from" => q.from = Some(value),
+                "to" => q.to = Some(value),
+                "account" => q.account.push(parse_id(&key, &value)?),
+                "member" => q.member.push(parse_id(&key, &value)?),
+                "channel" => q.channel.push(parse_id(&key, &value)?),
+                "tag" => q.tag.push(value),
+                "keyword" => q.keyword = Some(value),
+                "reimbursable" => {
+                    q.reimbursable =
+                        Some(value.parse::<bool>().map_err(|e| {
+                            format!("Invalid reimbursable value '{}': {}", value, e)
+                        })?)
+                }
+                "limit" => q.limit = Some(parse_id(&key, &value)?),
+                "offset" => q.offset = Some(parse_id(&key, &value)?),
+                _ => {}
+            }
+        }
+        Ok(q)
     }
-    match <SingleOrList<T> as serde::Deserialize>::deserialize(deserializer)? {
-        SingleOrList::List(v) => Ok(v),
-        SingleOrList::Single(v) => Ok(vec![v]),
-    }
+}
+
+fn parse_id(key: &str, value: &str) -> Result<i64, String> {
+    value
+        .parse::<i64>()
+        .map_err(|e| format!("Invalid {} value '{}': {}", key, value, e))
 }
 
 /// 解析日期时间字符串
@@ -142,8 +167,9 @@ async fn load_display_context(
 async fn list_transactions(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
-    Query(query): Query<TxQuery>,
+    Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<Vec<TransactionDto>>, String> {
+    let query = TxQuery::from_pairs(pairs)?;
     let db = state.db();
     let mut filter = TransactionFilter::default();
 

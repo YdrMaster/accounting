@@ -141,11 +141,13 @@ function onCreateClick() {
 const panelAction = inject(panelActionKey, null)
 watchEffect(() => {
   if (!panelAction) return
-  panelAction.value = {
-    label: t('accounts.createAccount'),
-    disabled: !selectedAccount.value,
-    onClick: onCreateClick,
-  }
+  panelAction.value = [
+    {
+      label: t('accounts.createAccount'),
+      disabled: !selectedAccount.value,
+      onClick: onCreateClick,
+    },
+  ]
 })
 
 function onAccountCreated() {

@@ -2,6 +2,7 @@
 import Decimal from 'decimal.js'
 import { computed, inject, onMounted, ref, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
+import TransactionFilterDrawer from '../components/TransactionFilterDrawer.vue'
 import TransactionList from '../components/TransactionList.vue'
 import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.vue'
 import { panelActionKey } from '../components/layout/panelAction'
@@ -12,6 +13,7 @@ const txStore = useTransactionStore()
 const { t } = useI18n()
 
 const showFormOverlay = ref(false)
+const showFilterDrawer = ref(false)
 const editingTxId = ref<number | undefined>(undefined)
 const scrollContainer = ref<HTMLElement | null>(null)
 
@@ -27,6 +29,10 @@ function onScroll() {
     txStore.loadMore()
   }
 }
+
+const monthLabelDate = computed(
+  () => txStore.loadedRange?.to ?? txStore.activeFilter?.to ?? todayStr()
+)
 
 const currentMonthStr = computed(() => {
   if (!txStore.loadedRange) return ''
@@ -81,6 +87,7 @@ function formatAmount(amt: Decimal): string {
 }
 
 function onEditTx(id: number) {
+  showFilterDrawer.value = false
   editingTxId.value = id
   showFormOverlay.value = true
 }
@@ -92,8 +99,13 @@ function onDeleteTx(id: number) {
 }
 
 function onNewTx() {
+  showFilterDrawer.value = false
   editingTxId.value = undefined
   showFormOverlay.value = true
+}
+
+function onToggleFilter() {
+  showFilterDrawer.value = !showFilterDrawer.value
 }
 
 function onFormClosed() {
@@ -106,52 +118,60 @@ function onFormSaved() {
 }
 
 const panelAction = inject(panelActionKey, null)
+const filterIcon =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>'
 watchEffect(() => {
   if (!panelAction) return
-  panelAction.value = showFormOverlay.value
-    ? null
-    : { label: t('transactions.new'), disabled: false, onClick: onNewTx }
+  if (showFormOverlay.value) {
+    panelAction.value = []
+    return
+  }
+  panelAction.value = [
+    { label: t('transactions.new'), disabled: false, onClick: onNewTx },
+    { label: t('txFilter.filter'), icon: filterIcon, disabled: false, onClick: onToggleFilter },
+  ]
 })
 </script>
 
 <template>
-  <div
-    ref="scrollContainer"
-    class="transaction"
-    :class="{ 'no-scroll': showFormOverlay }"
-    @scroll="onScroll"
-  >
-    <template v-if="!showFormOverlay">
-      <div class="hero">
-        <p class="month-label">
-          {{
-            txStore.loadedRange
-              ? t('transactions.monthLabel', {
-                  year: txStore.loadedRange.to.slice(0, 4),
-                  month: txStore.loadedRange.to.slice(5, 7),
-                })
-              : ''
-          }}
-        </p>
-        <p class="label">{{ t('transactions.monthlyExpense') }}</p>
-        <p class="amount">¥{{ formatAmount(new Decimal(monthlyExpense)) }}</p>
-        <p class="sub">
-          {{ t('transactions.monthlyIncome') }} ¥{{ formatAmount(new Decimal(monthlyIncome)) }} ·
-          {{ t('transactions.monthlyBalance') }} ¥{{ formatAmount(new Decimal(monthlyBalance)) }}
-        </p>
-      </div>
+  <div class="transaction-root">
+    <div
+      ref="scrollContainer"
+      class="transaction"
+      :class="{ 'no-scroll': showFormOverlay }"
+      @scroll="onScroll"
+    >
+      <template v-if="!showFormOverlay">
+        <div class="hero">
+          <p class="month-label">
+            {{
+              t('transactions.monthLabel', {
+                year: monthLabelDate.slice(0, 4),
+                month: monthLabelDate.slice(5, 7),
+              })
+            }}
+            <span v-if="txStore.filterActive" class="filtered-badge">{{ t('txFilter.filtered') }}</span>
+          </p>
+          <p class="label">{{ t('transactions.monthlyExpense') }}</p>
+          <p class="amount">¥{{ formatAmount(new Decimal(monthlyExpense)) }}</p>
+          <p class="sub">
+            {{ t('transactions.monthlyIncome') }} ¥{{ formatAmount(new Decimal(monthlyIncome)) }} ·
+            {{ t('transactions.monthlyBalance') }} ¥{{ formatAmount(new Decimal(monthlyBalance)) }}
+          </p>
+        </div>
 
-      <div v-if="txStore.loading && txStore.transactions.length === 0" class="loading">
-        {{ t('common.loading') }}
-      </div>
-      <div v-else-if="txStore.error" class="error">{{ txStore.error }}</div>
+        <div v-if="txStore.loading && txStore.transactions.length === 0" class="loading">
+          {{ t('common.loading') }}
+        </div>
+        <div v-else-if="txStore.error" class="error">{{ txStore.error }}</div>
 
-      <TransactionList :transactions="txStore.transactions" @edit="onEditTx" @delete="onDeleteTx" />
+        <TransactionList :transactions="txStore.transactions" @edit="onEditTx" @delete="onDeleteTx" />
 
-      <div v-if="txStore.loading && txStore.transactions.length > 0" class="loading-more">
-        {{ t('transactions.loadingMore') }}
-      </div>
-    </template>
+        <div v-if="txStore.loading && txStore.transactions.length > 0" class="loading-more">
+          {{ t('transactions.loadingMore') }}
+        </div>
+      </template>
+    </div>
 
     <TransactionFormOverlay
       v-if="showFormOverlay"
@@ -159,10 +179,36 @@ watchEffect(() => {
       @close="onFormClosed"
       @saved="onFormSaved"
     />
+
+    <TransactionFilterDrawer
+      v-if="showFilterDrawer && !showFormOverlay"
+      @close="showFilterDrawer = false"
+    />
+
+    <div class="tx-filter-portal"></div>
   </div>
 </template>
 
 <style scoped>
+.transaction-root {
+  position: relative;
+  height: 100%;
+}
+
+.tx-filter-portal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60%;
+  z-index: 95;
+  pointer-events: none;
+}
+
+.tx-filter-portal > * {
+  pointer-events: auto;
+}
+
 .transaction {
   display: flex;
   flex-direction: column;
@@ -170,7 +216,6 @@ watchEffect(() => {
   overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  position: relative;
   height: 100%;
 }
 
@@ -201,6 +246,22 @@ watchEffect(() => {
   font-size: 0.75rem;
   font-weight: 500;
   opacity: 0.7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.filtered-badge {
+  display: inline-block;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  background: var(--accent, #646cff);
+  color: #fff;
+  font-size: 0.625rem;
+  opacity: 1;
 }
 
 .hero .amount {

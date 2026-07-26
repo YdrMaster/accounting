@@ -5,10 +5,14 @@ import { useAccountStore } from '../../stores/account'
 import type { AccountDto } from '../../types/api'
 import AccountPickerOverlay from './AccountPickerOverlay.vue'
 
-const props = defineProps<{
-  modelValue: number | null
-  placeholder?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: number | null
+    placeholder?: string
+    portal?: string
+  }>(),
+  { portal: '.picker-portal' }
+)
 
 const emit = defineEmits<{
   'update:modelValue': [accountId: number]
@@ -53,7 +57,7 @@ function onSelect(account: AccountDto) {
       <span v-else class="placeholder">{{ placeholder || t('picker.selectPlaceholder') }}</span>
     </button>
 
-    <Teleport to=".picker-portal">
+    <Teleport :to="props.portal">
       <AccountPickerOverlay
         v-if="showOverlay"
         :current-id="modelValue"

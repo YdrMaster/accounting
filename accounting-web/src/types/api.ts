@@ -147,6 +147,19 @@ export interface CreateBudgetRequest {
   limits: BudgetLimitRequest[]
 }
 
+// ─── 交易筛选 ───
+
+export interface TxFilters {
+  from?: string
+  to?: string
+  accounts: number[]
+  members: number[]
+  tags: string[]
+  channels: number[]
+  keyword?: string
+  reimbursable?: boolean
+}
+
 // ─── 交易 ───
 
 export interface PostingInput {

@@ -107,8 +107,8 @@ const panelAction = inject(panelActionKey, null)
 watchEffect(() => {
   if (!panelAction) return
   panelAction.value = showCreateDrawer.value
-    ? null
-    : { label: t('budget.new'), disabled: false, onClick: onNewBudget }
+    ? []
+    : [{ label: t('budget.new'), disabled: false, onClick: onNewBudget }]
 })
 </script>
 

@@ -6,22 +6,28 @@ defineProps<{
   title: string
 }>()
 
-const action = ref<PanelAction | null>(null)
-provide(panelActionKey, action)
+const actions = ref<PanelAction[]>([])
+provide(panelActionKey, actions)
 </script>
 
 <template>
   <section class="view-panel">
     <div class="panel-header">
       <h2 class="panel-title">{{ title }}</h2>
-      <button
-        v-if="action"
-        class="panel-action-btn"
-        :disabled="action.disabled"
-        @click="action.onClick"
-      >
-        + {{ action.label }}
-      </button>
+      <div v-if="actions.length" class="panel-actions">
+        <button
+          v-for="(action, idx) in actions"
+          :key="idx"
+          class="panel-action-btn"
+          :class="{ 'has-icon': !!action.icon }"
+          :disabled="action.disabled"
+          :aria-label="action.icon ? action.label : undefined"
+          @click="action.onClick"
+        >
+          <span v-if="action.icon" class="action-icon" v-html="action.icon"></span>
+          <template v-else>+ {{ action.label }}</template>
+        </button>
+      </div>
     </div>
     <div class="panel-body">
       <slot />
@@ -49,6 +55,12 @@ provide(panelActionKey, action)
   border-bottom: 1px solid var(--border);
 }
 
+.panel-actions {
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 0.5rem;
+}
+
 .panel-title {
   margin: 0;
   font-size: 1.125rem;
@@ -74,6 +86,19 @@ provide(panelActionKey, action)
 .panel-action-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.panel-action-btn.has-icon {
+  padding: 0.375rem 0.625rem;
+}
+
+.action-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.action-icon :deep(svg) {
+  display: block;
 }
 
 .panel-body {

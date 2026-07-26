@@ -85,8 +85,8 @@ const panelAction = inject(panelActionKey, null)
 watchEffect(() => {
   if (!panelAction) return
   panelAction.value = showFormOverlay.value
-    ? null
-    : { label: t('calendar.newTransaction'), disabled: false, onClick: onNewTx }
+    ? []
+    : [{ label: t('calendar.newTransaction'), disabled: false, onClick: onNewTx }]
 })
 </script>
 

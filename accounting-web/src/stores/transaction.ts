@@ -7,13 +7,16 @@ import {
   fetchTransactions as apiFetchTransactions,
   updateTransaction as apiUpdateTransaction,
 } from '../api/client'
-import type { CreateTransactionData, TransactionDto } from '../types/api'
-import { dateOf, formatDate } from '../utils/date'
+import type { CreateTransactionData, TransactionDto, TxFilters } from '../types/api'
+import { dateOf, formatDate, todayStr } from '../utils/date'
+import { buildTxQuery, isFilterActive } from '../utils/txFilter'
 
 interface LoadedRange {
   from: string
   to: string
 }
+
+const EXPAND_CAP_WHEN_FILTERED = 3
 
 export const useTransactionStore = defineStore('transaction', () => {
   const loadedRange = ref<LoadedRange | null>(null)
@@ -21,6 +24,10 @@ export const useTransactionStore = defineStore('transaction', () => {
   const calendarDays = ref<Map<string, TransactionDto[]>>(new Map())
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const activeFilter = ref<TxFilters | null>(null)
+  let requestId = 0
+
+  const filterActive = computed(() => isFilterActive(activeFilter.value))
 
   const byDateDesc = (a: TransactionDto, b: TransactionDto) =>
     b.date_time.localeCompare(a.date_time)
@@ -79,25 +86,34 @@ export const useTransactionStore = defineStore('transaction', () => {
   async function expandSameDay(
     toDate: string,
     initialData: TransactionDto[],
-    initialLimit: number
+    initialLimit: number,
+    capped: boolean
   ): Promise<TransactionDto[]> {
     let currentLimit = initialLimit * 2
+    let expansions = 1
     let data = initialData
     while (data.length > 0) {
       const newest = dateOf(data[0])
       const oldest = dateOf(data[data.length - 1])
       if (newest !== oldest) break
-      data = await apiFetchTransactions({ to: toDate, limit: String(currentLimit) })
+      if (capped && expansions >= EXPAND_CAP_WHEN_FILTERED) break
+      const params = buildTxQuery(activeFilter.value, { to: toDate, limit: String(currentLimit) })
+      data = await apiFetchTransactions(params)
       currentLimit *= 2
+      expansions++
     }
     return data
   }
 
-  async function loadInitial(toDate: string, limit: number) {
+  async function loadInitial(toDate?: string, limit = 100) {
+    const id = ++requestId
     loading.value = true
     error.value = null
+    const to = toDate ?? activeFilter.value?.to ?? todayStr()
     try {
-      const data = await apiFetchTransactions({ to: toDate, limit: String(limit) })
+      const params = buildTxQuery(activeFilter.value, { to, limit: String(limit) })
+      const data = await apiFetchTransactions(params)
+      if (id !== requestId) return
       if (data.length === 0) {
         loadedRange.value = null
         transactions.value = []
@@ -107,7 +123,8 @@ export const useTransactionStore = defineStore('transaction', () => {
       const oldest = dateOf(data[data.length - 1])
       let finalData = data
       if (newest === oldest) {
-        finalData = await expandSameDay(toDate, data, limit)
+        finalData = await expandSameDay(to, data, limit, filterActive.value)
+        if (id !== requestId) return
       }
       if (finalData.length === 0) {
         loadedRange.value = null
@@ -120,26 +137,29 @@ export const useTransactionStore = defineStore('transaction', () => {
         to: dateOf(finalData[0]),
       }
     } catch (e) {
+      if (id !== requestId) return
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
-      loading.value = false
+      if (id === requestId) loading.value = false
     }
   }
 
   async function loadMore() {
     if (!loadedRange.value || loading.value) return
     const { from } = loadedRange.value
+    if (activeFilter.value?.from && from <= activeFilter.value.from) return
     const [y, m, d] = from.split('-').map(Number)
     const prevDay = new Date(y, m - 1, d - 1)
     const prevDayStr = formatDate(prevDay)
     loading.value = true
     error.value = null
     try {
-      const data = await apiFetchTransactions({ to: prevDayStr, limit: '100' })
+      const params = buildTxQuery(activeFilter.value, { to: prevDayStr, limit: '100' })
+      const data = await apiFetchTransactions(params)
       if (data.length === 0) return
       const oldest = dateOf(data[data.length - 1])
       if (oldest === prevDayStr) {
-        const expanded = await expandSameDay(prevDayStr, data, 100)
+        const expanded = await expandSameDay(prevDayStr, data, 100, filterActive.value)
         if (expanded.length > 0) {
           transactions.value.push(...expanded)
           loadedRange.value = {
@@ -164,13 +184,25 @@ export const useTransactionStore = defineStore('transaction', () => {
     loading.value = true
     error.value = null
     try {
-      const data = await apiFetchTransactions({ from: date, to: date })
+      const params = new URLSearchParams({ from: date, to: date })
+      const data = await apiFetchTransactions(params)
       calendarDays.value.set(date, data)
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
       loading.value = false
     }
+  }
+
+  function setFilter(filter: TxFilters | null) {
+    activeFilter.value = filter
+    transactions.value = []
+    loadedRange.value = null
+    loadInitial()
+  }
+
+  function clearFilter() {
+    setFilter(null)
   }
 
   async function create(data: CreateTransactionData): Promise<number> {
@@ -232,9 +264,13 @@ export const useTransactionStore = defineStore('transaction', () => {
     error,
     loadedRange,
     calendarDays,
+    activeFilter,
+    filterActive,
     loadInitial,
     loadMore,
     loadDay,
+    setFilter,
+    clearFilter,
     create,
     update,
     remove,

@@ -139,10 +139,8 @@ export async function moveAccount(id: number, parentId: number): Promise<Account
 
 // ─── 交易 CRUD ───
 
-export async function fetchTransactions(
-  params?: Record<string, string>
-): Promise<TransactionDto[]> {
-  const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+export async function fetchTransactions(params?: URLSearchParams): Promise<TransactionDto[]> {
+  const qs = params && params.toString() ? '?' + params.toString() : ''
   return apiFetch<TransactionDto[]>(`/transactions${qs}`)
 }
 
