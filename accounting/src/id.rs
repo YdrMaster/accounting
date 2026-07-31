@@ -24,6 +24,7 @@ define_id!(ChannelPathId);
 define_id!(TagId);
 define_id!(AttachmentId);
 define_id!(BudgetId);
+define_id!(SavingPlanId);
 
 #[cfg(test)]
 mod tests {

@@ -7,7 +7,7 @@ use accounting::id::{AccountId, BudgetId, CommodityId, TagId};
 use accounting_sql::SqliteDatabase;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// 预算表详情（含限额）
 #[derive(Debug, Clone)]
@@ -23,10 +23,12 @@ pub struct BudgetDetail {
 pub struct BudgetStatus {
     /// 预算表信息
     pub budget: Budget,
-    /// 当前周期的起始日期
-    pub period_start: NaiveDate,
-    /// 当前周期的结束日期
-    pub period_end: NaiveDate,
+    /// 是否已失效（查询日 > deadline）
+    pub expired: bool,
+    /// 当前周期的起始日期（一次性预算为 None）
+    pub period_start: Option<NaiveDate>,
+    /// 当前周期的结束日期（一次性预算为 None）
+    pub period_end: Option<NaiveDate>,
     /// 各账户限额执行情况
     pub items: Vec<BudgetItemStatus>,
 }
@@ -59,18 +61,20 @@ impl BudgetService {
 
     /// 创建预算表
     ///
-    /// 预算名按 `lang` 语言写入名字表。
+    /// 预算名按 `lang` 语言写入名字表；period 为 None 时创建一次性预算。
     pub async fn create_budget(
         &self,
         name: &str,
-        period: FinancePeriod,
+        period: Option<FinancePeriod>,
+        deadline: Option<NaiveDate>,
         commodity_id: CommodityId,
         limits: &[(AccountId, Decimal)],
         lang: &str,
     ) -> Result<BudgetId, AccountingError> {
-        let accounts = self.load_accounts().await?;
-        let commodity_ids = self.load_commodity_ids().await?;
-        validate_budget(name, limits, &accounts, &commodity_ids)
+        let accounts = super::load_accounts(&self.db).await?;
+        let account_types = super::load_account_types(&self.db).await?;
+        let commodity_ids = super::load_commodity_ids(&self.db).await?;
+        validate_budget(name, limits, &accounts, &account_types, &commodity_ids)
             .map_err(|e| AccountingError::InvalidTransaction(e.to_string()))?;
 
         if !commodity_ids.contains(&commodity_id) {
@@ -78,19 +82,21 @@ impl BudgetService {
         }
 
         self.db
-            .budget_create(name, period, commodity_id, limits, lang)
+            .budget_create(name, period, deadline, commodity_id, limits, lang)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
 
     /// 更新预算表
     ///
-    /// 预算名按 `lang` 语言更新名字表。
+    /// 预算名按 `lang` 语言更新名字表；period 置空后变为一次性预算。
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_budget(
         &self,
         budget_id: BudgetId,
         name: &str,
-        period: FinancePeriod,
+        period: Option<FinancePeriod>,
+        deadline: Option<NaiveDate>,
         commodity_id: CommodityId,
         limits: &[(AccountId, Decimal)],
         lang: &str,
@@ -106,13 +112,22 @@ impl BudgetService {
             ));
         }
 
-        let accounts = self.load_accounts().await?;
-        let commodity_ids = self.load_commodity_ids().await?;
-        validate_budget(name, limits, &accounts, &commodity_ids)
+        let accounts = super::load_accounts(&self.db).await?;
+        let account_types = super::load_account_types(&self.db).await?;
+        let commodity_ids = super::load_commodity_ids(&self.db).await?;
+        validate_budget(name, limits, &accounts, &account_types, &commodity_ids)
             .map_err(|e| AccountingError::InvalidTransaction(e.to_string()))?;
 
         self.db
-            .budget_update(budget_id, name, period, commodity_id, limits, lang)
+            .budget_update(
+                budget_id,
+                name,
+                period,
+                deadline,
+                commodity_id,
+                limits,
+                lang,
+            )
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))
     }
@@ -167,6 +182,10 @@ impl BudgetService {
     }
 
     /// 查询预算执行情况
+    ///
+    /// period 非空时按查询日所在周期计量；period 为空（一次性预算）时，
+    /// 计量窗口为不限下界到 min(查询日, deadline)，period_start/period_end 为 None。
+    /// 查询日晚于 deadline 时返回 expired=true（其余字段仍正常计算）。
     pub async fn get_budget_status(
         &self,
         budget_id: BudgetId,
@@ -176,23 +195,42 @@ impl BudgetService {
         let budget = detail.budget;
         let limits = detail.limits;
 
-        let (period_start, period_end) = budget.period.period_range(date);
+        let expired = budget.deadline.is_some_and(|d| date > d);
 
         let exclude_tag_ids = self.get_exclude_budget_tag_ids().await?;
 
         let account_ids: Vec<AccountId> = limits.iter().map(|l| l.account_id).collect();
 
-        let actuals = self
-            .db
-            .posting_sum_by_period(
-                &account_ids,
-                period_start,
-                period_end,
-                &exclude_tag_ids,
-                budget.commodity_id,
-            )
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        let (period_start, period_end, actuals) = match budget.period {
+            Some(period) => {
+                let (start, end) = period.period_range(date);
+                let actuals = self
+                    .db
+                    .posting_sum_by_period(
+                        &account_ids,
+                        start,
+                        end,
+                        &exclude_tag_ids,
+                        budget.commodity_id,
+                    )
+                    .await
+                    .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+                (Some(start), Some(end), actuals)
+            }
+            None => {
+                // 一次性预算：不限下界累计到 min(查询日, deadline)
+                let end = match budget.deadline {
+                    Some(deadline) if deadline < date => deadline,
+                    _ => date,
+                };
+                let actuals = self
+                    .db
+                    .posting_sum_before(&account_ids, end, &exclude_tag_ids, budget.commodity_id)
+                    .await
+                    .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+                (None, None, actuals)
+            }
+        };
 
         let actual_map: HashMap<AccountId, Decimal> = actuals.into_iter().collect();
 
@@ -221,6 +259,7 @@ impl BudgetService {
 
         Ok(BudgetStatus {
             budget,
+            expired,
             period_start,
             period_end,
             items,
@@ -236,34 +275,26 @@ impl BudgetService {
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         Ok(tag.map(|t| vec![t.id]).unwrap_or_default())
     }
-
-    async fn load_accounts(
-        &self,
-    ) -> Result<HashMap<AccountId, accounting::account::Account>, AccountingError> {
-        let list = self
-            .db
-            .account_list()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        Ok(list.into_iter().map(|a| (a.id, a)).collect())
-    }
-
-    async fn load_commodity_ids(&self) -> Result<HashSet<CommodityId>, AccountingError> {
-        let list = self
-            .db
-            .commodity_list()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-        Ok(list.into_iter().map(|c| c.id).collect())
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use accounting::account::Account;
+    use accounting::id::{PostingId, TagId, TransactionId};
+    use accounting::posting::Posting;
+    use accounting::transaction::{Transaction, TransactionKind};
     use accounting_sql::SqliteDatabase;
+    use chrono::NaiveDateTime;
     use std::str::FromStr;
+
+    fn d(year: i32, month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(year, month, day).unwrap()
+    }
+
+    fn dec(s: &str) -> Decimal {
+        Decimal::from_str(s).unwrap()
+    }
 
     async fn setup() -> BudgetService {
         let db = SqliteDatabase::open_in_memory().await.unwrap();
@@ -303,6 +334,59 @@ mod tests {
             .id
     }
 
+    /// 插入一笔单分录交易（仅用于构造实际支出）
+    async fn add_posting(
+        service: &BudgetService,
+        date: &str,
+        account_id: AccountId,
+        amount: &str,
+        tag_ids: &[TagId],
+    ) {
+        let db = &service.db;
+        let member_id = db.member_get_or_create_by_name("Test", "en").await.unwrap();
+        let tx = Transaction {
+            id: TransactionId(0),
+            date_time: NaiveDateTime::parse_from_str(
+                &format!("{} 00:00:00", date),
+                "%Y-%m-%d %H:%M:%S",
+            )
+            .unwrap(),
+            description: "test".to_string(),
+            kind: TransactionKind::Normal,
+            member_id,
+        };
+        let tx_id = db.transaction_insert(&tx, tag_ids).await.unwrap();
+        let posting = Posting {
+            id: PostingId(0),
+            transaction_id: tx_id,
+            account_id,
+            commodity_id: CommodityId(1),
+            amount: dec(amount),
+            cost: None,
+            cost_commodity_id: None,
+            is_reimbursable: false,
+            linked_posting_id: None,
+            reversal_total: Decimal::ZERO,
+        };
+        db.posting_insert(&posting).await.unwrap();
+    }
+
+    /// 创建一次性预算（period=None, deadline=2026-09-30, Food 限额 2000）
+    async fn create_one_off_budget(service: &BudgetService) -> BudgetId {
+        let food_id = account_id_by_path(service, "Expenses:Food").await;
+        service
+            .create_budget(
+                "旅行预算",
+                None,
+                Some(d(2026, 9, 30)),
+                CommodityId(1),
+                &[(food_id, dec("2000"))],
+                "zh",
+            )
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn test_create_and_list_budget() {
         let service = setup().await;
@@ -312,12 +396,10 @@ mod tests {
         let id = service
             .create_budget(
                 "Monthly Life",
-                FinancePeriod::Monthly,
+                Some(FinancePeriod::Monthly),
+                None,
                 CommodityId(1),
-                &[
-                    (food_id, Decimal::from_str("2000").unwrap()),
-                    (transport_id, Decimal::from_str("500").unwrap()),
-                ],
+                &[(food_id, dec("2000")), (transport_id, dec("500"))],
                 "en",
             )
             .await
@@ -329,85 +411,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_create_one_off_budget() {
+        let service = setup().await;
+        let budget_id = create_one_off_budget(&service).await;
+
+        let detail = service.get_budget_detail(budget_id).await.unwrap();
+        assert_eq!(detail.budget.period, None);
+        assert_eq!(detail.budget.deadline, Some(d(2026, 9, 30)));
+        assert_eq!(detail.limits.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_create_budget_asset_account_rejected() {
+        let service = setup().await;
+        let assets_id = account_id_by_path(&service, "Assets").await;
+        let err = service
+            .create_budget(
+                "Bad",
+                Some(FinancePeriod::Monthly),
+                None,
+                CommodityId(1),
+                &[(assets_id, dec("1000"))],
+                "en",
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains(&BudgetError::AccountNotExpense(assets_id).to_string())
+        );
+        assert!(service.list_budgets().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn test_get_budget_status() {
         let service = setup().await;
         let food_id = account_id_by_path(&service, "Expenses:Food").await;
         let transport_id = account_id_by_path(&service, "Expenses:Transport").await;
-        let assets_id = account_id_by_path(&service, "Assets").await;
-
-        let member_id = service
-            .db
-            .member_get_or_create_by_name("Test", "en")
-            .await
-            .unwrap();
 
         let budget_id = service
             .create_budget(
                 "Monthly Life",
-                FinancePeriod::Monthly,
+                Some(FinancePeriod::Monthly),
+                None,
                 CommodityId(1),
-                &[
-                    (food_id, Decimal::from_str("2000").unwrap()),
-                    (transport_id, Decimal::from_str("500").unwrap()),
-                ],
+                &[(food_id, dec("2000")), (transport_id, dec("500"))],
                 "en",
             )
             .await
             .unwrap();
 
-        let tx = accounting::transaction::Transaction {
-            id: accounting::id::TransactionId(0),
-            date_time: chrono::NaiveDateTime::parse_from_str(
-                "2024-06-15 00:00:00",
-                "%Y-%m-%d %H:%M:%S",
-            )
-            .unwrap(),
-            description: "lunch".to_string(),
-            kind: accounting::transaction::TransactionKind::Normal,
-            member_id,
-        };
-        let tx_id = service.db.transaction_insert(&tx, &[]).await.unwrap();
-
-        let p1 = accounting::posting::Posting {
-            id: accounting::id::PostingId(0),
-            transaction_id: tx_id,
-            account_id: food_id,
-            commodity_id: CommodityId(1),
-            amount: Decimal::from_str("-800").unwrap(),
-            cost: None,
-            cost_commodity_id: None,
-            is_reimbursable: false,
-            linked_posting_id: None,
-            reversal_total: Decimal::ZERO,
-        };
-        let p2 = accounting::posting::Posting {
-            id: accounting::id::PostingId(0),
-            transaction_id: tx_id,
-            account_id: assets_id,
-            commodity_id: CommodityId(1),
-            amount: Decimal::from_str("800").unwrap(),
-            cost: None,
-            cost_commodity_id: None,
-            is_reimbursable: false,
-            linked_posting_id: None,
-            reversal_total: Decimal::ZERO,
-        };
-        service.db.posting_insert(&p1).await.unwrap();
-        service.db.posting_insert(&p2).await.unwrap();
+        add_posting(&service, "2024-06-15", food_id, "-800", &[]).await;
 
         let status = service
-            .get_budget_status(budget_id, NaiveDate::from_ymd_opt(2024, 6, 15).unwrap())
+            .get_budget_status(budget_id, d(2024, 6, 15))
             .await
             .unwrap();
 
-        assert_eq!(
-            status.period_start,
-            NaiveDate::from_ymd_opt(2024, 6, 1).unwrap()
-        );
-        assert_eq!(
-            status.period_end,
-            NaiveDate::from_ymd_opt(2024, 6, 30).unwrap()
-        );
+        assert!(!status.expired);
+        assert_eq!(status.period_start, Some(d(2024, 6, 1)));
+        assert_eq!(status.period_end, Some(d(2024, 6, 30)));
         assert_eq!(status.items.len(), 2);
 
         let food_item = status
@@ -415,9 +478,150 @@ mod tests {
             .iter()
             .find(|i| i.account_id == food_id)
             .unwrap();
-        assert_eq!(food_item.limit_amount, Decimal::from_str("2000").unwrap());
-        assert_eq!(food_item.actual_amount, Decimal::from_str("800").unwrap());
-        assert_eq!(food_item.remaining, Decimal::from_str("1200").unwrap());
+        assert_eq!(food_item.limit_amount, dec("2000"));
+        assert_eq!(food_item.actual_amount, dec("800"));
+        assert_eq!(food_item.remaining, dec("1200"));
+    }
+
+    #[tokio::test]
+    async fn test_one_off_budget_status_full_history() {
+        let service = setup().await;
+        let food_id = account_id_by_path(&service, "Expenses:Food").await;
+        let budget_id = create_one_off_budget(&service).await;
+
+        // 跨年份的历史支出全部累计；查询日之后的不计入
+        add_posting(&service, "2025-01-10", food_id, "-300", &[]).await;
+        add_posting(&service, "2026-09-10", food_id, "-500", &[]).await;
+        add_posting(&service, "2026-09-20", food_id, "-200", &[]).await;
+
+        let status = service
+            .get_budget_status(budget_id, d(2026, 9, 15))
+            .await
+            .unwrap();
+
+        assert!(!status.expired);
+        assert_eq!(status.period_start, None);
+        assert_eq!(status.period_end, None);
+        let food_item = &status.items[0];
+        assert_eq!(food_item.actual_amount, dec("800"));
+        assert_eq!(food_item.remaining, dec("1200"));
+    }
+
+    #[tokio::test]
+    async fn test_one_off_budget_status_capped_at_deadline() {
+        let service = setup().await;
+        let food_id = account_id_by_path(&service, "Expenses:Food").await;
+        let budget_id = create_one_off_budget(&service).await;
+
+        add_posting(&service, "2026-09-10", food_id, "-500", &[]).await;
+        add_posting(&service, "2026-09-20", food_id, "-200", &[]).await;
+        // deadline 之后的支出不计入（窗口上界为 min(查询日, deadline)）
+        add_posting(&service, "2026-10-05", food_id, "-50", &[]).await;
+
+        let status = service
+            .get_budget_status(budget_id, d(2026, 10, 15))
+            .await
+            .unwrap();
+
+        assert!(status.expired);
+        assert_eq!(status.period_start, None);
+        assert_eq!(status.period_end, None);
+        assert_eq!(status.items[0].actual_amount, dec("700"));
+    }
+
+    #[tokio::test]
+    async fn test_one_off_budget_excludes_tagged_transactions() {
+        let service = setup().await;
+        let food_id = account_id_by_path(&service, "Expenses:Food").await;
+        let budget_id = create_one_off_budget(&service).await;
+        let exclude_tag = service
+            .db
+            .tag_get_by_name("exclude-from-budget")
+            .await
+            .unwrap()
+            .unwrap();
+
+        add_posting(&service, "2026-09-01", food_id, "-400", &[]).await;
+        // "不计预算"标签的支出对预算仍然豁免
+        add_posting(&service, "2026-09-02", food_id, "-200", &[exclude_tag.id]).await;
+
+        let status = service
+            .get_budget_status(budget_id, d(2026, 9, 15))
+            .await
+            .unwrap();
+        assert_eq!(status.items[0].actual_amount, dec("400"));
+    }
+
+    #[tokio::test]
+    async fn test_period_budget_expired_after_deadline() {
+        let service = setup().await;
+        let food_id = account_id_by_path(&service, "Expenses:Food").await;
+        let budget_id = service
+            .create_budget(
+                "限期月度",
+                Some(FinancePeriod::Monthly),
+                Some(d(2026, 6, 30)),
+                CommodityId(1),
+                &[(food_id, dec("2000"))],
+                "zh",
+            )
+            .await
+            .unwrap();
+
+        // deadline 当天仍有效
+        let status = service
+            .get_budget_status(budget_id, d(2026, 6, 30))
+            .await
+            .unwrap();
+        assert!(!status.expired);
+        assert_eq!(status.period_start, Some(d(2026, 6, 1)));
+        assert_eq!(status.period_end, Some(d(2026, 6, 30)));
+
+        // deadline 之后已失效，周期窗口仍正常计算
+        let status = service
+            .get_budget_status(budget_id, d(2026, 7, 1))
+            .await
+            .unwrap();
+        assert!(status.expired);
+        assert_eq!(status.period_start, Some(d(2026, 7, 1)));
+        assert_eq!(status.period_end, Some(d(2026, 7, 31)));
+    }
+
+    #[tokio::test]
+    async fn test_update_budget_to_one_off() {
+        let service = setup().await;
+        let food_id = account_id_by_path(&service, "Expenses:Food").await;
+        let budget_id = service
+            .create_budget(
+                "Monthly Life",
+                Some(FinancePeriod::Monthly),
+                None,
+                CommodityId(1),
+                &[(food_id, dec("2000"))],
+                "en",
+            )
+            .await
+            .unwrap();
+
+        // 置空周期 + 设置 deadline → 一次性预算
+        service
+            .update_budget(
+                budget_id,
+                "Monthly Life",
+                None,
+                Some(d(2026, 12, 31)),
+                CommodityId(1),
+                &[(food_id, dec("2500"))],
+                "en",
+            )
+            .await
+            .unwrap();
+
+        let detail = service.get_budget_detail(budget_id).await.unwrap();
+        assert_eq!(detail.budget.period, None);
+        assert_eq!(detail.budget.deadline, Some(d(2026, 12, 31)));
+        assert_eq!(detail.limits.len(), 1);
+        assert_eq!(detail.limits[0].amount, dec("2500"));
     }
 
     #[tokio::test]
@@ -428,9 +632,10 @@ mod tests {
         let id = service
             .create_budget(
                 "ToDelete",
-                FinancePeriod::Monthly,
+                Some(FinancePeriod::Monthly),
+                None,
                 CommodityId(1),
-                &[(food_id, Decimal::from_str("1000").unwrap())],
+                &[(food_id, dec("1000"))],
                 "en",
             )
             .await

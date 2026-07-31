@@ -1,4 +1,4 @@
-//! 名字按语言管理：六张同构名字表共享的查询与写路径逻辑
+//! 名字按语言管理：七张同构名字表共享的查询与写路径逻辑
 //!
 //! - 显示名解析回退链：所选语言显示名 → en 显示名 → zh-CN 显示名 → 其余按 rowid 插入序第一条
 //! - 命名空间唯一性：账户按父账户作用域（根账户全局），其余实体全局；不区分大小写
@@ -20,8 +20,8 @@ fn safe_sql(text: String) -> sqlx::AssertSqlSafe<String> {
 
 /// 某类实体的名字表操作句柄。
 ///
-/// 六张名字表（account_names、tag_names、channel_names、commodity_names、
-/// member_names、budget_names）结构同构，共享这一套实现。
+/// 七张名字表（account_names、tag_names、channel_names、commodity_names、
+/// member_names、budget_names、saving_plan_names）结构同构，共享这一套实现。
 pub struct EntityNames {
     /// 名字表名
     table: &'static str,
@@ -43,6 +43,8 @@ pub const COMMODITY_NAMES: EntityNames = EntityNames::new("commodity_names", "co
 pub const MEMBER_NAMES: EntityNames = EntityNames::new("member_names", "member_id", false);
 /// 预算名字表
 pub const BUDGET_NAMES: EntityNames = EntityNames::new("budget_names", "budget_id", false);
+/// 攒钱计划名字表
+pub const SAVING_PLAN_NAMES: EntityNames = EntityNames::new("saving_plan_names", "plan_id", false);
 
 /// 显示名回退链的 ORDER BY 片段（`?2` 为所选语言）。
 ///

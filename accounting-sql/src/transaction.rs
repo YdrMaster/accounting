@@ -641,7 +641,8 @@ impl<'a> SqliteTransaction<'a> {
     pub async fn budget_upsert_by_name(
         &mut self,
         name: &str,
-        period: accounting::finance_period::FinancePeriod,
+        period: Option<accounting::finance_period::FinancePeriod>,
+        deadline: Option<chrono::NaiveDate>,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
         lang: &str,
@@ -651,6 +652,7 @@ impl<'a> SqliteTransaction<'a> {
             name,
             lang,
             period,
+            deadline,
             commodity_id,
             limits,
         )

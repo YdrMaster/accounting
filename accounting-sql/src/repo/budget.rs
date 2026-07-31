@@ -2,8 +2,9 @@ use accounting::amount;
 use accounting::budget::{Budget, BudgetLimit};
 use accounting::finance_period::FinancePeriod;
 use accounting::id::{AccountId, BudgetId, CommodityId};
+use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use sqlx::{FromRow, SqliteConnection};
+use sqlx::{Connection, FromRow, SqliteConnection};
 
 use crate::error::DbError;
 use crate::names::BUDGET_NAMES;
@@ -11,21 +12,37 @@ use crate::names::BUDGET_NAMES;
 #[derive(FromRow)]
 struct BudgetRow {
     id: i64,
-    period: i64,
+    period: Option<i64>,
+    deadline: Option<String>,
     commodity_id: i64,
 }
 
 impl BudgetRow {
     fn into_budget(self) -> Result<Budget, DbError> {
-        let period = FinancePeriod::from_i64(self.period).ok_or_else(|| {
-            DbError::Database(format!("Invalid budget period value: {}", self.period))
-        })?;
+        let period = self
+            .period
+            .map(|v| {
+                FinancePeriod::from_i64(v)
+                    .ok_or_else(|| DbError::Database(format!("Invalid budget period value: {}", v)))
+            })
+            .transpose()?;
         Ok(Budget {
             id: BudgetId(self.id),
             period,
+            deadline: self.deadline.map(parse_deadline).transpose()?,
             commodity_id: CommodityId(self.commodity_id),
         })
     }
+}
+
+/// deadline 以 TEXT 'YYYY-MM-DD' 存储
+fn format_deadline(deadline: Option<NaiveDate>) -> Option<String> {
+    deadline.map(|d| d.format("%Y-%m-%d").to_string())
+}
+
+fn parse_deadline(raw: String) -> Result<NaiveDate, DbError> {
+    NaiveDate::parse_from_str(&raw, "%Y-%m-%d")
+        .map_err(|e| DbError::Database(format!("Invalid deadline value: {} ({})", raw, e)))
 }
 
 #[derive(FromRow)]
@@ -39,34 +56,42 @@ pub async fn budget_create(
     conn: &mut SqliteConnection,
     name: &str,
     lang: &str,
-    period: FinancePeriod,
+    period: Option<FinancePeriod>,
+    deadline: Option<NaiveDate>,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
 ) -> Result<BudgetId, DbError> {
+    // 显式事务：header、名字、限额要么全部落库要么全部回滚（失败随 drop 回滚）
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
     // Get commodity precision for amount conversion
     let precision: i64 = sqlx::query_scalar("SELECT precision FROM commodities WHERE id = ?1")
         .bind(commodity_id.0)
-        .fetch_one(&mut *conn)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
 
     // 名字全局唯一（不区分大小写），校验通过才创建
     BUDGET_NAMES
-        .ensure_available(conn, None, None, name)
+        .ensure_available(&mut tx, None, None, name)
         .await?;
 
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO budgets (period, commodity_id) VALUES (?1, ?2) RETURNING id",
+        "INSERT INTO budgets (period, deadline, commodity_id) VALUES (?1, ?2, ?3) RETURNING id",
     )
-    .bind(period.as_i64())
+    .bind(period.map(|p| p.as_i64()))
+    .bind(format_deadline(deadline))
     .bind(commodity_id.0)
-    .fetch_one(&mut *conn)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| DbError::Database(e.to_string()))?;
 
     // 名字语言由调用方传入
     BUDGET_NAMES
-        .insert(conn, id, lang, name, false, true)
+        .insert(&mut tx, id, lang, name, false, true)
         .await?;
 
     for (account_id, amount) in limits {
@@ -77,10 +102,14 @@ pub async fn budget_create(
         .bind(id)
         .bind(account_id.0)
         .bind(db_amount)
-        .execute(&mut *conn)
+        .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
     }
+
+    tx.commit()
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
 
     Ok(BudgetId(id))
 }
@@ -90,7 +119,7 @@ pub async fn budget_get(
     id: BudgetId,
 ) -> Result<Option<Budget>, DbError> {
     let row: Option<BudgetRow> =
-        sqlx::query_as("SELECT id, period, commodity_id FROM budgets WHERE id = ?1")
+        sqlx::query_as("SELECT id, period, deadline, commodity_id FROM budgets WHERE id = ?1")
             .bind(id.0)
             .fetch_optional(&mut *conn)
             .await
@@ -103,7 +132,7 @@ pub async fn budget_get(
 
 pub async fn budget_list(conn: &mut SqliteConnection) -> Result<Vec<Budget>, DbError> {
     let rows: Vec<BudgetRow> =
-        sqlx::query_as("SELECT id, period, commodity_id FROM budgets ORDER BY id")
+        sqlx::query_as("SELECT id, period, deadline, commodity_id FROM budgets ORDER BY id")
             .fetch_all(conn)
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
@@ -117,7 +146,7 @@ pub async fn budget_get_by_name(
     name: &str,
 ) -> Result<Option<Budget>, DbError> {
     let row: Option<BudgetRow> =
-        sqlx::query_as("SELECT b.id, b.period, b.commodity_id FROM budgets b JOIN budget_names bn ON bn.budget_id = b.id WHERE bn.name = ?1")
+        sqlx::query_as("SELECT b.id, b.period, b.deadline, b.commodity_id FROM budgets b JOIN budget_names bn ON bn.budget_id = b.id WHERE bn.name = ?1")
             .bind(name)
             .fetch_optional(&mut *conn)
             .await
@@ -128,30 +157,41 @@ pub async fn budget_get_by_name(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn budget_update(
     conn: &mut SqliteConnection,
     budget_id: BudgetId,
     name: &str,
     lang: &str,
-    period: FinancePeriod,
+    period: Option<FinancePeriod>,
+    deadline: Option<NaiveDate>,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
 ) -> Result<(), DbError> {
+    // 显式事务：header、改名、限额替换原子生效（失败随 drop 回滚）
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
     // Get commodity precision for amount conversion
     let precision: i64 = sqlx::query_scalar("SELECT precision FROM commodities WHERE id = ?1")
         .bind(commodity_id.0)
-        .fetch_one(&mut *conn)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
 
     // Update budget header
-    let result = sqlx::query("UPDATE budgets SET period = ?1, commodity_id = ?2 WHERE id = ?3")
-        .bind(period.as_i64())
-        .bind(commodity_id.0)
-        .bind(budget_id.0)
-        .execute(&mut *conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
+    let result = sqlx::query(
+        "UPDATE budgets SET period = ?1, deadline = ?2, commodity_id = ?3 WHERE id = ?4",
+    )
+    .bind(period.map(|p| p.as_i64()))
+    .bind(format_deadline(deadline))
+    .bind(commodity_id.0)
+    .bind(budget_id.0)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
 
     if result.rows_affected() == 0 {
         return Err(DbError::Database(format!(
@@ -162,13 +202,13 @@ pub async fn budget_update(
 
     // 改名：(budget, lang) 显示名更新为新文本；撞名拒绝
     BUDGET_NAMES
-        .rename_display(conn, budget_id.0, None, lang, name)
+        .rename_display(&mut tx, budget_id.0, None, lang, name)
         .await?;
 
     // Delete old limits and insert new ones
     sqlx::query("DELETE FROM budget_limits WHERE budget_id = ?1")
         .bind(budget_id.0)
-        .execute(&mut *conn)
+        .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
 
@@ -180,10 +220,14 @@ pub async fn budget_update(
         .bind(budget_id.0)
         .bind(account_id.0)
         .bind(db_amount)
-        .execute(&mut *conn)
+        .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
     }
+
+    tx.commit()
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
 
     Ok(())
 }
@@ -204,7 +248,8 @@ pub async fn budget_upsert_by_name(
     conn: &mut SqliteConnection,
     name: &str,
     lang: &str,
-    period: FinancePeriod,
+    period: Option<FinancePeriod>,
+    deadline: Option<NaiveDate>,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
 ) -> Result<BudgetId, DbError> {
@@ -219,10 +264,20 @@ pub async fn budget_upsert_by_name(
 
     if let Some(budget_id) = existing_id {
         let budget_id = BudgetId(budget_id);
-        budget_update(conn, budget_id, name, lang, period, commodity_id, limits).await?;
+        budget_update(
+            conn,
+            budget_id,
+            name,
+            lang,
+            period,
+            deadline,
+            commodity_id,
+            limits,
+        )
+        .await?;
         Ok(budget_id)
     } else {
-        budget_create(conn, name, lang, period, commodity_id, limits).await
+        budget_create(conn, name, lang, period, deadline, commodity_id, limits).await
     }
 }
 
@@ -393,7 +448,8 @@ mod tests {
             &mut conn,
             "Monthly Life",
             "en",
-            FinancePeriod::Monthly,
+            Some(FinancePeriod::Monthly),
+            None,
             CommodityId(1),
             &[
                 (AccountId(1), Decimal::from_str("2000").unwrap()),
@@ -404,11 +460,49 @@ mod tests {
         .unwrap();
 
         let budget = budget_get(&mut conn, id).await.unwrap().unwrap();
-        assert_eq!(budget.period, FinancePeriod::Monthly);
+        assert_eq!(budget.period, Some(FinancePeriod::Monthly));
         assert_eq!(budget.commodity_id, CommodityId(1));
 
         let limits = budget_get_limits(&mut conn, id).await.unwrap();
         assert_eq!(limits.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_budget_one_off_roundtrip() {
+        let mut conn = setup().await;
+        let deadline = NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
+        let id = budget_create(
+            &mut conn,
+            "Trip Fund",
+            "en",
+            None,
+            Some(deadline),
+            CommodityId(1),
+            &[(AccountId(1), Decimal::from_str("5000").unwrap())],
+        )
+        .await
+        .unwrap();
+
+        let budget = budget_get(&mut conn, id).await.unwrap().unwrap();
+        assert_eq!(budget.period, None);
+        assert_eq!(budget.deadline, Some(deadline));
+
+        // 更新为循环预算 + 去掉 deadline
+        budget_update(
+            &mut conn,
+            id,
+            "Trip Fund",
+            "en",
+            Some(FinancePeriod::Monthly),
+            None,
+            CommodityId(1),
+            &[(AccountId(1), Decimal::from_str("3000").unwrap())],
+        )
+        .await
+        .unwrap();
+        let budget = budget_get(&mut conn, id).await.unwrap().unwrap();
+        assert_eq!(budget.period, Some(FinancePeriod::Monthly));
+        assert_eq!(budget.deadline, None);
     }
 
     #[tokio::test]
@@ -418,7 +512,8 @@ mod tests {
             &mut conn,
             "Monthly Life",
             "en",
-            FinancePeriod::Monthly,
+            Some(FinancePeriod::Monthly),
+            None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("2000").unwrap())],
         )
@@ -430,7 +525,8 @@ mod tests {
             &mut conn,
             "monthly life",
             "en",
-            FinancePeriod::Yearly,
+            Some(FinancePeriod::Yearly),
+            None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("100").unwrap())],
         )
@@ -446,7 +542,8 @@ mod tests {
             &mut conn,
             "Budget A",
             "en",
-            FinancePeriod::Monthly,
+            Some(FinancePeriod::Monthly),
+            None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
         )
@@ -456,7 +553,8 @@ mod tests {
             &mut conn,
             "Budget B",
             "en",
-            FinancePeriod::Yearly,
+            Some(FinancePeriod::Yearly),
+            None,
             CommodityId(1),
             &[(AccountId(2), Decimal::from_str("20000").unwrap())],
         )
@@ -474,7 +572,8 @@ mod tests {
             &mut conn,
             "Old Name",
             "en",
-            FinancePeriod::Monthly,
+            Some(FinancePeriod::Monthly),
+            None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
         )
@@ -486,7 +585,8 @@ mod tests {
             id,
             "New Name",
             "en",
-            FinancePeriod::Yearly,
+            Some(FinancePeriod::Yearly),
+            None,
             CommodityId(1),
             &[
                 (AccountId(1), Decimal::from_str("3000").unwrap()),
@@ -497,7 +597,7 @@ mod tests {
         .unwrap();
 
         let budget = budget_get(&mut conn, id).await.unwrap().unwrap();
-        assert_eq!(budget.period, FinancePeriod::Yearly);
+        assert_eq!(budget.period, Some(FinancePeriod::Yearly));
 
         let limits = budget_get_limits(&mut conn, id).await.unwrap();
         assert_eq!(limits.len(), 2);
@@ -524,7 +624,8 @@ mod tests {
             &mut conn,
             "Budget A",
             "en",
-            FinancePeriod::Monthly,
+            Some(FinancePeriod::Monthly),
+            None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
         )
@@ -534,7 +635,8 @@ mod tests {
             &mut conn,
             "Budget B",
             "en",
-            FinancePeriod::Monthly,
+            Some(FinancePeriod::Monthly),
+            None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
         )
@@ -548,12 +650,71 @@ mod tests {
                 id_a,
                 "budget b",
                 "en",
-                FinancePeriod::Monthly,
+                Some(FinancePeriod::Monthly),
+                None,
                 CommodityId(1),
                 &[(AccountId(1), Decimal::from_str("1000").unwrap())],
             )
             .await
             .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_budget_update_rename_collision_rolls_back() {
+        let mut conn = setup().await;
+        let deadline_b = NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
+        budget_create(
+            &mut conn,
+            "Budget A",
+            "en",
+            Some(FinancePeriod::Monthly),
+            None,
+            CommodityId(1),
+            &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+        )
+        .await
+        .unwrap();
+        let id_b = budget_create(
+            &mut conn,
+            "Budget B",
+            "en",
+            Some(FinancePeriod::Monthly),
+            Some(deadline_b),
+            CommodityId(1),
+            &[
+                (AccountId(1), Decimal::from_str("2000").unwrap()),
+                (AccountId(2), Decimal::from_str("300").unwrap()),
+            ],
+        )
+        .await
+        .unwrap();
+
+        // 改名撞名失败 → 整个 update 回滚：header 与限额保持旧值
+        let result = budget_update(
+            &mut conn,
+            id_b,
+            "budget a",
+            "en",
+            Some(FinancePeriod::Yearly),
+            None,
+            CommodityId(1),
+            &[(AccountId(1), Decimal::from_str("1").unwrap())],
+        )
+        .await;
+        assert!(result.is_err());
+
+        let b = budget_get(&mut conn, id_b).await.unwrap().unwrap();
+        assert_eq!(b.period, Some(FinancePeriod::Monthly));
+        assert_eq!(b.deadline, Some(deadline_b));
+        assert_eq!(b.commodity_id, CommodityId(1));
+        assert_eq!(budget_get_limits(&mut conn, id_b).await.unwrap().len(), 2);
+        // 名字也未变
+        assert!(
+            budget_get_by_name(&mut conn, "Budget B")
+                .await
+                .unwrap()
+                .is_some()
         );
     }
 
@@ -564,7 +725,8 @@ mod tests {
             &mut conn,
             "To Delete",
             "en",
-            FinancePeriod::Monthly,
+            Some(FinancePeriod::Monthly),
+            None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
         )

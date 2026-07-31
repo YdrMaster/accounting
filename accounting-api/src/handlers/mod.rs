@@ -7,6 +7,7 @@ pub mod commodity;
 pub mod mapping;
 pub mod member;
 pub mod report;
+pub mod saving_plan;
 pub mod tag;
 pub mod transaction;
 

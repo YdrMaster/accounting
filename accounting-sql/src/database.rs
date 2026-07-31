@@ -10,7 +10,7 @@ pub struct SqliteDatabase {
     pool: SqlitePool,
 }
 
-/// 生成六类实体的批量显示名解析包装（回退链见 `names::EntityNames`）
+/// 生成七类实体的批量显示名解析包装（回退链见 `names::EntityNames`）
 macro_rules! display_name_wrappers {
     ($($fn_name:ident: $id_ty:ident => $names:ident,)*) => {
         $(
@@ -134,6 +134,7 @@ impl SqliteDatabase {
         commodity_display_names: CommodityId => COMMODITY_NAMES,
         member_display_names: MemberId => MEMBER_NAMES,
         budget_display_names: BudgetId => BUDGET_NAMES,
+        saving_plan_display_names: SavingPlanId => SAVING_PLAN_NAMES,
     }
 
     // === Account ===
@@ -907,14 +908,23 @@ impl SqliteDatabase {
     pub async fn budget_create(
         &self,
         name: &str,
-        period: accounting::finance_period::FinancePeriod,
+        period: Option<accounting::finance_period::FinancePeriod>,
+        deadline: Option<chrono::NaiveDate>,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
         lang: &str,
     ) -> Result<accounting::id::BudgetId, DbError> {
         let mut conn = self.acquire().await?;
-        crate::repo::budget::budget_create(&mut conn, name, lang, period, commodity_id, limits)
-            .await
+        crate::repo::budget::budget_create(
+            &mut conn,
+            name,
+            lang,
+            period,
+            deadline,
+            commodity_id,
+            limits,
+        )
+        .await
     }
 
     pub async fn budget_get(
@@ -930,11 +940,13 @@ impl SqliteDatabase {
         crate::repo::budget::budget_list(&mut conn).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn budget_update(
         &self,
         budget_id: accounting::id::BudgetId,
         name: &str,
-        period: accounting::finance_period::FinancePeriod,
+        period: Option<accounting::finance_period::FinancePeriod>,
+        deadline: Option<chrono::NaiveDate>,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
         lang: &str,
@@ -946,6 +958,7 @@ impl SqliteDatabase {
             name,
             lang,
             period,
+            deadline,
             commodity_id,
             limits,
         )
@@ -981,7 +994,8 @@ impl SqliteDatabase {
     pub async fn budget_upsert_by_name(
         &self,
         name: &str,
-        period: accounting::finance_period::FinancePeriod,
+        period: Option<accounting::finance_period::FinancePeriod>,
+        deadline: Option<chrono::NaiveDate>,
         commodity_id: accounting::id::CommodityId,
         limits: &[(accounting::id::AccountId, rust_decimal::Decimal)],
         lang: &str,
@@ -992,6 +1006,7 @@ impl SqliteDatabase {
             name,
             lang,
             period,
+            deadline,
             commodity_id,
             limits,
         )
@@ -1004,6 +1019,137 @@ impl SqliteDatabase {
     ) -> Result<Option<accounting::budget::Budget>, DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::budget::budget_get_by_name(&mut conn, name).await
+    }
+
+    // === SavingPlan ===
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn saving_plan_create(
+        &self,
+        name: &str,
+        period: Option<accounting::finance_period::FinancePeriod>,
+        deadline: Option<chrono::NaiveDate>,
+        commodity_id: accounting::id::CommodityId,
+        target_amount: rust_decimal::Decimal,
+        account_ids: &[accounting::id::AccountId],
+        lang: &str,
+    ) -> Result<accounting::id::SavingPlanId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::saving_plan::saving_plan_create(
+            &mut conn,
+            name,
+            lang,
+            period,
+            deadline,
+            commodity_id,
+            target_amount,
+            account_ids,
+        )
+        .await
+    }
+
+    pub async fn saving_plan_get(
+        &self,
+        id: accounting::id::SavingPlanId,
+    ) -> Result<Option<accounting::saving_plan::SavingPlan>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::saving_plan::saving_plan_get(&mut conn, id).await
+    }
+
+    pub async fn saving_plan_list(
+        &self,
+    ) -> Result<Vec<accounting::saving_plan::SavingPlan>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::saving_plan::saving_plan_list(&mut conn).await
+    }
+
+    pub async fn saving_plan_get_by_name(
+        &self,
+        name: &str,
+    ) -> Result<Option<accounting::saving_plan::SavingPlan>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::saving_plan::saving_plan_get_by_name(&mut conn, name).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn saving_plan_update(
+        &self,
+        plan_id: accounting::id::SavingPlanId,
+        name: &str,
+        period: Option<accounting::finance_period::FinancePeriod>,
+        deadline: Option<chrono::NaiveDate>,
+        commodity_id: accounting::id::CommodityId,
+        target_amount: rust_decimal::Decimal,
+        account_ids: &[accounting::id::AccountId],
+        lang: &str,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::saving_plan::saving_plan_update(
+            &mut conn,
+            plan_id,
+            name,
+            lang,
+            period,
+            deadline,
+            commodity_id,
+            target_amount,
+            account_ids,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn saving_plan_upsert_by_name(
+        &self,
+        name: &str,
+        period: Option<accounting::finance_period::FinancePeriod>,
+        deadline: Option<chrono::NaiveDate>,
+        commodity_id: accounting::id::CommodityId,
+        target_amount: rust_decimal::Decimal,
+        account_ids: &[accounting::id::AccountId],
+        lang: &str,
+    ) -> Result<accounting::id::SavingPlanId, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::saving_plan::saving_plan_upsert_by_name(
+            &mut conn,
+            name,
+            lang,
+            period,
+            deadline,
+            commodity_id,
+            target_amount,
+            account_ids,
+        )
+        .await
+    }
+
+    pub async fn saving_plan_delete(
+        &self,
+        id: accounting::id::SavingPlanId,
+    ) -> Result<(), DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::saving_plan::saving_plan_delete(&mut conn, id).await
+    }
+
+    pub async fn saving_plan_get_accounts(
+        &self,
+        plan_id: accounting::id::SavingPlanId,
+    ) -> Result<Vec<accounting::saving_plan::SavingPlanAccount>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::saving_plan::saving_plan_get_accounts(&mut conn, plan_id).await
+    }
+
+    pub async fn saving_plan_list_all_with_accounts(
+        &self,
+    ) -> Result<
+        Vec<(
+            accounting::saving_plan::SavingPlan,
+            Vec<accounting::saving_plan::SavingPlanAccount>,
+        )>,
+        DbError,
+    > {
+        let mut conn = self.acquire().await?;
+        crate::repo::saving_plan::saving_plan_list_all_with_accounts(&mut conn).await
     }
 
     // === Account Mapping ===
@@ -1103,6 +1249,37 @@ impl SqliteDatabase {
         .await
     }
 
+    /// 不限下界的分录合计（一次性预算实际值口径，上界为 end_date 当天结束）
+    pub async fn posting_sum_before(
+        &self,
+        account_ids: &[accounting::id::AccountId],
+        end_date: chrono::NaiveDate,
+        exclude_tag_ids: &[accounting::id::TagId],
+        commodity_id: accounting::id::CommodityId,
+    ) -> Result<Vec<(accounting::id::AccountId, rust_decimal::Decimal)>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::posting::posting_sum_before(
+            &mut conn,
+            account_ids,
+            end_date,
+            exclude_tag_ids,
+            commodity_id,
+        )
+        .await
+    }
+
+    /// 账户集合（含后代）截至 as_of 的余额合计（攒钱计划判定口径）
+    pub async fn account_balance_by_ids(
+        &self,
+        account_ids: &[accounting::id::AccountId],
+        commodity_id: accounting::id::CommodityId,
+        as_of: chrono::NaiveDate,
+    ) -> Result<rust_decimal::Decimal, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::posting::account_balance_by_ids(&mut conn, account_ids, commodity_id, as_of)
+            .await
+    }
+
     pub async fn posting_sum_all_assets(
         &self,
     ) -> Result<
@@ -1176,5 +1353,76 @@ mod tests {
                 .unwrap();
 
         assert_eq!(root_names, vec!["Assets", "Equity", "Expenses", "Income"]);
+    }
+
+    #[tokio::test]
+    async fn test_saving_plan_wrappers() {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize().await.unwrap();
+
+        let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
+        let account = accounting::account::Account {
+            id: accounting::id::AccountId(0),
+            parent_id: Some(assets_id),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let account_id = db
+            .account_create_with_name(&account, "Alipay", "en")
+            .await
+            .unwrap();
+
+        let deadline = chrono::NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
+        let plan_id = db
+            .saving_plan_create(
+                "Trip Fund",
+                None,
+                Some(deadline),
+                accounting::id::CommodityId(1),
+                rust_decimal::Decimal::from_str("5000").unwrap(),
+                &[account_id],
+                "en",
+            )
+            .await
+            .unwrap();
+
+        let plan = db.saving_plan_get(plan_id).await.unwrap().unwrap();
+        assert_eq!(plan.period, None);
+        assert_eq!(plan.deadline, Some(deadline));
+        assert_eq!(
+            plan.target_amount,
+            rust_decimal::Decimal::from_str("5000").unwrap()
+        );
+
+        // 显示名批量解析
+        let names = db
+            .saving_plan_display_names(&[plan_id], "zh-CN")
+            .await
+            .unwrap();
+        assert_eq!(names.get(&plan_id).unwrap(), "Trip Fund");
+
+        // 账户集合
+        let accounts = db.saving_plan_get_accounts(plan_id).await.unwrap();
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].account_id, account_id);
+
+        // 余额聚合包装（无分录 → 0）
+        let balance = db
+            .account_balance_by_ids(
+                &[account_id],
+                accounting::id::CommodityId(1),
+                chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(balance, rust_decimal::Decimal::ZERO);
+
+        // list_all_with_accounts + 删除
+        let all = db.saving_plan_list_all_with_accounts().await.unwrap();
+        assert_eq!(all.len(), 1);
+        db.saving_plan_delete(plan_id).await.unwrap();
+        assert!(db.saving_plan_get(plan_id).await.unwrap().is_none());
     }
 }

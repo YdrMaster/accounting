@@ -308,8 +308,10 @@ pub struct BudgetDto {
     pub id: i64,
     /// 预算表名称。
     pub name: String,
-    /// 周期类型。
-    pub period: String,
+    /// 周期类型（一次性预算为 null）。
+    pub period: Option<String>,
+    /// 截止日期（"YYYY-MM-DD"，无截止为 null）。
+    pub deadline: Option<String>,
     /// 币种 ID。
     pub commodity_id: i64,
 }
@@ -337,10 +339,12 @@ pub struct BudgetDetailDto {
 pub struct BudgetStatusDto {
     /// 预算表信息。
     pub budget: BudgetDto,
-    /// 周期起始日期。
-    pub period_start: String,
-    /// 周期结束日期。
-    pub period_end: String,
+    /// 是否已失效（查询日晚于 deadline）。
+    pub expired: bool,
+    /// 周期起始日期（一次性预算为 null）。
+    pub period_start: Option<String>,
+    /// 周期结束日期（一次性预算为 null）。
+    pub period_end: Option<String>,
     /// 各账户执行情况。
     pub items: Vec<BudgetItemStatusDto>,
 }
@@ -374,8 +378,10 @@ pub struct BudgetLimitRequest {
 pub struct CreateBudgetRequest {
     /// 预算表名称。
     pub name: String,
-    /// 周期类型。
-    pub period: String,
+    /// 周期类型（缺省/null 表示一次性预算）。
+    pub period: Option<String>,
+    /// 截止日期（"YYYY-MM-DD"，可为 null）。
+    pub deadline: Option<String>,
     /// 币种 ID。
     pub commodity_id: i64,
     /// 限额列表。
@@ -387,8 +393,10 @@ pub struct CreateBudgetRequest {
 pub struct UpdateBudgetRequest {
     /// 预算表名称。
     pub name: String,
-    /// 周期类型。
-    pub period: String,
+    /// 周期类型（可为 null）。
+    pub period: Option<String>,
+    /// 截止日期（"YYYY-MM-DD"，可为 null）。
+    pub deadline: Option<String>,
     /// 币种 ID。
     pub commodity_id: i64,
     /// 限额列表。
@@ -444,4 +452,116 @@ pub fn to_period_string(period: accounting::finance_period::FinancePeriod) -> &'
         FinancePeriod::Monthly => "monthly",
         FinancePeriod::Yearly => "yearly",
     }
+}
+
+/// 解析可选周期字符串（None 或空字符串 → None，表示一次性）。
+pub fn parse_period_opt(
+    s: Option<&str>,
+) -> Result<Option<accounting::finance_period::FinancePeriod>, String> {
+    match s {
+        Some(s) if !s.is_empty() => parse_period(s).map(Some),
+        _ => Ok(None),
+    }
+}
+
+/// 将可选 FinancePeriod 转为 API 字符串（None → None，序列化为 JSON null）。
+pub fn period_to_string(
+    period: Option<accounting::finance_period::FinancePeriod>,
+) -> Option<String> {
+    period.map(|p| to_period_string(p).to_string())
+}
+
+/// 解析可选截止日期字符串（None 或空字符串 → None）。
+pub fn parse_deadline(s: Option<&str>) -> Result<Option<chrono::NaiveDate>, String> {
+    match s {
+        Some(s) if !s.is_empty() => chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+            .map(Some)
+            .map_err(|e| format!("无效日期: {}", e)),
+        _ => Ok(None),
+    }
+}
+
+// ─── 攒钱计划 DTO ───
+
+/// 攒钱计划响应。
+#[derive(Serialize)]
+pub struct SavingPlanDto {
+    /// 攒钱计划 ID。
+    pub id: i64,
+    /// 攒钱计划名称。
+    pub name: String,
+    /// 周期类型（一次性计划为 null）。
+    pub period: Option<String>,
+    /// 截止日期（"YYYY-MM-DD"，无截止为 null）。
+    pub deadline: Option<String>,
+    /// 币种 ID。
+    pub commodity_id: i64,
+    /// 目标金额（Decimal 序列化为字符串）。
+    pub target_amount: String,
+    /// 关联账户 ID 列表。
+    pub account_ids: Vec<i64>,
+}
+
+/// 攒钱计划详情响应（含账户 ID 列表）。
+#[derive(Serialize)]
+pub struct SavingPlanDetailDto {
+    /// 攒钱计划信息。
+    pub plan: SavingPlanDto,
+    /// 关联账户 ID 列表。
+    pub account_ids: Vec<i64>,
+}
+
+/// 攒钱计划状态响应。
+#[derive(Serialize)]
+pub struct SavingPlanStatusDto {
+    /// 攒钱计划信息。
+    pub plan: SavingPlanDto,
+    /// 是否已失效（查询日晚于 deadline）。
+    pub expired: bool,
+    /// 周期起始日期（一次性计划为 null）。
+    pub period_start: Option<String>,
+    /// 周期结束日期（一次性计划为 null）。
+    pub period_end: Option<String>,
+    /// 目标金额。
+    pub target_amount: String,
+    /// 账户集合（含后代）截至查询日的余额合计。
+    pub current_balance: String,
+    /// 缺口（target_amount - current_balance，负值表示已超额）。
+    pub gap: String,
+    /// 是否达标（current_balance >= target_amount）。
+    pub met: bool,
+}
+
+/// 创建攒钱计划请求。
+#[derive(Deserialize)]
+pub struct CreateSavingPlanRequest {
+    /// 攒钱计划名称。
+    pub name: String,
+    /// 周期类型（缺省/null 表示一次性计划）。
+    pub period: Option<String>,
+    /// 截止日期（"YYYY-MM-DD"，可为 null）。
+    pub deadline: Option<String>,
+    /// 币种 ID。
+    pub commodity_id: i64,
+    /// 目标金额（Decimal 字符串）。
+    pub target_amount: String,
+    /// 关联账户 ID 列表。
+    pub account_ids: Vec<i64>,
+}
+
+/// 更新攒钱计划请求。
+#[derive(Deserialize)]
+pub struct UpdateSavingPlanRequest {
+    /// 攒钱计划名称。
+    pub name: String,
+    /// 周期类型（可为 null）。
+    pub period: Option<String>,
+    /// 截止日期（"YYYY-MM-DD"，可为 null）。
+    pub deadline: Option<String>,
+    /// 币种 ID。
+    pub commodity_id: i64,
+    /// 目标金额（Decimal 字符串）。
+    pub target_amount: String,
+    /// 关联账户 ID 列表。
+    pub account_ids: Vec<i64>,
 }

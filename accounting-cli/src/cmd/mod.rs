@@ -8,6 +8,7 @@ pub mod mapping;
 pub mod member;
 pub mod report;
 pub mod resolver;
+pub mod saving_plan;
 pub mod tag;
 pub mod tx;
 
@@ -64,6 +65,9 @@ pub enum Commands {
     /// 预算管理
     #[command(subcommand)]
     Budget(budget::BudgetCmd),
+    /// 攒钱计划管理
+    #[command(name = "saving-plan", subcommand)]
+    SavingPlan(saving_plan::SavingPlanCmd),
     /// Beancount 导入导出
     #[command(subcommand)]
     Beancount(beancount::BeancountCmd),

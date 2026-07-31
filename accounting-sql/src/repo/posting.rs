@@ -607,6 +607,50 @@ pub async fn sum_by_account_with_descendants(
         .collect())
 }
 
+/// 计算账户集合（含闭包表后代）截至某日期的余额合计（仅统计指定币种）
+///
+/// - 通过 account_ancestors 闭包表把账户集合展开为含后代的 ID 集合（SELECT DISTINCT
+///   去重，父子同选时不重复计数）
+/// - 只统计 `t.date_time <= end_of_day(as_of)` 的分录，无下界
+/// - 用于攒钱计划的余额口径判定
+pub async fn account_balance_by_ids(
+    conn: &mut SqliteConnection,
+    account_ids: &[AccountId],
+    commodity_id: CommodityId,
+    as_of: chrono::NaiveDate,
+) -> Result<Decimal, DbError> {
+    if account_ids.is_empty() {
+        return Ok(Decimal::ZERO);
+    }
+
+    let precision = get_precision(conn, commodity_id).await?;
+
+    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+        "SELECT COALESCE(SUM(p.amount), 0)
+         FROM postings p
+         JOIN transactions t ON p.transaction_id = t.id
+         WHERE p.account_id IN (
+             SELECT DISTINCT anc.account_id FROM account_ancestors anc
+             WHERE anc.ancestor_id IN (",
+    );
+    let mut separated = builder.separated(", ");
+    for id in account_ids {
+        separated.push_bind(id.0);
+    }
+    builder.push(")) AND t.date_time <= ");
+    builder.push_bind(datetime_utils::end_of_day(as_of).to_string());
+    builder.push(" AND p.commodity_id = ");
+    builder.push_bind(commodity_id.0);
+
+    let total: i64 = builder
+        .build_query_scalar()
+        .fetch_one(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    Ok(from_db_amount(total, precision))
+}
+
 /// 按账户组汇总分录金额（不含闭包表后代聚合，排除指定标签的交易，仅统计指定币种）
 ///
 /// 与 `sum_by_account_with_descendants` 不同，此方法仅统计指定账户自身的分录，
@@ -615,6 +659,48 @@ pub async fn posting_sum_by_period(
     conn: &mut SqliteConnection,
     account_ids: &[AccountId],
     start_date: chrono::NaiveDate,
+    end_date: chrono::NaiveDate,
+    exclude_tag_ids: &[TagId],
+    commodity_id: CommodityId,
+) -> Result<Vec<(AccountId, Decimal)>, DbError> {
+    posting_sum_in_window(
+        conn,
+        account_ids,
+        Some(start_date),
+        end_date,
+        exclude_tag_ids,
+        commodity_id,
+    )
+    .await
+}
+
+/// 按账户组汇总分录金额（不限下界，上界为 end_date 当天结束）
+///
+/// 一次性预算（period 为空）的实际值口径：从最早记录累计到
+/// min(查询日, deadline)，窗口上界由 service 层计算后作为 end_date 传入。
+pub async fn posting_sum_before(
+    conn: &mut SqliteConnection,
+    account_ids: &[AccountId],
+    end_date: chrono::NaiveDate,
+    exclude_tag_ids: &[TagId],
+    commodity_id: CommodityId,
+) -> Result<Vec<(AccountId, Decimal)>, DbError> {
+    posting_sum_in_window(
+        conn,
+        account_ids,
+        None,
+        end_date,
+        exclude_tag_ids,
+        commodity_id,
+    )
+    .await
+}
+
+/// `posting_sum_by_period` / `posting_sum_before` 的共享实现；start_date 为 None 时不限下界
+async fn posting_sum_in_window(
+    conn: &mut SqliteConnection,
+    account_ids: &[AccountId],
+    start_date: Option<chrono::NaiveDate>,
     end_date: chrono::NaiveDate,
     exclude_tag_ids: &[TagId],
     commodity_id: CommodityId,
@@ -636,9 +722,13 @@ pub async fn posting_sum_by_period(
     for id in account_ids {
         separated.push_bind(id.0);
     }
-    builder.push(") AND t.date_time >= ");
-    builder.push_bind(datetime_utils::start_of_day(start_date).to_string());
-    builder.push(" AND t.date_time <= ");
+    builder.push(") ");
+    if let Some(start) = start_date {
+        builder.push("AND t.date_time >= ");
+        builder.push_bind(datetime_utils::start_of_day(start).to_string());
+        builder.push(" ");
+    }
+    builder.push("AND t.date_time <= ");
     builder.push_bind(datetime_utils::end_of_day(end_date).to_string());
     builder.push(" AND p.commodity_id = ");
     builder.push_bind(commodity_id.0);
@@ -1473,5 +1563,151 @@ mod tests {
         assert_eq!(deltas.len(), 1);
         assert_eq!(deltas[0].0, asset);
         assert!(!deltas.iter().any(|(id, _, _)| *id == equity_id));
+    }
+
+    async fn insert_child_account(
+        conn: &mut SqliteConnection,
+        name: &str,
+        parent: AccountId,
+    ) -> AccountId {
+        let account = Account {
+            id: AccountId(0),
+            parent_id: Some(parent),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let id = account_create_with_closure(conn, &account).await.unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', ?2, 0, 1)",
+        )
+        .bind(id.0)
+        .bind(name)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+        id
+    }
+
+    #[tokio::test]
+    async fn test_account_balance_by_ids() {
+        let mut conn = setup().await;
+        let bank = insert_account(&mut conn, "Bank").await;
+        let bank_sub = insert_child_account(&mut conn, "Bank:Sub", bank).await;
+
+        // 第二币种 USD（精度 2）
+        let usd_id: i64 = sqlx::query_scalar(
+            "INSERT INTO commodities (symbol, precision) VALUES ('USD', 2) RETURNING id",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+
+        let tx1 = insert_transaction_on(&mut conn, "2024-01-05").await;
+        posting_insert(&mut conn, &sample_posting(tx1, bank, "1000.00"))
+            .await
+            .unwrap();
+
+        let tx2 = insert_transaction_on(&mut conn, "2024-01-10").await;
+        posting_insert(&mut conn, &sample_posting(tx2, bank_sub, "500.00"))
+            .await
+            .unwrap();
+
+        let tx3 = insert_transaction_on(&mut conn, "2024-02-01").await;
+        posting_insert(&mut conn, &sample_posting(tx3, bank, "200.00"))
+            .await
+            .unwrap();
+
+        // USD 分录不应计入 CNY 合计
+        let tx4 = insert_transaction_on(&mut conn, "2024-01-15").await;
+        let mut p_usd = sample_posting(tx4, bank_sub, "300.00");
+        p_usd.commodity_id = CommodityId(usd_id);
+        posting_insert(&mut conn, &p_usd).await.unwrap();
+
+        let as_of_jan = NaiveDate::from_ymd_opt(2024, 1, 31).unwrap();
+
+        // 含后代：只选父账户，子账户分录计入
+        let balance = account_balance_by_ids(&mut conn, &[bank], CommodityId(1), as_of_jan)
+            .await
+            .unwrap();
+        assert_eq!(balance, Decimal::from_str("1500.00").unwrap());
+
+        // 日期上界：1/06 只含 1/05 的分录
+        let balance = account_balance_by_ids(
+            &mut conn,
+            &[bank],
+            CommodityId(1),
+            NaiveDate::from_ymd_opt(2024, 1, 6).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(balance, Decimal::from_str("1000.00").unwrap());
+
+        // 父子同选不得重复计数
+        let balance =
+            account_balance_by_ids(&mut conn, &[bank, bank_sub], CommodityId(1), as_of_jan)
+                .await
+                .unwrap();
+        assert_eq!(balance, Decimal::from_str("1500.00").unwrap());
+
+        // 币种过滤：USD 合计独立
+        let balance = account_balance_by_ids(&mut conn, &[bank], CommodityId(usd_id), as_of_jan)
+            .await
+            .unwrap();
+        assert_eq!(balance, Decimal::from_str("300.00").unwrap());
+
+        // 空集合 → 0
+        let balance = account_balance_by_ids(&mut conn, &[], CommodityId(1), as_of_jan)
+            .await
+            .unwrap();
+        assert_eq!(balance, Decimal::ZERO);
+    }
+
+    #[tokio::test]
+    async fn test_posting_sum_before() {
+        let mut conn = setup().await;
+        let food = insert_expense_account(&mut conn, "Expenses:Meal").await;
+
+        // 很早的历史分录 + 两笔近期分录
+        let tx0 = insert_transaction_on(&mut conn, "2023-12-01").await;
+        posting_insert(&mut conn, &sample_posting(tx0, food, "-50.00"))
+            .await
+            .unwrap();
+        let tx1 = insert_transaction_on(&mut conn, "2024-06-10").await;
+        posting_insert(&mut conn, &sample_posting(tx1, food, "-100.00"))
+            .await
+            .unwrap();
+        let tx2 = insert_transaction_on(&mut conn, "2024-07-01").await;
+        posting_insert(&mut conn, &sample_posting(tx2, food, "-30.00"))
+            .await
+            .unwrap();
+
+        // 不限下界：2023 年的历史分录也计入
+        let sums = posting_sum_before(
+            &mut conn,
+            &[food],
+            NaiveDate::from_ymd_opt(2024, 6, 30).unwrap(),
+            &[],
+            CommodityId(1),
+        )
+        .await
+        .unwrap();
+        let total: Decimal = sums.iter().map(|(_, a)| *a).sum();
+        assert_eq!(total, Decimal::from_str("-150.00").unwrap());
+
+        // 上界截断
+        let sums = posting_sum_before(
+            &mut conn,
+            &[food],
+            NaiveDate::from_ymd_opt(2024, 6, 9).unwrap(),
+            &[],
+            CommodityId(1),
+        )
+        .await
+        .unwrap();
+        let total: Decimal = sums.iter().map(|(_, a)| *a).sum();
+        assert_eq!(total, Decimal::from_str("-50.00").unwrap());
     }
 }

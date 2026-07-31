@@ -210,7 +210,7 @@ impl ConfigService {
                 }
                 YamlBudget {
                     name: budget_names.get(&budget.id).cloned().unwrap_or_default(),
-                    period: budget.period.to_string(),
+                    period: budget.period.map(|p| p.to_string()).unwrap_or_default(),
                     commodity,
                     limits: limit_map,
                 }
@@ -369,9 +369,16 @@ impl ConfigService {
                 })?;
                 limits.push((account_id, amount));
             }
-            tx.budget_upsert_by_name(&budget.name, period, commodity_id, &limits, &file_lang)
-                .await
-                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+            tx.budget_upsert_by_name(
+                &budget.name,
+                Some(period),
+                None,
+                commodity_id,
+                &limits,
+                &file_lang,
+            )
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         }
 
         // 9. rebuild account ancestors
@@ -463,7 +470,8 @@ mod tests {
 
         db.budget_upsert_by_name(
             "月度预算",
-            FinancePeriod::Monthly,
+            Some(FinancePeriod::Monthly),
+            None,
             CommodityId(1),
             &[(account_id, Decimal::from_str("3000.00").unwrap())],
             "zh-CN",

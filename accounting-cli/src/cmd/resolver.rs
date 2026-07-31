@@ -1,6 +1,6 @@
 use accounting::account::Account;
 use accounting::error::AccountingError;
-use accounting::id::{AccountId, BudgetId, ChannelId, CommodityId, MemberId};
+use accounting::id::{AccountId, BudgetId, ChannelId, CommodityId, MemberId, SavingPlanId};
 use accounting_sql::SqliteDatabase;
 use rust_i18n::t;
 use std::collections::HashMap;
@@ -119,6 +119,27 @@ pub async fn resolve_budget(db: &SqliteDatabase, name: &str) -> Result<BudgetId,
         .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
     budget.map(|b| b.id).ok_or_else(|| {
         AccountingError::InvalidTransaction(format!("{}", t!("budget_not_found", name = name)))
+    })
+}
+
+/// 解析攒钱计划名称到 SavingPlanId
+pub async fn resolve_saving_plan(
+    db: &SqliteDatabase,
+    name: &str,
+) -> Result<SavingPlanId, AccountingError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AccountingError::InvalidTransaction(format!(
+            "{}",
+            t!("saving_plan_name_empty")
+        )));
+    }
+    let plan = db
+        .saving_plan_get_by_name(name)
+        .await
+        .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+    plan.map(|p| p.id).ok_or_else(|| {
+        AccountingError::InvalidTransaction(format!("{}", t!("saving_plan_not_found", name = name)))
     })
 }
 

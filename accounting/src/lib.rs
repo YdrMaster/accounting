@@ -38,6 +38,8 @@ pub mod name;
 pub mod posting;
 /// 分录角色（收支侧/资产侧）
 pub mod posting_role;
+/// 攒钱计划模型
+pub mod saving_plan;
 pub use transaction::TransactionKind;
 /// 日期时间工具函数
 pub mod datetime_utils;

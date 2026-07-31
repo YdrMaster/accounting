@@ -1,5 +1,7 @@
+use crate::account_type::AccountType;
 use crate::finance_period::FinancePeriod;
 use crate::id::{AccountId, BudgetId, CommodityId};
+use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -9,8 +11,10 @@ use std::collections::HashSet;
 pub struct Budget {
     /// 预算表唯一标识符
     pub id: BudgetId,
-    /// 预算周期
-    pub period: FinancePeriod,
+    /// 预算周期（None 表示一次性/无节奏预算）
+    pub period: Option<FinancePeriod>,
+    /// 截止日期（None 表示永久有效）
+    pub deadline: Option<NaiveDate>,
     /// 限额统一币种（所有限额折算到此币种）
     pub commodity_id: CommodityId,
 }
@@ -43,6 +47,8 @@ pub enum BudgetError {
     CommodityNotFound(CommodityId),
     /// 预算表不存在
     BudgetNotFound(BudgetId),
+    /// 限额账户不是支出账户（必须位于 Expenses 根子树内）
+    AccountNotExpense(AccountId),
     /// 数据库错误
     DatabaseError(String),
 }
@@ -57,6 +63,9 @@ impl std::fmt::Display for BudgetError {
             BudgetError::InvalidAmount(amount) => write!(f, "限额金额无效: {}", amount),
             BudgetError::CommodityNotFound(id) => write!(f, "币种不存在: {}", id),
             BudgetError::BudgetNotFound(id) => write!(f, "预算表不存在: {}", id),
+            BudgetError::AccountNotExpense(id) => {
+                write!(f, "限额账户必须位于支出根账户子树内: {}", id)
+            }
             BudgetError::DatabaseError(msg) => write!(f, "数据库错误: {}", msg),
         }
     }
@@ -72,11 +81,14 @@ impl std::error::Error for BudgetError {}
 /// - 每个 account_id 必须在 accounts 中存在
 /// - 同一预算表中 account_id 不可重复
 /// - 限额金额必须 > 0
+/// - 每个限额账户必须位于 Expenses 根账户子树内（account_types 中类型为 Expense；
+///   类型未解析到视为账户不存在）
 /// - commodity_id 必须在 commodities 中存在
 pub fn validate_budget(
     name: &str,
     limits: &[(AccountId, Decimal)],
     accounts: &HashMap<AccountId, crate::account::Account>,
+    account_types: &HashMap<AccountId, AccountType>,
     _commodity_ids: &HashSet<CommodityId>,
 ) -> Result<(), BudgetError> {
     if name.trim().is_empty() {
@@ -100,6 +112,12 @@ pub fn validate_budget(
         if !amount.is_sign_positive() || amount.is_zero() {
             return Err(BudgetError::InvalidAmount(*amount));
         }
+
+        match account_types.get(account_id) {
+            Some(AccountType::Expense) => {}
+            Some(_) => return Err(BudgetError::AccountNotExpense(*account_id)),
+            None => return Err(BudgetError::AccountNotFound(*account_id)),
+        }
     }
 
     // commodity_id 验证由调用者传入有效的 commodity_ids 集合
@@ -112,8 +130,39 @@ pub fn validate_budget(
 mod tests {
     use super::*;
     use crate::account::Account;
+    use crate::account_type::AccountType;
     use crate::id::AccountId;
+    use chrono::NaiveDate;
     use std::str::FromStr;
+
+    // === Budget 结构体测试 ===
+
+    #[test]
+    fn test_budget_recurring_instance() {
+        let budget = Budget {
+            id: BudgetId(1),
+            period: Some(FinancePeriod::Monthly),
+            deadline: None,
+            commodity_id: CommodityId(1),
+        };
+        assert_eq!(budget.id, BudgetId(1));
+        assert_eq!(budget.period, Some(FinancePeriod::Monthly));
+        assert_eq!(budget.deadline, None);
+        assert_eq!(budget.commodity_id, CommodityId(1));
+    }
+
+    #[test]
+    fn test_budget_one_off_instance() {
+        let deadline = NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
+        let budget = Budget {
+            id: BudgetId(2),
+            period: None,
+            deadline: Some(deadline),
+            commodity_id: CommodityId(1),
+        };
+        assert_eq!(budget.period, None);
+        assert_eq!(budget.deadline, Some(deadline));
+    }
 
     // === BudgetError Display 测试 ===
 
@@ -147,6 +196,11 @@ mod tests {
                 .contains("2")
         );
         assert!(
+            BudgetError::AccountNotExpense(AccountId(7))
+                .to_string()
+                .contains("7")
+        );
+        assert!(
             BudgetError::DatabaseError("conn failed".to_string())
                 .to_string()
                 .contains("conn failed")
@@ -173,28 +227,36 @@ mod tests {
         ids.iter().map(|&id| sample_account(id)).collect()
     }
 
+    fn account_types(ids: &[i64], account_type: AccountType) -> HashMap<AccountId, AccountType> {
+        ids.iter()
+            .map(|&id| (AccountId(id), account_type))
+            .collect()
+    }
+
     #[test]
     fn test_validate_budget_ok() {
         let accounts = sample_accounts(&[1, 2]);
+        let types = account_types(&[1, 2], AccountType::Expense);
         let commodity_ids = HashSet::from([CommodityId(1)]);
         let limits = vec![
             (AccountId(1), Decimal::from_str("2000").unwrap()),
             (AccountId(2), Decimal::from_str("500").unwrap()),
         ];
-        assert!(validate_budget("月度生活", &limits, &accounts, &commodity_ids).is_ok());
+        assert!(validate_budget("月度生活", &limits, &accounts, &types, &commodity_ids).is_ok());
     }
 
     #[test]
     fn test_validate_budget_empty_name() {
         let accounts = sample_accounts(&[1]);
+        let types = account_types(&[1], AccountType::Expense);
         let commodity_ids = HashSet::from([CommodityId(1)]);
         let limits = vec![(AccountId(1), Decimal::from_str("100").unwrap())];
         assert_eq!(
-            validate_budget("", &limits, &accounts, &commodity_ids),
+            validate_budget("", &limits, &accounts, &types, &commodity_ids),
             Err(BudgetError::EmptyName)
         );
         assert_eq!(
-            validate_budget("   ", &limits, &accounts, &commodity_ids),
+            validate_budget("   ", &limits, &accounts, &types, &commodity_ids),
             Err(BudgetError::EmptyName)
         );
     }
@@ -202,9 +264,10 @@ mod tests {
     #[test]
     fn test_validate_budget_empty_limits() {
         let accounts = sample_accounts(&[1]);
+        let types = account_types(&[1], AccountType::Expense);
         let commodity_ids = HashSet::from([CommodityId(1)]);
         assert_eq!(
-            validate_budget("测试", &[], &accounts, &commodity_ids),
+            validate_budget("测试", &[], &accounts, &types, &commodity_ids),
             Err(BudgetError::EmptyLimits)
         );
     }
@@ -212,10 +275,11 @@ mod tests {
     #[test]
     fn test_validate_budget_account_not_found() {
         let accounts = sample_accounts(&[1]);
+        let types = account_types(&[1], AccountType::Expense);
         let commodity_ids = HashSet::from([CommodityId(1)]);
         let limits = vec![(AccountId(99), Decimal::from_str("100").unwrap())];
         assert_eq!(
-            validate_budget("测试", &limits, &accounts, &commodity_ids),
+            validate_budget("测试", &limits, &accounts, &types, &commodity_ids),
             Err(BudgetError::AccountNotFound(AccountId(99)))
         );
     }
@@ -223,13 +287,14 @@ mod tests {
     #[test]
     fn test_validate_budget_duplicate_account() {
         let accounts = sample_accounts(&[1]);
+        let types = account_types(&[1], AccountType::Expense);
         let commodity_ids = HashSet::from([CommodityId(1)]);
         let limits = vec![
             (AccountId(1), Decimal::from_str("100").unwrap()),
             (AccountId(1), Decimal::from_str("200").unwrap()),
         ];
         assert_eq!(
-            validate_budget("测试", &limits, &accounts, &commodity_ids),
+            validate_budget("测试", &limits, &accounts, &types, &commodity_ids),
             Err(BudgetError::DuplicateAccount(AccountId(1)))
         );
     }
@@ -237,10 +302,11 @@ mod tests {
     #[test]
     fn test_validate_budget_invalid_amount_zero() {
         let accounts = sample_accounts(&[1]);
+        let types = account_types(&[1], AccountType::Expense);
         let commodity_ids = HashSet::from([CommodityId(1)]);
         let limits = vec![(AccountId(1), Decimal::ZERO)];
         assert_eq!(
-            validate_budget("测试", &limits, &accounts, &commodity_ids),
+            validate_budget("测试", &limits, &accounts, &types, &commodity_ids),
             Err(BudgetError::InvalidAmount(Decimal::ZERO))
         );
     }
@@ -248,13 +314,44 @@ mod tests {
     #[test]
     fn test_validate_budget_invalid_amount_negative() {
         let accounts = sample_accounts(&[1]);
+        let types = account_types(&[1], AccountType::Expense);
         let commodity_ids = HashSet::from([CommodityId(1)]);
         let limits = vec![(AccountId(1), Decimal::from_str("-100").unwrap())];
         assert_eq!(
-            validate_budget("测试", &limits, &accounts, &commodity_ids),
+            validate_budget("测试", &limits, &accounts, &types, &commodity_ids),
             Err(BudgetError::InvalidAmount(
                 Decimal::from_str("-100").unwrap()
             ))
+        );
+    }
+
+    #[test]
+    fn test_validate_budget_account_not_expense() {
+        // 限额账户位于 Assets 根子树 → 拒绝
+        let accounts = sample_accounts(&[1, 2]);
+        let mut types = account_types(&[1], AccountType::Expense);
+        types.extend(account_types(&[2], AccountType::Asset));
+        let commodity_ids = HashSet::from([CommodityId(1)]);
+        let limits = vec![
+            (AccountId(1), Decimal::from_str("100").unwrap()),
+            (AccountId(2), Decimal::from_str("200").unwrap()),
+        ];
+        assert_eq!(
+            validate_budget("测试", &limits, &accounts, &types, &commodity_ids),
+            Err(BudgetError::AccountNotExpense(AccountId(2)))
+        );
+    }
+
+    #[test]
+    fn test_validate_budget_account_type_missing() {
+        // 账户存在但类型未解析到 → 视为账户不存在
+        let accounts = sample_accounts(&[1]);
+        let types = HashMap::new();
+        let commodity_ids = HashSet::from([CommodityId(1)]);
+        let limits = vec![(AccountId(1), Decimal::from_str("100").unwrap())];
+        assert_eq!(
+            validate_budget("测试", &limits, &accounts, &types, &commodity_ids),
+            Err(BudgetError::AccountNotFound(AccountId(1)))
         );
     }
 }

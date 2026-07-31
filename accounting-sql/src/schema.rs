@@ -714,7 +714,8 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     r#"
     CREATE TABLE IF NOT EXISTS budgets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        period INTEGER NOT NULL,
+        period INTEGER,
+        deadline TEXT,
         commodity_id INTEGER NOT NULL REFERENCES commodities(id),
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -772,6 +773,70 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         WHERE member_id = NEW.member_id AND channel_id = NEW.channel_id AND category = NEW.category;
     END;
     "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS saving_plans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        period INTEGER,
+        deadline TEXT,
+        commodity_id INTEGER NOT NULL REFERENCES commodities(id),
+        target_amount INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS saving_plan_accounts (
+        plan_id INTEGER NOT NULL REFERENCES saving_plans(id) ON DELETE CASCADE,
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (plan_id, account_id)
+    );
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS saving_plan_names (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_id INTEGER NOT NULL REFERENCES saving_plans(id) ON DELETE CASCADE,
+        lang TEXT NOT NULL,
+        name TEXT NOT NULL COLLATE NOCASE,
+        is_system INTEGER NOT NULL DEFAULT 0,
+        is_display INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(plan_id, lang, name)
+    );
+    "#,
+    "CREATE INDEX IF NOT EXISTS idx_saving_plan_accounts_account ON saving_plan_accounts(account_id);",
+    "CREATE INDEX IF NOT EXISTS idx_saving_plan_names_plan ON saving_plan_names(plan_id);",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_saving_plan_names_display ON saving_plan_names(plan_id, lang) WHERE is_display = 1;",
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_saving_plans_updated_at
+    AFTER UPDATE ON saving_plans
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE saving_plans SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_saving_plan_accounts_updated_at
+    AFTER UPDATE ON saving_plan_accounts
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE saving_plan_accounts SET updated_at = datetime('now')
+        WHERE plan_id = NEW.plan_id AND account_id = NEW.account_id;
+    END;
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS update_saving_plan_names_updated_at
+    AFTER UPDATE ON saving_plan_names
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+    BEGIN
+        UPDATE saving_plan_names SET updated_at = datetime('now') WHERE id = NEW.id;
+    END;
+    "#,
 ];
 
 #[cfg(test)]
@@ -822,6 +887,9 @@ mod tests {
         assert!(tables.contains(&"commodity_names".to_string()));
         assert!(tables.contains(&"member_names".to_string()));
         assert!(tables.contains(&"budget_names".to_string()));
+        assert!(tables.contains(&"saving_plans".to_string()));
+        assert!(tables.contains(&"saving_plan_accounts".to_string()));
+        assert!(tables.contains(&"saving_plan_names".to_string()));
     }
 
     #[tokio::test]
@@ -1010,6 +1078,9 @@ mod tests {
             "commodity_names",
             "member_names",
             "budget_names",
+            "saving_plans",
+            "saving_plan_accounts",
+            "saving_plan_names",
         ];
 
         for table in tables {
@@ -1052,5 +1123,99 @@ mod tests {
             .unwrap();
 
         assert_ne!(after, "2000-01-01", "updated_at 触发器未生效");
+    }
+
+    /// budgets 新 DDL：period 可空 + deadline 列存在且可写
+    #[tokio::test]
+    async fn test_budgets_period_nullable_and_deadline_column() {
+        let mut conn = setup_with_seed().await;
+
+        let cols: Vec<(String, i64)> =
+            sqlx::query_as("SELECT name, \"notnull\" FROM pragma_table_info('budgets')")
+                .fetch_all(&mut conn)
+                .await
+                .unwrap();
+        let period = cols
+            .iter()
+            .find(|(name, _)| name == "period")
+            .expect("period 列应存在");
+        assert_eq!(period.1, 0, "period 列应可空");
+        assert!(
+            cols.iter().any(|(name, _)| name == "deadline"),
+            "应有 deadline 列"
+        );
+
+        sqlx::query(
+            "INSERT INTO budgets (period, deadline, commodity_id) VALUES (NULL, '2026-09-30', 1)",
+        )
+        .execute(&mut conn)
+        .await
+        .unwrap();
+        let (period, deadline): (Option<i64>, Option<String>) =
+            sqlx::query_as("SELECT period, deadline FROM budgets")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+        assert_eq!(period, None);
+        assert_eq!(deadline.as_deref(), Some("2026-09-30"));
+    }
+
+    /// saving_plan 三表：列结构、显示名唯一索引、updated_at 触发器
+    #[tokio::test]
+    async fn test_saving_plan_schema() {
+        let mut conn = setup_with_seed().await;
+
+        let plan_id: i64 = sqlx::query_scalar(
+            "INSERT INTO saving_plans (period, deadline, commodity_id, target_amount)
+             VALUES (NULL, NULL, 1, 500000) RETURNING id",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO saving_plan_accounts (plan_id, account_id) VALUES (?1, 1)")
+            .bind(plan_id)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO saving_plan_names (plan_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', 'Trip', 0, 1)",
+        )
+        .bind(plan_id)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+
+        // 每个 (plan, lang) 至多一条显示名
+        let dup = sqlx::query(
+            "INSERT INTO saving_plan_names (plan_id, lang, name, is_system, is_display)
+             VALUES (?1, 'en', 'Trip2', 0, 1)",
+        )
+        .bind(plan_id)
+        .execute(&mut conn)
+        .await;
+        assert!(dup.is_err(), "同语言第二条显示名应被唯一索引拒绝");
+
+        // updated_at 触发器
+        sqlx::query("UPDATE saving_plans SET updated_at = '2000-01-01' WHERE id = ?1")
+            .bind(plan_id)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE saving_plans SET target_amount = 600000 WHERE id = ?1")
+            .bind(plan_id)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        let updated_at: String =
+            sqlx::query_scalar("SELECT updated_at FROM saving_plans WHERE id = ?1")
+                .bind(plan_id)
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+        assert_ne!(
+            updated_at, "2000-01-01",
+            "saving_plans updated_at 触发器未生效"
+        );
     }
 }

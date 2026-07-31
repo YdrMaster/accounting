@@ -16,6 +16,8 @@ pub mod commodity;
 pub mod member;
 /// Posting Repository
 pub mod posting;
+/// SavingPlan Repository
+pub mod saving_plan;
 /// Tag Repository
 pub mod tag;
 /// Transaction Repository
