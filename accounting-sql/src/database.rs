@@ -1280,6 +1280,18 @@ impl SqliteDatabase {
             .await
     }
 
+    /// 每个指定账户各自（含后代）截至 as_of 的余额，按账户分组返回（分配算法口径，不去重）
+    pub async fn account_balances_by_ids(
+        &self,
+        account_ids: &[accounting::id::AccountId],
+        commodity_id: accounting::id::CommodityId,
+        as_of: chrono::NaiveDate,
+    ) -> Result<Vec<(accounting::id::AccountId, rust_decimal::Decimal)>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::posting::account_balances_by_ids(&mut conn, account_ids, commodity_id, as_of)
+            .await
+    }
+
     pub async fn posting_sum_all_assets(
         &self,
     ) -> Result<
@@ -1418,6 +1430,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(balance, rust_decimal::Decimal::ZERO);
+
+        // 分组余额包装（无分录 → 每个账户 0，顺序与输入一致）
+        let balances = db
+            .account_balances_by_ids(
+                &[account_id],
+                accounting::id::CommodityId(1),
+                chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(balances, vec![(account_id, rust_decimal::Decimal::ZERO)]);
 
         // list_all_with_accounts + 删除
         let all = db.saving_plan_list_all_with_accounts().await.unwrap();

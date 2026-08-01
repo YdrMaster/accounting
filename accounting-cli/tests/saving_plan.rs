@@ -55,6 +55,242 @@ fn setup() -> String {
     db
 }
 
+/// 建立含五个资金账户的库：A 3000 / B 1000 / C 2000 / D 1000 / E 500
+fn setup_funded() -> String {
+    let db = db_path();
+    let _ = std::fs::remove_file(&db);
+    run(&db, &["initialize"]);
+    run(&db, &["member", "add", "Alice"]);
+    run(&db, &["account", "add", "Income:Salary"]);
+    for (path, amount) in [
+        ("Assets:A", "3000"),
+        ("Assets:B", "1000"),
+        ("Assets:C", "2000"),
+        ("Assets:D", "1000"),
+        ("Assets:E", "500"),
+    ] {
+        run(&db, &["account", "add", path]);
+        let neg = format!("Income:Salary:CNY:-{}", amount);
+        let pos = format!("{}:CNY:{}", path, amount);
+        run(
+            &db,
+            &[
+                "tx",
+                "add",
+                "--date",
+                "2026-06-01",
+                "--description",
+                "工资",
+                "--posting",
+                &neg,
+                "--posting",
+                &pos,
+                "--member",
+                "Alice",
+            ],
+        );
+    }
+    db
+}
+
+#[test]
+fn test_saving_plan_list_satisfaction_column() {
+    // spec：计划 1（{A,B} 目标 3000）检查点早于计划 2（{A,E} 目标 2000），
+    // A 3000、B 1000、E 500 → 计划 1 满足率 100，计划 2 满足率 75
+    let db = setup_funded();
+    run(
+        &db,
+        &[
+            "saving-plan",
+            "create",
+            "--name",
+            "计划1",
+            "--deadline",
+            "2099-08-31",
+            "--commodity",
+            "CNY",
+            "--target",
+            "3000",
+            "--account",
+            "Assets:A",
+            "--account",
+            "Assets:B",
+        ],
+    );
+    run(
+        &db,
+        &[
+            "saving-plan",
+            "create",
+            "--name",
+            "计划2",
+            "--deadline",
+            "2099-10-31",
+            "--commodity",
+            "CNY",
+            "--target",
+            "2000",
+            "--account",
+            "Assets:A",
+            "--account",
+            "Assets:E",
+        ],
+    );
+
+    let out = run(&db, &["saving-plan", "list"]);
+    assert!(out.contains("Satisfaction"), "list 输出: {}", out);
+    let line1 = out
+        .lines()
+        .find(|l| l.contains("计划1"))
+        .expect("list 应包含计划1");
+    assert!(line1.contains("100"), "计划1 满足率应为 100: {}", line1);
+    let line2 = out
+        .lines()
+        .find(|l| l.contains("计划2"))
+        .expect("list 应包含计划2");
+    assert!(line2.contains("75"), "计划2 满足率应为 75: {}", line2);
+    // 未归一化的 "100.00"/"75.00" 不应出现
+    assert!(!line1.contains("100.00"), "满足率应归一化: {}", line1);
+    assert!(!line2.contains("75.00"), "满足率应归一化: {}", line2);
+}
+
+#[test]
+fn test_saving_plan_show_allocation_detail() {
+    // spec：计划 1（{A,B} 目标 3000）先于计划 2（{A,E} 目标 2000），
+    // show 计划1 → A（余额 3000、被占用 0、分配 2000）、B（余额 1000、被占用 0、分配 1000）
+    let db = setup_funded();
+    run(
+        &db,
+        &[
+            "saving-plan",
+            "create",
+            "--name",
+            "计划1",
+            "--deadline",
+            "2099-08-31",
+            "--commodity",
+            "CNY",
+            "--target",
+            "3000",
+            "--account",
+            "Assets:A",
+            "--account",
+            "Assets:B",
+        ],
+    );
+    run(
+        &db,
+        &[
+            "saving-plan",
+            "create",
+            "--name",
+            "计划2",
+            "--deadline",
+            "2099-10-31",
+            "--commodity",
+            "CNY",
+            "--target",
+            "2000",
+            "--account",
+            "Assets:A",
+            "--account",
+            "Assets:E",
+        ],
+    );
+
+    let out = run(&db, &["saving-plan", "show", "计划1"]);
+    assert!(out.contains("满足率：100%"), "show 输出: {}", out);
+    assert!(out.contains("分配明细"), "show 输出: {}", out);
+    assert!(
+        out.contains("资产:A：余额 3000，被占用 0，本计划分配 2000"),
+        "show 输出: {}",
+        out
+    );
+    assert!(
+        out.contains("资产:B：余额 1000，被占用 0，本计划分配 1000"),
+        "show 输出: {}",
+        out
+    );
+}
+
+#[test]
+fn test_saving_plan_show_allocation_classic_three_plans() {
+    // 经典三计划例：计划1{A,B}3000、计划2{C,D}4000、计划3{A,E}2000，
+    // 余额 A3000/B1000/C2000/D1000/E500 → 计划3 满足率 75，
+    // A（余额 3000、被占用 2000、分配 1000）、E（余额 500、被占用 0、分配 500）
+    let db = setup_funded();
+    run(
+        &db,
+        &[
+            "saving-plan",
+            "create",
+            "--name",
+            "计划1",
+            "--deadline",
+            "2099-08-31",
+            "--commodity",
+            "CNY",
+            "--target",
+            "3000",
+            "--account",
+            "Assets:A",
+            "--account",
+            "Assets:B",
+        ],
+    );
+    run(
+        &db,
+        &[
+            "saving-plan",
+            "create",
+            "--name",
+            "计划2",
+            "--deadline",
+            "2099-09-30",
+            "--commodity",
+            "CNY",
+            "--target",
+            "4000",
+            "--account",
+            "Assets:C",
+            "--account",
+            "Assets:D",
+        ],
+    );
+    run(
+        &db,
+        &[
+            "saving-plan",
+            "create",
+            "--name",
+            "计划3",
+            "--deadline",
+            "2099-10-31",
+            "--commodity",
+            "CNY",
+            "--target",
+            "2000",
+            "--account",
+            "Assets:A",
+            "--account",
+            "Assets:E",
+        ],
+    );
+
+    let out = run(&db, &["saving-plan", "show", "计划3"]);
+    assert!(out.contains("满足率：75%"), "show 输出: {}", out);
+    assert!(
+        out.contains("资产:A：余额 3000，被占用 2000，本计划分配 1000"),
+        "show 输出: {}",
+        out
+    );
+    assert!(
+        out.contains("资产:E：余额 500，被占用 0，本计划分配 500"),
+        "show 输出: {}",
+        out
+    );
+}
+
 #[test]
 fn test_saving_plan_create_one_off_and_list() {
     let db = setup();

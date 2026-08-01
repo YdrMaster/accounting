@@ -651,6 +651,58 @@ pub async fn account_balance_by_ids(
     Ok(from_db_amount(total, precision))
 }
 
+/// 计算每个指定账户各自（含闭包表后代）截至某日期的余额，按账户分组返回（仅统计指定币种）
+///
+/// 与 `account_balance_by_ids` 的合计口径不同：本函数按「选中的账户」为粒度分组，
+/// 父子同选时两池余额允许重叠，不做跨账户去重（分配算法以选中账户为粒度，见 design D6）。
+/// 只统计 `t.date_time <= end_of_day(as_of)` 的分录，无下界。
+/// 结果覆盖输入的每个账户（无分录为 0），顺序与输入一致。
+pub async fn account_balances_by_ids(
+    conn: &mut SqliteConnection,
+    account_ids: &[AccountId],
+    commodity_id: CommodityId,
+    as_of: chrono::NaiveDate,
+) -> Result<Vec<(AccountId, Decimal)>, DbError> {
+    if account_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let precision = get_precision(conn, commodity_id).await?;
+
+    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+        "SELECT anc.ancestor_id, SUM(p.amount) as total
+         FROM postings p
+         JOIN account_ancestors anc ON p.account_id = anc.account_id
+         JOIN transactions t ON p.transaction_id = t.id
+         WHERE anc.ancestor_id IN (",
+    );
+    let mut separated = builder.separated(", ");
+    for id in account_ids {
+        separated.push_bind(id.0);
+    }
+    builder.push(") AND t.date_time <= ");
+    builder.push_bind(datetime_utils::end_of_day(as_of).to_string());
+    builder.push(" AND p.commodity_id = ");
+    builder.push_bind(commodity_id.0);
+    builder.push(" GROUP BY anc.ancestor_id");
+
+    let rows: Vec<(i64, i64)> = builder
+        .build_query_as()
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    let totals: HashMap<AccountId, Decimal> = rows
+        .into_iter()
+        .map(|(account_id, amount)| (AccountId(account_id), from_db_amount(amount, precision)))
+        .collect();
+
+    Ok(account_ids
+        .iter()
+        .map(|id| (*id, totals.get(id).copied().unwrap_or(Decimal::ZERO)))
+        .collect())
+}
+
 /// 按账户组汇总分录金额（不含闭包表后代聚合，排除指定标签的交易，仅统计指定币种）
 ///
 /// 与 `sum_by_account_with_descendants` 不同，此方法仅统计指定账户自身的分录，
@@ -1663,6 +1715,115 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(balance, Decimal::ZERO);
+    }
+
+    #[tokio::test]
+    async fn test_account_balances_by_ids() {
+        let mut conn = setup().await;
+        let bank = insert_account(&mut conn, "BalBank").await;
+        let bank_sub = insert_child_account(&mut conn, "BalBank:Sub", bank).await;
+        let cash = insert_account(&mut conn, "BalCash").await;
+        let empty_account = insert_account(&mut conn, "BalEmpty").await;
+
+        // 第二币种 USD（精度 2）
+        let usd_id: i64 = sqlx::query_scalar(
+            "INSERT INTO commodities (symbol, precision) VALUES ('USD', 2) RETURNING id",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+
+        let tx1 = insert_transaction_on(&mut conn, "2024-01-05").await;
+        posting_insert(&mut conn, &sample_posting(tx1, bank, "1000.00"))
+            .await
+            .unwrap();
+
+        let tx2 = insert_transaction_on(&mut conn, "2024-01-10").await;
+        posting_insert(&mut conn, &sample_posting(tx2, bank_sub, "500.00"))
+            .await
+            .unwrap();
+
+        let tx3 = insert_transaction_on(&mut conn, "2024-02-01").await;
+        posting_insert(&mut conn, &sample_posting(tx3, bank, "200.00"))
+            .await
+            .unwrap();
+
+        // USD 分录不应计入 CNY 余额
+        let tx4 = insert_transaction_on(&mut conn, "2024-01-15").await;
+        let mut p_usd = sample_posting(tx4, bank_sub, "300.00");
+        p_usd.commodity_id = CommodityId(usd_id);
+        posting_insert(&mut conn, &p_usd).await.unwrap();
+
+        let tx5 = insert_transaction_on(&mut conn, "2024-01-20").await;
+        posting_insert(&mut conn, &sample_posting(tx5, cash, "-100.00"))
+            .await
+            .unwrap();
+
+        let as_of_jan = NaiveDate::from_ymd_opt(2024, 1, 31).unwrap();
+
+        // 多账户分组：各自含后代，无分录账户返回 0，顺序与输入一致
+        let balances = account_balances_by_ids(
+            &mut conn,
+            &[bank, cash, empty_account],
+            CommodityId(1),
+            as_of_jan,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            balances,
+            vec![
+                (bank, Decimal::from_str("1500.00").unwrap()),
+                (cash, Decimal::from_str("-100.00").unwrap()),
+                (empty_account, Decimal::ZERO),
+            ]
+        );
+
+        // 父子同选不去重：子账户的钱在两池中各计一次（D6）
+        let balances =
+            account_balances_by_ids(&mut conn, &[bank, bank_sub], CommodityId(1), as_of_jan)
+                .await
+                .unwrap();
+        assert_eq!(
+            balances,
+            vec![
+                (bank, Decimal::from_str("1500.00").unwrap()),
+                (bank_sub, Decimal::from_str("500.00").unwrap()),
+            ]
+        );
+
+        // 日期上界：1/06 只含 1/05 的分录
+        let balances = account_balances_by_ids(
+            &mut conn,
+            &[bank],
+            CommodityId(1),
+            NaiveDate::from_ymd_opt(2024, 1, 6).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            balances,
+            vec![(bank, Decimal::from_str("1000.00").unwrap())]
+        );
+
+        // 币种过滤：USD 余额独立；无 USD 分录的账户为 0
+        let balances =
+            account_balances_by_ids(&mut conn, &[bank, cash], CommodityId(usd_id), as_of_jan)
+                .await
+                .unwrap();
+        assert_eq!(
+            balances,
+            vec![
+                (bank, Decimal::from_str("300.00").unwrap()),
+                (cash, Decimal::ZERO),
+            ]
+        );
+
+        // 空集合 → 空结果
+        let balances = account_balances_by_ids(&mut conn, &[], CommodityId(1), as_of_jan)
+            .await
+            .unwrap();
+        assert!(balances.is_empty());
     }
 
     #[tokio::test]

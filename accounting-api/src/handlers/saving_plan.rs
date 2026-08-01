@@ -1,8 +1,9 @@
 //! 攒钱计划 API handler
 
 use crate::dto::{
-    CreateSavingPlanRequest, SavingPlanDetailDto, SavingPlanDto, SavingPlanStatusDto,
-    UpdateSavingPlanRequest, parse_deadline, parse_period_opt, period_to_string,
+    AccountAllocationDto, CreateSavingPlanRequest, SavingPlanDetailDto, SavingPlanDto,
+    SavingPlanStatusDto, UpdateSavingPlanRequest, parse_deadline, parse_period_opt,
+    period_to_string,
 };
 use crate::handlers::{Lang, member::AppState};
 use accounting::error::AccountingError;
@@ -338,6 +339,19 @@ async fn get_saving_plan_status(
                 current_balance: status.current_balance.to_string(),
                 gap: status.gap.to_string(),
                 met: status.met,
+                allocated: status.allocated.to_string(),
+                // satisfaction 为计算比率，除法/乘法会引入尾随零（如 75.00），归一化去掉
+                satisfaction: status.satisfaction.normalize().to_string(),
+                accounts: status
+                    .accounts
+                    .iter()
+                    .map(|a| AccountAllocationDto {
+                        account_id: a.account_id.0,
+                        balance: a.balance.to_string(),
+                        occupied_by_earlier: a.occupied_by_earlier.to_string(),
+                        allocated: a.allocated.to_string(),
+                    })
+                    .collect(),
             };
             SavingPlanResponse::Ok(Json(serde_json::to_value(dto).unwrap()))
         }
@@ -468,6 +482,50 @@ mod tests {
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         respond(create_saving_plan(State(state.clone()), Lang("zh".to_string()), Json(req)).await)
             .await
+    }
+
+    /// 快捷创建一次性攒钱计划（deadline 决定全局分配检查点顺序），返回创建响应 json
+    async fn create_plan(
+        state: &Arc<AppState>,
+        name: &str,
+        deadline: &str,
+        target: &str,
+        account_ids: &[i64],
+    ) -> serde_json::Value {
+        let ids = account_ids
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let body = format!(
+            r#"{{"name":"{}","period":null,"deadline":"{}","commodity_id":1,"target_amount":"{}","account_ids":[{}]}}"#,
+            name, deadline, target, ids
+        );
+        let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
+        let (status, json) = respond(
+            create_saving_plan(State(state.clone()), Lang("zh".to_string()), Json(req)).await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        json
+    }
+
+    /// 查询状态并断言 200，返回响应 json
+    async fn status_json(state: &Arc<AppState>, id: i64, date: &str) -> serde_json::Value {
+        let (status, json) = respond(
+            get_saving_plan_status(
+                State(state.clone()),
+                Lang("en".to_string()),
+                Path(id),
+                Query(SavingPlanStatusQuery {
+                    date: Some(date.to_string()),
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        json
     }
 
     // === 列表 ===
@@ -930,6 +988,15 @@ mod tests {
         assert_eq!(json["current_balance"], "5200");
         assert_eq!(json["gap"], "-200");
         assert_eq!(json["met"], true);
+        // 过期计划的分配字段也完整返回（无竞争退化口径：不视为被占用）
+        assert_eq!(json["allocated"], "5000");
+        assert_eq!(json["satisfaction"], "100");
+        let accounts = json["accounts"].as_array().unwrap();
+        assert_eq!(accounts.len(), 2);
+        let alipay_entry = accounts.iter().find(|x| x["account_id"] == alipay).unwrap();
+        assert_eq!(alipay_entry["balance"], "5200");
+        assert_eq!(alipay_entry["occupied_by_earlier"], "0");
+        assert_eq!(alipay_entry["allocated"], "5000");
     }
 
     #[tokio::test]
@@ -1002,6 +1069,64 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(json["error"].as_str().unwrap().contains("不存在"));
+    }
+
+    // === 状态：全局分配字段 ===
+
+    #[tokio::test]
+    async fn status_account_allocation_serialization() {
+        let state = setup().await;
+        let alipay = account_id(&state, "Assets:Alipay").await;
+        // 更早检查点的计划先占用 Alipay 2000
+        create_plan(&state, "更早计划", "2026-08-31", "2000", &[alipay]).await;
+        let later = create_plan(&state, "本计划", "2026-09-30", "1000", &[alipay]).await;
+        let id = later["id"].as_i64().unwrap();
+        add_posting(&state, "2026-06-01", alipay, "3000").await;
+
+        // spec「账户明细序列化」：A 余额 3000、被更早计划占用 2000、本计划分配 1000
+        let json = status_json(&state, id, "2026-06-26").await;
+        assert_eq!(json["allocated"], "1000");
+        assert_eq!(json["satisfaction"], "100");
+        let accounts = json["accounts"].as_array().unwrap();
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0]["account_id"], alipay);
+        assert_eq!(accounts[0]["balance"], "3000");
+        assert_eq!(accounts[0]["occupied_by_earlier"], "2000");
+        assert_eq!(accounts[0]["allocated"], "1000");
+    }
+
+    #[tokio::test]
+    async fn status_shared_account_satisfaction_reflects_occupation() {
+        let state = setup().await;
+        let a = account_id(&state, "Assets:Alipay").await;
+        let b = account_id(&state, "Assets:WeChat").await;
+        let e = account_id(&state, "Assets:Bank").await;
+        // spec「共享账户的计划满足率反映占用」：
+        // 计划1 {A,B} 目标 3000 检查点早于 计划2 {A,E} 目标 2000；A 3000、B 1000、E 500
+        let p1 = create_plan(&state, "计划1", "2026-08-31", "3000", &[a, b]).await;
+        let p2 = create_plan(&state, "计划2", "2026-09-30", "2000", &[a, e]).await;
+        add_posting(&state, "2026-06-01", a, "3000").await;
+        add_posting(&state, "2026-06-01", b, "1000").await;
+        add_posting(&state, "2026-06-01", e, "500").await;
+
+        let j1 = status_json(&state, p1["id"].as_i64().unwrap(), "2026-06-26").await;
+        assert_eq!(j1["allocated"], "3000");
+        assert_eq!(j1["satisfaction"], "100");
+
+        let j2 = status_json(&state, p2["id"].as_i64().unwrap(), "2026-06-26").await;
+        assert_eq!(j2["allocated"], "1500");
+        assert_eq!(j2["satisfaction"], "75");
+        // 共享账户 A：被计划1占用 2000，本计划仅分到剩余 1000
+        let accounts = j2["accounts"].as_array().unwrap();
+        assert_eq!(accounts.len(), 2);
+        let a_entry = accounts.iter().find(|x| x["account_id"] == a).unwrap();
+        assert_eq!(a_entry["balance"], "3000");
+        assert_eq!(a_entry["occupied_by_earlier"], "2000");
+        assert_eq!(a_entry["allocated"], "1000");
+        let e_entry = accounts.iter().find(|x| x["account_id"] == e).unwrap();
+        assert_eq!(e_entry["balance"], "500");
+        assert_eq!(e_entry["occupied_by_earlier"], "0");
+        assert_eq!(e_entry["allocated"], "500");
     }
 
     #[tokio::test]

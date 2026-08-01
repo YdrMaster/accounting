@@ -530,6 +530,25 @@ pub struct SavingPlanStatusDto {
     pub gap: String,
     /// 是否达标（current_balance >= target_amount）。
     pub met: bool,
+    /// 全局分配口径下本计划分配到的金额（Decimal 序列化为字符串）。
+    pub allocated: String,
+    /// 满足率（allocated / target_amount * 100，Decimal 序列化为字符串）。
+    pub satisfaction: String,
+    /// 各账户分配明细。
+    pub accounts: Vec<AccountAllocationDto>,
+}
+
+/// 攒钱计划单账户分配明细。
+#[derive(Serialize)]
+pub struct AccountAllocationDto {
+    /// 账户 ID。
+    pub account_id: i64,
+    /// 该账户（含后代）截至查询日的余额。
+    pub balance: String,
+    /// 被更早检查点的计划占用的金额。
+    pub occupied_by_earlier: String,
+    /// 本计划分配到的金额。
+    pub allocated: String,
 }
 
 /// 创建攒钱计划请求。

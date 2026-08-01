@@ -1,5 +1,7 @@
 use crate::cmd::budget::{parse_deadline, parse_period};
-use crate::cmd::resolver::{resolve_account, resolve_commodity, resolve_saving_plan};
+use crate::cmd::resolver::{
+    account_display_maps, resolve_account, resolve_commodity, resolve_saving_plan,
+};
 use crate::output::OutputFormat;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, SavingPlanId};
@@ -174,20 +176,28 @@ async fn list(db: &SqliteDatabase, lang: &str) -> Result<(), AccountingError> {
     let ids: Vec<SavingPlanId> = plans.iter().map(|p| p.id).collect();
     let names = saving_plan_name_map(db, &ids, lang).await?;
     let symbols = commodity_symbol_map(db).await?;
+    // 满足率：一次批量全局分配计算（与 show 口径一致），避免逐计划调用 status
+    let today = chrono::Local::now().date_naive();
+    let statuses = service.list_saving_plan_statuses(today).await?;
+    let satisfactions: std::collections::HashMap<SavingPlanId, String> = statuses
+        .iter()
+        .map(|s| (s.plan.id, s.satisfaction.normalize().to_string()))
+        .collect();
 
     println!(
-        "{:<5} {:<20} {:<20} {:<12} {:>12} Commodity",
-        "ID", "Name", "Period", "Deadline", "Target"
+        "{:<5} {:<20} {:<20} {:<12} {:>12} {:<10} Satisfaction",
+        "ID", "Name", "Period", "Deadline", "Target", "Commodity"
     );
     for p in &plans {
         println!(
-            "{:<5} {:<20} {:<20} {:<12} {:>12} {}",
+            "{:<5} {:<20} {:<20} {:<12} {:>12} {:<10} {}",
             p.id.0,
             names.get(&p.id).cloned().unwrap_or_default(),
             p.period.map(|x| x.to_string()).unwrap_or_default(),
             p.deadline.map(|d| d.to_string()).unwrap_or_default(),
             p.target_amount,
-            symbols.get(&p.commodity_id).cloned().unwrap_or_default()
+            symbols.get(&p.commodity_id).cloned().unwrap_or_default(),
+            satisfactions.get(&p.id).cloned().unwrap_or_default()
         );
     }
     Ok(())
@@ -242,6 +252,35 @@ async fn show(
         println!("{}", t!("saving_plan_met"));
     } else {
         println!("{}", t!("saving_plan_not_met", gap = status.gap));
+    }
+    // 满足率（service 返回未归一化 Decimal，如 "75.00"，此处归一化）
+    println!(
+        "{}",
+        t!(
+            "saving_plan_satisfaction",
+            rate = status.satisfaction.normalize()
+        )
+    );
+    // 每账户分配明细：余额 / 被更早计划占用 / 本计划分配
+    if !status.accounts.is_empty() {
+        let (accounts_by_id, account_names) = account_display_maps(db, lang).await?;
+        println!("{}", t!("saving_plan_allocation_header"));
+        for alloc in &status.accounts {
+            let account_label = accounts_by_id
+                .get(&alloc.account_id)
+                .map(|a| a.display_path(&accounts_by_id, &account_names))
+                .unwrap_or_else(|| alloc.account_id.to_string());
+            println!(
+                "{}",
+                t!(
+                    "saving_plan_allocation_row",
+                    account = account_label,
+                    balance = alloc.balance,
+                    occupied = alloc.occupied_by_earlier,
+                    allocated = alloc.allocated
+                )
+            );
+        }
     }
     // 一次性计划不显示周期区间
     if status.plan.period.is_some() {
