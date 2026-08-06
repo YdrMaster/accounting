@@ -266,6 +266,22 @@ impl BudgetService {
         })
     }
 
+    /// 列出所有预算表的执行情况
+    ///
+    /// 按预算 id 升序（`budget_list` 即按 id 排序）；逐项调用 `get_budget_status`，
+    /// 保证与单条查询口径一致。
+    pub async fn list_budget_statuses(
+        &self,
+        date: NaiveDate,
+    ) -> Result<Vec<BudgetStatus>, AccountingError> {
+        let budgets = self.list_budgets().await?;
+        let mut statuses = Vec::with_capacity(budgets.len());
+        for budget in budgets {
+            statuses.push(self.get_budget_status(budget.id, date).await?);
+        }
+        Ok(statuses)
+    }
+
     /// 查找"不计预算"系统标签 ID（按系统名单次查询；该标签双语名字挂在同一实体上）
     async fn get_exclude_budget_tag_ids(&self) -> Result<Vec<TagId>, AccountingError> {
         let tag = self
@@ -644,6 +660,79 @@ mod tests {
         service.delete_budget(id).await.unwrap();
 
         let list = service.list_budgets().await.unwrap();
+        assert!(list.is_empty());
+    }
+
+    // === 批量执行情况 ===
+
+    #[tokio::test]
+    async fn test_list_budget_statuses_sorted_by_id() {
+        // spec: 批量执行情况按预算 id 升序
+        let service = setup().await;
+        let food_id = account_id_by_path(&service, "Expenses:Food").await;
+        let b1 = service
+            .create_budget(
+                "月度生活",
+                Some(FinancePeriod::Monthly),
+                None,
+                CommodityId(1),
+                &[(food_id, dec("2000"))],
+                "zh",
+            )
+            .await
+            .unwrap();
+        let b2 = create_one_off_budget(&service).await;
+
+        let list = service.list_budget_statuses(d(2026, 6, 15)).await.unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].budget.id, b1);
+        assert_eq!(list[1].budget.id, b2);
+    }
+
+    #[tokio::test]
+    async fn test_list_budget_statuses_matches_single() {
+        // spec: 批量与单条口径一致（actual_amount/remaining/percentage）
+        let service = setup().await;
+        let food_id = account_id_by_path(&service, "Expenses:Food").await;
+        let b1 = service
+            .create_budget(
+                "月度生活",
+                Some(FinancePeriod::Monthly),
+                None,
+                CommodityId(1),
+                &[(food_id, dec("2000"))],
+                "zh",
+            )
+            .await
+            .unwrap();
+        let b2 = create_one_off_budget(&service).await;
+        add_posting(&service, "2026-06-15", food_id, "-800", &[]).await;
+
+        let date = d(2026, 6, 15);
+        let list = service.list_budget_statuses(date).await.unwrap();
+        assert_eq!(list.len(), 2);
+        for status in &list {
+            assert!(b1 == status.budget.id || b2 == status.budget.id);
+            let single = service
+                .get_budget_status(status.budget.id, date)
+                .await
+                .unwrap();
+            assert_eq!(status.expired, single.expired);
+            assert_eq!(status.items.len(), single.items.len());
+            for (item, single_item) in status.items.iter().zip(single.items.iter()) {
+                assert_eq!(item.account_id, single_item.account_id);
+                assert_eq!(item.actual_amount, single_item.actual_amount);
+                assert_eq!(item.remaining, single_item.remaining);
+                assert_eq!(item.percentage, single_item.percentage);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_budget_statuses_empty() {
+        // spec: 无预算时返回空数组
+        let service = setup().await;
+        let list = service.list_budget_statuses(d(2026, 6, 15)).await.unwrap();
         assert!(list.is_empty());
     }
 }

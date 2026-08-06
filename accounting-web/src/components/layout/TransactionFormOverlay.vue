@@ -154,7 +154,8 @@ async function handleSubmit() {
     postings: postings.value.map(p => ({
       account: p.accountName,
       commodity: p.commodity,
-      amount: p.amount,
+      // type="number" 的 v-model 会被 Vue 自动转成 number，后端 amount 要求字符串
+      amount: String(p.amount),
       is_reimbursable: p.isReimbursable,
     })),
     tags: selectedTags.value,

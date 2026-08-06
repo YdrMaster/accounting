@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ringDist, useWheelScroll } from '../useWheelScroll'
+import { paneNames } from '../useResponsiveLayout'
 
-const N = 5
+const N = paneNames.length
 
 describe('ringDist', () => {
   it('returns 0 for the page at scrollPos', () => {
@@ -9,23 +10,24 @@ describe('ringDist', () => {
   })
 
   it('returns signed distance within [-N/2, N/2)', () => {
-    expect(ringDist(1, 0)).toBe(1)
-    expect(ringDist(2, 0)).toBe(2)
-    expect(ringDist(3, 0)).toBe(-2)
-    expect(ringDist(4, 0)).toBe(-1)
+    // 显式 count=5，环形数学与面板数量解耦
+    expect(ringDist(1, 0, 5)).toBe(1)
+    expect(ringDist(2, 0, 5)).toBe(2)
+    expect(ringDist(3, 0, 5)).toBe(-2)
+    expect(ringDist(4, 0, 5)).toBe(-1)
   })
 
   it('wraps across the ring boundary', () => {
-    expect(ringDist(0, 4)).toBe(1)
-    expect(ringDist(4, 0)).toBe(-1)
-    expect(ringDist(1, 4)).toBe(2)
-    expect(ringDist(4, 1)).toBe(-2)
+    expect(ringDist(0, 4, 5)).toBe(1)
+    expect(ringDist(4, 0, 5)).toBe(-1)
+    expect(ringDist(1, 4, 5)).toBe(2)
+    expect(ringDist(4, 1, 5)).toBe(-2)
   })
 
   it('handles fractional scrollPos continuously', () => {
-    expect(ringDist(0, 4.5)).toBeCloseTo(0.5)
-    expect(ringDist(4, 0.25)).toBeCloseTo(-1.25)
-    expect(ringDist(0, 0.7)).toBeCloseTo(-0.7)
+    expect(ringDist(0, 4.5, 5)).toBeCloseTo(0.5)
+    expect(ringDist(4, 0.25, 5)).toBeCloseTo(-1.25)
+    expect(ringDist(0, 0.7, 5)).toBeCloseTo(-0.7)
   })
 
   it('stays in range for negative scrollPos', () => {

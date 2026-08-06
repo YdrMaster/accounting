@@ -28,6 +28,7 @@ import type {
   CommodityDto,
   CreateAccountRequest,
   CreateBudgetRequest,
+  CreateSavingPlanRequest,
   CreateTransactionData,
   DailySummaryDto,
   ImportResultDto,
@@ -35,8 +36,12 @@ import type {
   MemberDto,
   MoveAccountRequest,
   NetWorthTrendDto,
+  SavingPlanDetailDto,
+  SavingPlanDto,
+  SavingPlanStatusDto,
   TagDto,
   TransactionDto,
+  UpdateSavingPlanRequest,
 } from '../types/api'
 
 export async function fetchAccounts(): Promise<AccountDto[]> {
@@ -217,6 +222,11 @@ export async function fetchBudgetStatus(id: number, date?: string): Promise<Budg
   return apiFetch<BudgetStatusDto>(`/budgets/${id}/status${qs}`)
 }
 
+export async function fetchBudgetStatuses(date?: string): Promise<BudgetStatusDto[]> {
+  const qs = date ? `?date=${date}` : ''
+  return apiFetch<BudgetStatusDto[]>(`/budgets/statuses${qs}`)
+}
+
 export async function createBudget(data: CreateBudgetRequest): Promise<BudgetDto> {
   const res = await fetch(apiUrl(`/budgets`), {
     method: 'POST',
@@ -244,6 +254,62 @@ export async function updateBudget(id: number, data: CreateBudgetRequest): Promi
 
 export async function deleteBudget(id: number): Promise<void> {
   const res = await fetch(apiUrl(`/budgets/${id}`), { method: 'DELETE' })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+}
+
+// ─── 攒钱计划 CRUD ───
+
+export async function fetchSavingPlans(): Promise<SavingPlanDto[]> {
+  return apiFetch<SavingPlanDto[]>('/saving-plans')
+}
+
+export async function fetchSavingPlanStatuses(date?: string): Promise<SavingPlanStatusDto[]> {
+  const qs = date ? `?date=${date}` : ''
+  return apiFetch<SavingPlanStatusDto[]>(`/saving-plans/statuses${qs}`)
+}
+
+export async function fetchSavingPlanDetail(id: number): Promise<SavingPlanDetailDto> {
+  return apiFetch<SavingPlanDetailDto>(`/saving-plans/${id}`)
+}
+
+export async function fetchSavingPlanStatus(
+  id: number,
+  date?: string
+): Promise<SavingPlanStatusDto> {
+  const qs = date ? `?date=${date}` : ''
+  return apiFetch<SavingPlanStatusDto>(`/saving-plans/${id}/status${qs}`)
+}
+
+export async function createSavingPlan(data: CreateSavingPlanRequest): Promise<SavingPlanDto> {
+  const res = await fetch(apiUrl(`/saving-plans`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+  return res.json() as Promise<SavingPlanDto>
+}
+
+export async function updateSavingPlan(id: number, data: UpdateSavingPlanRequest): Promise<void> {
+  const res = await fetch(apiUrl(`/saving-plans/${id}`), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || res.statusText)
+  }
+}
+
+export async function deleteSavingPlan(id: number): Promise<void> {
+  const res = await fetch(apiUrl(`/saving-plans/${id}`), { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)

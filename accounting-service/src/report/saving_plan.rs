@@ -249,6 +249,8 @@ impl SavingPlanService {
     /// 列出所有攒钱计划的状态
     ///
     /// 与 `get_saving_plan_status` 复用同一全局分配计算，保证两种入口口径一致。
+    /// 排序：参与全局分配的计划按（检查点, plan_id）升序在前，
+    /// 不参与分配的计划（过期/永久）在后，按 plan_id 升序。
     pub async fn list_saving_plan_statuses(
         &self,
         date: NaiveDate,
@@ -445,6 +447,10 @@ impl SavingPlanService {
                 w.accounts = account_allocs;
             }
         }
+
+        // 输出顺序：参与分配的计划按（检查点, plan_id）升序在前，
+        // 不参与的计划（过期/永久）在后，按 plan_id 升序
+        works.sort_by_key(|w| (w.checkpoint.is_none(), w.checkpoint, w.plan.id));
 
         Ok(works
             .into_iter()
@@ -1601,5 +1607,65 @@ mod tests {
             .await
             .unwrap();
         assert!(list.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_saving_plan_statuses_sorted_by_checkpoint() {
+        // spec: 参与分配的计划按（检查点, plan_id）升序在前，过期/永久计划在后
+        let service = setup().await;
+        let a = create_asset_account(&service, "A").await;
+        // 创建顺序与期望输出顺序不同，验证排序不是创建顺序
+        let expired = create_plan(
+            &service,
+            "过期计划",
+            None,
+            Some(d(2026, 6, 30)),
+            CommodityId(1),
+            "1000",
+            &[a],
+        )
+        .await;
+        let late = create_plan(
+            &service,
+            "晚检查点",
+            None,
+            Some(d(2026, 9, 30)),
+            CommodityId(1),
+            "1000",
+            &[a],
+        )
+        .await;
+        let permanent = create_plan(
+            &service,
+            "永久计划",
+            None,
+            None,
+            CommodityId(1),
+            "1000",
+            &[a],
+        )
+        .await;
+        let early = create_plan(
+            &service,
+            "早检查点",
+            None,
+            Some(d(2026, 7, 31)),
+            CommodityId(1),
+            "1000",
+            &[a],
+        )
+        .await;
+
+        // 查询日 2026-07-15：expired 已过期；early/late 参与分配
+        let list = service
+            .list_saving_plan_statuses(d(2026, 7, 15))
+            .await
+            .unwrap();
+        let ids: Vec<SavingPlanId> = list.iter().map(|s| s.plan.id).collect();
+        // 参与者按检查点升序（early 2026-07-31 < late 2026-09-30）；
+        // 不参与者（expired、permanent）在后，按 plan_id 升序
+        assert_eq!(ids, vec![early, late, expired, permanent]);
+        assert!(!list[0].expired && !list[1].expired);
+        assert!(list[2].expired);
     }
 }

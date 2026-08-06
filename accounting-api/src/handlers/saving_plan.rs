@@ -299,6 +299,47 @@ async fn delete_saving_plan(
     }
 }
 
+/// 攒钱计划状态转 DTO（单条与批量端点共用，保证序列化口径一致）
+fn status_to_dto(
+    status: &accounting_service::report::saving_plan::SavingPlanStatus,
+    name: String,
+    account_ids: Vec<i64>,
+) -> SavingPlanStatusDto {
+    SavingPlanStatusDto {
+        plan: plan_to_dto(&status.plan, name, account_ids),
+        expired: status.expired,
+        period_start: status.period_start.map(|d| d.to_string()),
+        period_end: status.period_end.map(|d| d.to_string()),
+        target_amount: status.target_amount.to_string(),
+        current_balance: status.current_balance.to_string(),
+        gap: status.gap.to_string(),
+        met: status.met,
+        allocated: status.allocated.to_string(),
+        // satisfaction 为计算比率，除法/乘法会引入尾随零（如 75.00），归一化去掉
+        satisfaction: status.satisfaction.normalize().to_string(),
+        accounts: status
+            .accounts
+            .iter()
+            .map(|a| AccountAllocationDto {
+                account_id: a.account_id.0,
+                balance: a.balance.to_string(),
+                occupied_by_earlier: a.occupied_by_earlier.to_string(),
+                allocated: a.allocated.to_string(),
+            })
+            .collect(),
+    }
+}
+
+/// 解析状态查询的 date 参数（缺省当天；格式无效返回错误信息）
+fn parse_status_date(query: &SavingPlanStatusQuery) -> Result<chrono::NaiveDate, String> {
+    match query.date {
+        Some(ref d) => {
+            chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|e| format!("无效日期: {}", e))
+        }
+        None => Ok(chrono::Local::now().date_naive()),
+    }
+}
+
 /// 查询攒钱计划状态
 async fn get_saving_plan_status(
     State(state): State<Arc<AppState>>,
@@ -306,13 +347,9 @@ async fn get_saving_plan_status(
     Path(id): Path<i64>,
     Query(query): Query<SavingPlanStatusQuery>,
 ) -> SavingPlanResponse {
-    let today = chrono::Local::now().date_naive();
-    let date = match query.date {
-        Some(ref d) => match chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d") {
-            Ok(date) => date,
-            Err(e) => return SavingPlanResponse::BadRequest(format!("无效日期: {}", e)),
-        },
-        None => today,
+    let date = match parse_status_date(&query) {
+        Ok(d) => d,
+        Err(e) => return SavingPlanResponse::BadRequest(e),
     };
 
     let service = SavingPlanService::new(state.db.clone());
@@ -326,34 +363,51 @@ async fn get_saving_plan_status(
                 Ok(a) => a.iter().map(|x| x.account_id.0).collect(),
                 Err(e) => return SavingPlanResponse::BadRequest(e.to_string()),
             };
-            let dto = SavingPlanStatusDto {
-                plan: plan_to_dto(
-                    &status.plan,
+            let dto = status_to_dto(
+                &status,
+                names.get(&status.plan.id).cloned().unwrap_or_default(),
+                account_ids,
+            );
+            SavingPlanResponse::Ok(Json(serde_json::to_value(dto).unwrap()))
+        }
+        Err(e) => map_error(e),
+    }
+}
+
+/// 查询全部攒钱计划状态
+///
+/// 参与全局分配的计划按（检查点, plan_id）升序在前，过期/永久计划在后。
+async fn list_saving_plan_statuses(
+    State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
+    Query(query): Query<SavingPlanStatusQuery>,
+) -> SavingPlanResponse {
+    let date = match parse_status_date(&query) {
+        Ok(d) => d,
+        Err(e) => return SavingPlanResponse::BadRequest(e),
+    };
+
+    let service = SavingPlanService::new(state.db.clone());
+    match service.list_saving_plan_statuses(date).await {
+        Ok(statuses) => {
+            let ids: Vec<SavingPlanId> = statuses.iter().map(|s| s.plan.id).collect();
+            let names = match plan_names(&state.db, &ids, &lang).await {
+                Ok(n) => n,
+                Err(r) => return r,
+            };
+            let mut dtos = Vec::with_capacity(statuses.len());
+            for status in &statuses {
+                let account_ids = match state.db.saving_plan_get_accounts(status.plan.id).await {
+                    Ok(a) => a.iter().map(|x| x.account_id.0).collect(),
+                    Err(e) => return SavingPlanResponse::BadRequest(e.to_string()),
+                };
+                dtos.push(status_to_dto(
+                    status,
                     names.get(&status.plan.id).cloned().unwrap_or_default(),
                     account_ids,
-                ),
-                expired: status.expired,
-                period_start: status.period_start.map(|d| d.to_string()),
-                period_end: status.period_end.map(|d| d.to_string()),
-                target_amount: status.target_amount.to_string(),
-                current_balance: status.current_balance.to_string(),
-                gap: status.gap.to_string(),
-                met: status.met,
-                allocated: status.allocated.to_string(),
-                // satisfaction 为计算比率，除法/乘法会引入尾随零（如 75.00），归一化去掉
-                satisfaction: status.satisfaction.normalize().to_string(),
-                accounts: status
-                    .accounts
-                    .iter()
-                    .map(|a| AccountAllocationDto {
-                        account_id: a.account_id.0,
-                        balance: a.balance.to_string(),
-                        occupied_by_earlier: a.occupied_by_earlier.to_string(),
-                        allocated: a.allocated.to_string(),
-                    })
-                    .collect(),
-            };
-            SavingPlanResponse::Ok(Json(serde_json::to_value(dto).unwrap()))
+                ));
+            }
+            SavingPlanResponse::Ok(Json(serde_json::to_value(dtos).unwrap()))
         }
         Err(e) => map_error(e),
     }
@@ -366,6 +420,8 @@ pub fn router() -> Router<Arc<AppState>> {
             "/api/saving-plans",
             get(list_saving_plans).post(create_saving_plan),
         )
+        // 静态段优先于 /{id}，不受注册顺序影响（axum 0.8）
+        .route("/api/saving-plans/statuses", get(list_saving_plan_statuses))
         .route(
             "/api/saving-plans/{id}",
             get(get_saving_plan_detail)
@@ -1149,5 +1205,158 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(json["error"].as_str().unwrap().contains("无效日期"));
+    }
+
+    // === 批量状态 ===
+
+    /// 查询批量状态，返回 (status, json)
+    async fn statuses_json(
+        state: &Arc<AppState>,
+        date: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
+        respond(
+            list_saving_plan_statuses(
+                State(state.clone()),
+                Lang("en".to_string()),
+                Query(SavingPlanStatusQuery {
+                    date: date.map(|s| s.to_string()),
+                }),
+            )
+            .await,
+        )
+        .await
+    }
+
+    /// 创建永久计划（period/deadline 皆空，不参与全局分配）
+    async fn create_permanent_plan(
+        state: &Arc<AppState>,
+        name: &str,
+        target: &str,
+        account_ids: &[i64],
+    ) -> serde_json::Value {
+        let ids = account_ids
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let body = format!(
+            r#"{{"name":"{}","period":null,"deadline":null,"commodity_id":1,"target_amount":"{}","account_ids":[{}]}}"#,
+            name, target, ids
+        );
+        let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
+        let (status, json) = respond(
+            create_saving_plan(State(state.clone()), Lang("zh".to_string()), Json(req)).await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        json
+    }
+
+    #[tokio::test]
+    async fn statuses_returns_all_plans() {
+        // spec「批量返回全部计划状态」：3 个计划 → 200 + 3 个 DTO，含 allocated/satisfaction/accounts
+        let state = setup().await;
+        let alipay = account_id(&state, "Assets:Alipay").await;
+        create_travel_fund(&state).await;
+        create_plan(&state, "换新手机", "2026-12-31", "8000", &[alipay]).await;
+        create_permanent_plan(&state, "应急金", "10000", &[alipay]).await;
+
+        let (status, json) = statuses_json(&state, Some("2026-06-26")).await;
+        assert_eq!(status, StatusCode::OK);
+        let arr = json.as_array().unwrap();
+        assert_eq!(arr.len(), 3);
+        for dto in arr {
+            assert!(dto["plan"].is_object());
+            assert!(dto["allocated"].is_string());
+            assert!(dto["satisfaction"].is_string());
+            assert!(dto["accounts"].is_array());
+        }
+    }
+
+    #[tokio::test]
+    async fn statuses_sorted_by_checkpoint() {
+        // spec「按检查点升序排列」：计划1 检查点 2026-09-30，计划2 检查点 2026-07-31 → 计划2 在前；
+        // 不参与分配的永久计划排在最后
+        let state = setup().await;
+        let alipay = account_id(&state, "Assets:Alipay").await;
+        let p1 = create_plan(&state, "计划1", "2026-09-30", "1000", &[alipay]).await;
+        let permanent = create_permanent_plan(&state, "永久计划", "1000", &[alipay]).await;
+        let p2 = create_plan(&state, "计划2", "2026-07-31", "1000", &[alipay]).await;
+
+        let (status, json) = statuses_json(&state, Some("2026-06-26")).await;
+        assert_eq!(status, StatusCode::OK);
+        let ids: Vec<i64> = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|dto| dto["plan"]["id"].as_i64().unwrap())
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                p2["id"].as_i64().unwrap(),
+                p1["id"].as_i64().unwrap(),
+                permanent["id"].as_i64().unwrap()
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn statuses_matches_single() {
+        // spec「批量与单条口径一致」：同一计划的 allocated、satisfaction 完全一致
+        let state = setup().await;
+        let alipay = account_id(&state, "Assets:Alipay").await;
+        let wechat = account_id(&state, "Assets:WeChat").await;
+        let p1 = create_plan(&state, "计划1", "2026-08-31", "3000", &[alipay, wechat]).await;
+        let p2 = create_plan(&state, "计划2", "2026-09-30", "2000", &[alipay]).await;
+        add_posting(&state, "2026-06-01", alipay, "3000").await;
+        add_posting(&state, "2026-06-01", wechat, "1000").await;
+
+        let (status, json) = statuses_json(&state, Some("2026-06-26")).await;
+        assert_eq!(status, StatusCode::OK);
+        for dto in json.as_array().unwrap() {
+            let id = dto["plan"]["id"].as_i64().unwrap();
+            assert!(id == p1["id"].as_i64().unwrap() || id == p2["id"].as_i64().unwrap());
+            let single = status_json(&state, id, "2026-06-26").await;
+            assert_eq!(dto["allocated"], single["allocated"]);
+            assert_eq!(dto["satisfaction"], single["satisfaction"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn statuses_empty_returns_empty_array() {
+        // spec「无计划时返回空数组」
+        let state = setup().await;
+        let (status, json) = statuses_json(&state, Some("2026-06-26")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json, serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn statuses_invalid_date_returns_400() {
+        // spec「日期格式无效」
+        let state = setup().await;
+        let (status, json) = statuses_json(&state, Some("invalid")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(json["error"].as_str().unwrap().contains("无效日期"));
+    }
+
+    #[tokio::test]
+    async fn router_statuses_route_takes_priority_over_id() {
+        // 静态段 /api/saving-plans/statuses 优先于 /api/saving-plans/{id}：
+        // 空库走批量端点应返回 200 []（若被 {id} 捕获则 "statuses" 解析 i64 失败）
+        let state = setup().await;
+        let app = router().with_state(state);
+        let req = axum::http::Request::builder()
+            .uri("/api/saving-plans/statuses")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json, serde_json::json!([]));
     }
 }

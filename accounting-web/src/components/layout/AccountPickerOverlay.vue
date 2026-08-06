@@ -8,6 +8,8 @@ import AccountGrid from './AccountGrid.vue'
 
 const props = defineProps<{
   currentId?: number | null
+  /** 限定显示的账户类型分组；不传则显示全部 */
+  accountType?: 'asset' | 'expense'
 }>()
 
 const emit = defineEmits<{
@@ -51,6 +53,15 @@ const typeLabels: Record<string, string> = {
 }
 
 const typeOrder = ['Asset', 'Income', 'Expense', 'Equity'] as const
+
+const accountTypeMap: Record<'asset' | 'expense', string> = {
+  asset: 'Asset',
+  expense: 'Expense',
+}
+
+const visibleTypes = computed<string[]>(() =>
+  props.accountType ? [accountTypeMap[props.accountType]] : [...typeOrder]
+)
 
 function getChildrenOfType(type: string): AccountDto[] {
   const roots = store.groupedAccounts.get(type) ?? []
@@ -122,7 +133,7 @@ function onConfirm() {
 
     <div class="picker-body">
       <AccountGrid
-        v-for="type in typeOrder"
+        v-for="type in visibleTypes"
         :key="type"
         :type-label="typeLabels[type]"
         :rows="rowsForType(type)"

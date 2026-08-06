@@ -10,6 +10,8 @@ const props = withDefaults(
     modelValue: number | null
     placeholder?: string
     portal?: string
+    /** 限定可选择的账户类型；不传则显示全部类型分组 */
+    accountType?: 'asset' | 'expense'
   }>(),
   { portal: '.picker-portal' }
 )
@@ -61,6 +63,7 @@ function onSelect(account: AccountDto) {
       <AccountPickerOverlay
         v-if="showOverlay"
         :current-id="modelValue"
+        :account-type="accountType"
         @close="onClose"
         @select="onSelect"
       />

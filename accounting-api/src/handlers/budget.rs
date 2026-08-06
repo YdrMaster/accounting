@@ -256,6 +256,39 @@ async fn delete_budget(State(state): State<Arc<AppState>>, Path(id): Path<i64>) 
     }
 }
 
+/// 预算执行情况转 DTO（单条与批量端点共用，保证序列化口径一致）
+fn budget_status_to_dto(
+    status: &accounting_service::report::budget::BudgetStatus,
+    name: String,
+) -> BudgetStatusDto {
+    BudgetStatusDto {
+        budget: budget_to_dto(&status.budget, name),
+        expired: status.expired,
+        period_start: status.period_start.map(|d| d.to_string()),
+        period_end: status.period_end.map(|d| d.to_string()),
+        items: status
+            .items
+            .iter()
+            .map(|item| BudgetItemStatusDto {
+                account_id: item.account_id.0,
+                limit_amount: item.limit_amount.to_string(),
+                actual_amount: item.actual_amount.to_string(),
+                remaining: item.remaining.to_string(),
+                percentage: item.percentage.to_string(),
+            })
+            .collect(),
+    }
+}
+
+/// 解析状态查询的 date 参数（缺省当天；格式无效返回 400）
+fn parse_status_date(query: &BudgetStatusQuery) -> Result<chrono::NaiveDate, BudgetResponse> {
+    match query.date {
+        Some(ref d) => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d")
+            .map_err(|e| BudgetResponse::BadRequest(format!("无效日期: {}", e))),
+        None => Ok(chrono::Local::now().date_naive()),
+    }
+}
+
 /// 查询预算执行情况
 async fn get_budget_status(
     State(state): State<Arc<AppState>>,
@@ -263,13 +296,9 @@ async fn get_budget_status(
     Path(id): Path<i64>,
     Query(query): Query<BudgetStatusQuery>,
 ) -> BudgetResponse {
-    let today = chrono::Local::now().date_naive();
-    let date = match query.date {
-        Some(ref d) => match chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d") {
-            Ok(date) => date,
-            Err(e) => return BudgetResponse::BadRequest(format!("无效日期: {}", e)),
-        },
-        None => today,
+    let date = match parse_status_date(&query) {
+        Ok(d) => d,
+        Err(r) => return r,
     };
 
     let service = BudgetService::new(state.db.clone());
@@ -279,27 +308,42 @@ async fn get_budget_status(
                 Ok(n) => n,
                 Err(r) => return r,
             };
-            let dto = BudgetStatusDto {
-                budget: budget_to_dto(
-                    &status.budget,
-                    names.get(&status.budget.id).cloned().unwrap_or_default(),
-                ),
-                expired: status.expired,
-                period_start: status.period_start.map(|d| d.to_string()),
-                period_end: status.period_end.map(|d| d.to_string()),
-                items: status
-                    .items
-                    .iter()
-                    .map(|item| BudgetItemStatusDto {
-                        account_id: item.account_id.0,
-                        limit_amount: item.limit_amount.to_string(),
-                        actual_amount: item.actual_amount.to_string(),
-                        remaining: item.remaining.to_string(),
-                        percentage: item.percentage.to_string(),
-                    })
-                    .collect(),
-            };
+            let dto = budget_status_to_dto(
+                &status,
+                names.get(&status.budget.id).cloned().unwrap_or_default(),
+            );
             BudgetResponse::Ok(Json(serde_json::to_value(dto).unwrap()))
+        }
+        Err(e) => map_error(e),
+    }
+}
+
+/// 查询全部预算表的执行情况（按预算 id 升序）
+async fn list_budget_statuses(
+    State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
+    Query(query): Query<BudgetStatusQuery>,
+) -> BudgetResponse {
+    let date = match parse_status_date(&query) {
+        Ok(d) => d,
+        Err(r) => return r,
+    };
+
+    let service = BudgetService::new(state.db.clone());
+    match service.list_budget_statuses(date).await {
+        Ok(statuses) => {
+            let ids: Vec<BudgetId> = statuses.iter().map(|s| s.budget.id).collect();
+            let names = match budget_names(&state.db, &ids, &lang).await {
+                Ok(n) => n,
+                Err(r) => return r,
+            };
+            let dtos: Vec<BudgetStatusDto> = statuses
+                .iter()
+                .map(|s| {
+                    budget_status_to_dto(s, names.get(&s.budget.id).cloned().unwrap_or_default())
+                })
+                .collect();
+            BudgetResponse::Ok(Json(serde_json::to_value(dtos).unwrap()))
         }
         Err(e) => map_error(e),
     }
@@ -309,6 +353,8 @@ async fn get_budget_status(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/budgets", get(list_budgets).post(create_budget))
+        // 静态段优先于 /{id}，不受注册顺序影响（axum 0.8）
+        .route("/api/budgets/statuses", get(list_budget_statuses))
         .route(
             "/api/budgets/{id}",
             get(get_budget_detail)
@@ -599,5 +645,192 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(json["expired"], true);
+    }
+
+    // === 批量执行情况 ===
+
+    /// 查询批量执行情况，返回 (status, json)
+    async fn statuses_json(
+        state: &Arc<AppState>,
+        date: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
+        respond(
+            list_budget_statuses(
+                State(state.clone()),
+                Lang("en".to_string()),
+                Query(BudgetStatusQuery {
+                    date: date.map(|s| s.to_string()),
+                }),
+            )
+            .await,
+        )
+        .await
+    }
+
+    /// 查询单预算执行情况并断言 200，返回响应 json
+    async fn single_status_json(state: &Arc<AppState>, id: i64, date: &str) -> serde_json::Value {
+        let (status, json) = respond(
+            get_budget_status(
+                State(state.clone()),
+                Lang("en".to_string()),
+                Path(id),
+                Query(BudgetStatusQuery {
+                    date: Some(date.to_string()),
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        json
+    }
+
+    /// 插入一笔单分录交易（仅用于构造实际支出）
+    async fn add_posting(state: &Arc<AppState>, date: &str, account_id: i64, amount: &str) {
+        use accounting::id::{PostingId, TransactionId};
+        use accounting::posting::Posting;
+        use accounting::transaction::{Transaction, TransactionKind};
+        use chrono::NaiveDateTime;
+        let db = state.db();
+        let member_id = db.member_get_or_create_by_name("Test", "en").await.unwrap();
+        let tx = Transaction {
+            id: TransactionId(0),
+            date_time: NaiveDateTime::parse_from_str(
+                &format!("{} 00:00:00", date),
+                "%Y-%m-%d %H:%M:%S",
+            )
+            .unwrap(),
+            description: "test".to_string(),
+            kind: TransactionKind::Normal,
+            member_id,
+        };
+        let tx_id = db.transaction_insert(&tx, &[]).await.unwrap();
+        let posting = Posting {
+            id: PostingId(0),
+            transaction_id: tx_id,
+            account_id: AccountId(account_id),
+            commodity_id: CommodityId(1),
+            amount: Decimal::from_str(amount).unwrap(),
+            cost: None,
+            cost_commodity_id: None,
+            is_reimbursable: false,
+            linked_posting_id: None,
+            reversal_total: Decimal::ZERO,
+        };
+        db.posting_insert(&posting).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn statuses_returns_all_budgets() {
+        // spec「批量返回全部预算执行情况」：2 个预算表 → 200 + 2 个 DTO，按预算 id 升序
+        let state = setup().await;
+        let food = food_id(&state).await;
+        let id1 = create_monthly_budget(&state).await;
+        let req = CreateBudgetRequest {
+            name: "促销预算".to_string(),
+            period: None,
+            deadline: Some("2026-09-30".to_string()),
+            commodity_id: 1,
+            limits: vec![BudgetLimitRequest {
+                account_id: food,
+                amount: "500".to_string(),
+            }],
+        };
+        let (_, created) =
+            respond(create_budget(State(state.clone()), Lang("en".to_string()), Json(req)).await)
+                .await;
+        let id2 = created["id"].as_i64().unwrap();
+
+        let (status, json) = statuses_json(&state, Some("2026-06-15")).await;
+        assert_eq!(status, StatusCode::OK);
+        let arr = json.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        let ids: Vec<i64> = arr
+            .iter()
+            .map(|dto| dto["budget"]["id"].as_i64().unwrap())
+            .collect();
+        assert_eq!(ids, vec![id1, id2]);
+        for dto in arr {
+            assert!(dto["expired"].is_boolean());
+            assert!(dto.get("period_start").is_some());
+            assert!(dto.get("period_end").is_some());
+            assert!(dto["items"].is_array());
+        }
+    }
+
+    #[tokio::test]
+    async fn statuses_matches_single() {
+        // spec「批量与单条口径一致」：各 item 的 actual_amount、remaining、percentage 完全一致
+        let state = setup().await;
+        let food = food_id(&state).await;
+        let id1 = create_monthly_budget(&state).await;
+        let req = CreateBudgetRequest {
+            name: "促销预算".to_string(),
+            period: None,
+            deadline: Some("2026-09-30".to_string()),
+            commodity_id: 1,
+            limits: vec![BudgetLimitRequest {
+                account_id: food,
+                amount: "500".to_string(),
+            }],
+        };
+        let (_, created) =
+            respond(create_budget(State(state.clone()), Lang("en".to_string()), Json(req)).await)
+                .await;
+        let id2 = created["id"].as_i64().unwrap();
+        add_posting(&state, "2026-06-10", food, "-300").await;
+
+        let (status, json) = statuses_json(&state, Some("2026-06-15")).await;
+        assert_eq!(status, StatusCode::OK);
+        for dto in json.as_array().unwrap() {
+            let id = dto["budget"]["id"].as_i64().unwrap();
+            assert!(id == id1 || id == id2);
+            let single = single_status_json(&state, id, "2026-06-15").await;
+            let items = dto["items"].as_array().unwrap();
+            let single_items = single["items"].as_array().unwrap();
+            assert_eq!(items.len(), single_items.len());
+            for (item, single_item) in items.iter().zip(single_items.iter()) {
+                assert_eq!(item["actual_amount"], single_item["actual_amount"]);
+                assert_eq!(item["remaining"], single_item["remaining"]);
+                assert_eq!(item["percentage"], single_item["percentage"]);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn statuses_empty_returns_empty_array() {
+        // spec「无预算时返回空数组」
+        let state = setup().await;
+        let (status, json) = statuses_json(&state, Some("2026-06-15")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json, serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn statuses_invalid_date_returns_400() {
+        // spec「日期格式无效」
+        let state = setup().await;
+        let (status, json) = statuses_json(&state, Some("invalid")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(json["error"].as_str().unwrap().contains("无效日期"));
+    }
+
+    #[tokio::test]
+    async fn router_statuses_route_takes_priority_over_id() {
+        // 静态段 /api/budgets/statuses 优先于 /api/budgets/{id}：
+        // 空库走批量端点应返回 200 []（若被 {id} 捕获则 "statuses" 解析 i64 失败）
+        let state = setup().await;
+        let app = router().with_state(state);
+        let req = axum::http::Request::builder()
+            .uri("/api/budgets/statuses")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json, serde_json::json!([]));
     }
 }

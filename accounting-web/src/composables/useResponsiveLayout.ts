@@ -2,7 +2,7 @@ import { useWindowSize } from '@vueuse/core'
 import { computed } from 'vue'
 import { i18n } from '../i18n'
 
-export const paneNames = ['transaction', 'assets', 'accounts', 'calendar', 'budget'] as const
+export const paneNames = ['transaction', 'assets', 'accounts', 'calendar', 'plan'] as const
 
 export type PaneName = (typeof paneNames)[number]
 
@@ -19,8 +19,8 @@ export const paneLabels: Record<PaneName, string> = {
   get calendar() {
     return i18n.global.t('nav.calendar')
   },
-  get budget() {
-    return i18n.global.t('nav.budget')
+  get plan() {
+    return i18n.global.t('nav.plan')
   },
 }
 

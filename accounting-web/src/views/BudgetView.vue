@@ -3,23 +3,67 @@ import { inject, onMounted, ref, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AccountPicker from '../components/layout/AccountPicker.vue'
 import { panelActionKey } from '../components/layout/panelAction'
+import ProgressRing from '../components/ProgressRing.vue'
 import { useAccountStore } from '../stores/account'
 import { useBudgetStore } from '../stores/budget'
-import type { BudgetDto, BudgetLimitRequest } from '../types/api'
+import type { BudgetLimitRequest, BudgetStatusDto } from '../types/api'
+import { formatDecimal } from '../utils/decimal'
 
 const budgetStore = useBudgetStore()
 const accountStore = useAccountStore()
 const { t } = useI18n()
 
 onMounted(async () => {
-  await Promise.all([budgetStore.loadBudgets(), accountStore.loadAccounts()])
+  await Promise.all([budgetStore.loadStatuses(), accountStore.loadAccounts()])
 })
 
-const selectedBudgetId = ref<number | null>(null)
+const expandedBudgetId = ref<number | null>(null)
 const showCreateDrawer = ref(false)
-const editingBudget = ref<BudgetDto | null>(null)
+const editingBudget = ref<BudgetStatusDto | null>(null)
 
-function periodLabel(period: string): string {
+const RING_COLORS = {
+  green: '#2ecc71',
+  red: '#e74c3c',
+  gray: '#7f8c8d',
+} as const
+
+function totals(status: BudgetStatusDto): { limit: number; actual: number } {
+  return status.items.reduce(
+    (acc, item) => ({
+      limit: acc.limit + Number(item.limit_amount),
+      actual: acc.actual + Number(item.actual_amount),
+    }),
+    { limit: 0, actual: 0 }
+  )
+}
+
+function isOverspent(status: BudgetStatusDto): boolean {
+  const { limit, actual } = totals(status)
+  return actual > limit
+}
+
+function ringPercentage(status: BudgetStatusDto): number {
+  const { limit, actual } = totals(status)
+  if (!(limit > 0)) return actual > 0 ? 100 : 0
+  return (actual / limit) * 100
+}
+
+function ringClass(status: BudgetStatusDto): string {
+  if (status.expired) return 'ring-gray'
+  return isOverspent(status) ? 'ring-red' : 'ring-green'
+}
+
+function ringColor(status: BudgetStatusDto): string {
+  if (status.expired) return RING_COLORS.gray
+  return isOverspent(status) ? RING_COLORS.red : RING_COLORS.green
+}
+
+function ringAmount(status: BudgetStatusDto): string {
+  const { limit, actual } = totals(status)
+  return Math.abs(limit - actual).toFixed(2)
+}
+
+function periodLabel(period: string | null): string {
   const labels: Record<string, string> = {
     daily: t('budget.period.daily'),
     'weekly-sun': t('budget.period.weeklySun'),
@@ -27,24 +71,48 @@ function periodLabel(period: string): string {
     monthly: t('budget.period.monthly'),
     yearly: t('budget.period.yearly'),
   }
-  return labels[period] ?? period
+  return period ? (labels[period] ?? period) : t('budget.period.once')
+}
+
+function metaLabel(status: BudgetStatusDto): string {
+  const parts = [periodLabel(status.budget.period)]
+  if (status.budget.deadline) {
+    parts.push(`${t('budget.deadlinePrefix')} ${status.budget.deadline}`)
+  }
+  return parts.join(' · ')
+}
+
+function toggleExpand(budgetId: number) {
+  expandedBudgetId.value = expandedBudgetId.value === budgetId ? null : budgetId
+}
+
+function accountName(accountId: number): string {
+  return accountStore.accountPath(accountId) || `#${accountId}`
 }
 
 function onNewBudget() {
   editingBudget.value = null
+  resetForm()
   showCreateDrawer.value = true
 }
 
-function onEditBudget(budget: BudgetDto) {
-  editingBudget.value = budget
+function onEditBudget(status: BudgetStatusDto) {
+  editingBudget.value = status
+  formName.value = status.budget.name
+  formPeriod.value = status.budget.period ?? ''
+  formDeadline.value = status.budget.deadline ?? ''
+  formLimits.value = status.items.map(item => ({
+    account_id: item.account_id,
+    amount: item.limit_amount,
+  }))
   showCreateDrawer.value = true
 }
 
-function onDeleteBudget(id: number) {
+async function onDeleteBudget(id: number) {
   if (confirm(t('budget.confirmDelete'))) {
-    budgetStore.remove(id)
-    if (selectedBudgetId.value === id) {
-      selectedBudgetId.value = null
+    await budgetStore.remove(id)
+    if (expandedBudgetId.value === id) {
+      expandedBudgetId.value = null
     }
   }
 }
@@ -54,17 +122,25 @@ function onDrawerClosed() {
   editingBudget.value = null
 }
 
-function onBudgetCreated() {
+function onBudgetSaved() {
   showCreateDrawer.value = false
   editingBudget.value = null
-  budgetStore.loadBudgets()
+  budgetStore.loadStatuses()
 }
 
 // Create/Edit form state
 const formName = ref('')
 const formPeriod = ref('monthly')
+const formDeadline = ref('')
 const formCommodityId = ref(1)
 const formLimits = ref<BudgetLimitRequest[]>([])
+
+function resetForm() {
+  formName.value = ''
+  formPeriod.value = 'monthly'
+  formDeadline.value = ''
+  formLimits.value = []
+}
 
 function addLimit() {
   formLimits.value.push({ account_id: 0, amount: '0' })
@@ -86,18 +162,21 @@ async function submitBudget() {
 
   const data = {
     name: formName.value.trim(),
-    period: formPeriod.value,
+    period: formPeriod.value || null,
+    deadline: formDeadline.value || null,
     commodity_id: formCommodityId.value,
-    limits: formLimits.value.filter(l => l.account_id > 0),
+    limits: formLimits.value
+      .filter(l => l.account_id > 0)
+      .map(l => ({ account_id: l.account_id, amount: String(l.amount) })),
   }
 
   try {
     if (editingBudget.value) {
-      await budgetStore.update(editingBudget.value.id, data)
+      await budgetStore.update(editingBudget.value.budget.id, data)
     } else {
       await budgetStore.create(data)
     }
-    onBudgetCreated()
+    onBudgetSaved()
   } catch (e) {
     alert(t('budget.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
   }
@@ -119,18 +198,69 @@ watchEffect(() => {
       <div v-if="budgetStore.loading" class="loading">{{ t('common.loading') }}</div>
       <div v-else-if="budgetStore.error" class="error">{{ budgetStore.error }}</div>
       <template v-else>
-        <div v-if="budgetStore.budgets.length === 0" class="empty">{{ t('budget.empty') }}</div>
+        <div v-if="budgetStore.statuses.length === 0" class="empty">{{ t('budget.empty') }}</div>
 
-        <div v-for="budget in budgetStore.budgets" :key="budget.id" class="budget-card">
-          <div class="budget-info">
-            <h3>{{ budget.name }}</h3>
-            <p class="budget-meta">{{ periodLabel(budget.period) }}</p>
+        <div
+          v-for="status in budgetStore.statuses"
+          :key="status.budget.id"
+          class="budget-card"
+          @click="toggleExpand(status.budget.id)"
+        >
+          <div class="budget-ring" :class="ringClass(status)">
+            <ProgressRing :percentage="ringPercentage(status)" :color="ringColor(status)" :size="80">
+              <div class="ring-center">
+                <div class="ring-label">
+                  {{ isOverspent(status) ? t('budget.overspentLabel') : t('budget.remainingLabel') }}
+                </div>
+                <div class="ring-amount">{{ ringAmount(status) }}</div>
+              </div>
+            </ProgressRing>
           </div>
-          <div class="budget-actions">
-            <button class="edit-btn" @click="onEditBudget(budget)">{{ t('common.edit') }}</button>
-            <button class="delete-btn" @click="onDeleteBudget(budget.id)">
+          <div class="budget-info">
+            <h3>{{ status.budget.name }}</h3>
+            <p class="budget-meta">{{ metaLabel(status) }}</p>
+            <div class="budget-badges">
+              <span v-if="status.expired" class="badge badge-expired">
+                {{ t('budget.expired') }}
+              </span>
+            </div>
+          </div>
+          <div class="budget-actions" @click.stop>
+            <button class="edit-btn" @click="onEditBudget(status)">{{ t('common.edit') }}</button>
+            <button class="delete-btn" @click="onDeleteBudget(status.budget.id)">
               {{ t('common.delete') }}
             </button>
+          </div>
+
+          <!-- Inline expanded status detail -->
+          <div v-if="expandedBudgetId === status.budget.id" class="budget-detail" @click.stop>
+            <div v-if="status.period_start && status.period_end" class="detail-row period-range">
+              <span>{{ t('budget.detail.currentPeriod') }}</span>
+              <span>{{ status.period_start }} ~ {{ status.period_end }}</span>
+            </div>
+
+            <div class="status-list">
+              <div
+                v-for="item in status.items"
+                :key="item.account_id"
+                class="status-row"
+                :class="{ overspent: Number(item.remaining) < 0 }"
+              >
+                <div class="status-name">{{ accountName(item.account_id) }}</div>
+                <div class="status-nums">
+                  <span class="item-limit">
+                    {{ t('budget.detail.limit') }} {{ item.limit_amount }}
+                  </span>
+                  <span class="item-actual">
+                    {{ t('budget.detail.actual') }} {{ item.actual_amount }}
+                  </span>
+                  <span class="item-remaining">
+                    {{ t('budget.detail.remaining') }} {{ item.remaining }}
+                  </span>
+                  <span class="item-percentage">{{ formatDecimal(item.percentage) }}%</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </template>
@@ -161,7 +291,13 @@ watchEffect(() => {
               <option value="weekly-mon">{{ t('budget.period.weeklyMon') }}</option>
               <option value="monthly">{{ t('budget.period.monthly') }}</option>
               <option value="yearly">{{ t('budget.period.yearly') }}</option>
+              <option value="">{{ t('budget.period.once') }}</option>
             </select>
+          </div>
+
+          <div class="field">
+            <label>{{ t('budget.deadlineLabel') }}</label>
+            <input v-model="formDeadline" type="date" />
           </div>
 
           <div class="section-title">{{ t('budget.limitsTitle') }}</div>
@@ -170,6 +306,7 @@ watchEffect(() => {
             <AccountPicker
               :model-value="limit.account_id || null"
               :placeholder="t('budget.selectAccount')"
+              account-type="expense"
               @update:model-value="
                 id => {
                   formLimits[index].account_id = id
@@ -225,9 +362,43 @@ watchEffect(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
   background: var(--card-bg-alt, #252525);
   border-radius: 0.75rem;
   padding: 1rem;
+  cursor: pointer;
+}
+
+.budget-ring {
+  flex-shrink: 0;
+}
+
+.ring-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.ring-label {
+  font-size: 0.625rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.ring-amount {
+  font-size: 0.6875rem;
+}
+
+.ring-red .ring-label,
+.ring-red .ring-amount {
+  color: #e74c3c;
+}
+
+.budget-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .budget-info h3 {
@@ -240,6 +411,28 @@ watchEffect(() => {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.8125rem;
+}
+
+.budget-badges {
+  display: flex;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+}
+
+.budget-badges:empty {
+  margin-top: 0;
+}
+
+.badge {
+  border-radius: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.badge-expired {
+  background: rgba(127, 140, 141, 0.2);
+  color: #7f8c8d;
 }
 
 .budget-actions {
@@ -266,6 +459,59 @@ watchEffect(() => {
 .delete-btn:hover {
   border-color: #e74c3c;
   color: #e74c3c;
+}
+
+/* Inline status detail */
+.budget-detail {
+  flex-basis: 100%;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  cursor: default;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  color: var(--text-heading);
+}
+
+.detail-row span:first-child {
+  color: var(--text-muted);
+}
+
+.status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.status-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.status-name {
+  font-size: 0.8125rem;
+  color: var(--text-heading);
+}
+
+.status-row.overspent .status-name,
+.status-row.overspent .item-remaining,
+.status-row.overspent .item-percentage {
+  color: #e74c3c;
+}
+
+.status-nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 /* Drawer styles */

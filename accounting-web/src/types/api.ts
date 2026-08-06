@@ -106,7 +106,8 @@ export interface CashFlowDto {
 export interface BudgetDto {
   id: number
   name: string
-  period: string
+  period: string | null
+  deadline: string | null
   commodity_id: number
 }
 
@@ -130,8 +131,9 @@ export interface BudgetItemStatusDto {
 
 export interface BudgetStatusDto {
   budget: BudgetDto
-  period_start: string
-  period_end: string
+  expired: boolean
+  period_start: string | null
+  period_end: string | null
   items: BudgetItemStatusDto[]
 }
 
@@ -142,9 +144,74 @@ export interface BudgetLimitRequest {
 
 export interface CreateBudgetRequest {
   name: string
-  period: string
+  period?: string | null
+  deadline?: string | null
   commodity_id: number
   limits: BudgetLimitRequest[]
+}
+
+export interface UpdateBudgetRequest {
+  name: string
+  period: string | null
+  deadline: string | null
+  commodity_id: number
+  limits: BudgetLimitRequest[]
+}
+
+// ─── 攒钱计划 ───
+
+export interface SavingPlanDto {
+  id: number
+  name: string
+  period: string | null
+  deadline: string | null
+  commodity_id: number
+  target_amount: string
+  account_ids: number[]
+}
+
+export interface SavingPlanDetailDto {
+  plan: SavingPlanDto
+  account_ids: number[]
+}
+
+export interface AccountAllocationDto {
+  account_id: number
+  balance: string
+  occupied_by_earlier: string
+  allocated: string
+}
+
+export interface SavingPlanStatusDto {
+  plan: SavingPlanDto
+  expired: boolean
+  period_start: string | null
+  period_end: string | null
+  target_amount: string
+  current_balance: string
+  gap: string
+  met: boolean
+  allocated: string
+  satisfaction: string
+  accounts: AccountAllocationDto[]
+}
+
+export interface CreateSavingPlanRequest {
+  name: string
+  period: string | null
+  deadline: string | null
+  commodity_id: number
+  target_amount: string
+  account_ids: number[]
+}
+
+export interface UpdateSavingPlanRequest {
+  name: string
+  period: string | null
+  deadline: string | null
+  commodity_id: number
+  target_amount: string
+  account_ids: number[]
 }
 
 // ─── 交易筛选 ───

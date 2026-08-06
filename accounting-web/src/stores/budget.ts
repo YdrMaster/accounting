@@ -6,12 +6,14 @@ import {
   fetchBudgetDetail,
   fetchBudgets,
   fetchBudgetStatus,
+  fetchBudgetStatuses,
   updateBudget,
 } from '../api/client'
 import type { BudgetDetailDto, BudgetDto, BudgetStatusDto, CreateBudgetRequest } from '../types/api'
 
 export const useBudgetStore = defineStore('budget', () => {
   const budgets = ref<BudgetDto[]>([])
+  const statuses = ref<BudgetStatusDto[]>([])
   const currentDetail = ref<BudgetDetailDto | null>(null)
   const currentStatus = ref<BudgetStatusDto | null>(null)
   const loading = ref(false)
@@ -53,6 +55,18 @@ export const useBudgetStore = defineStore('budget', () => {
     }
   }
 
+  async function loadStatuses(date?: string) {
+    loading.value = true
+    error.value = null
+    try {
+      statuses.value = await fetchBudgetStatuses(date)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function create(data: CreateBudgetRequest): Promise<BudgetDto> {
     const budget = await createBudget(data)
     budgets.value.push(budget)
@@ -67,6 +81,7 @@ export const useBudgetStore = defineStore('budget', () => {
   async function remove(id: number): Promise<void> {
     await deleteBudget(id)
     budgets.value = budgets.value.filter(b => b.id !== id)
+    statuses.value = statuses.value.filter(s => s.budget.id !== id)
     if (currentDetail.value?.budget.id === id) {
       currentDetail.value = null
     }
@@ -77,6 +92,7 @@ export const useBudgetStore = defineStore('budget', () => {
 
   return {
     budgets,
+    statuses,
     currentDetail,
     currentStatus,
     loading,
@@ -84,6 +100,7 @@ export const useBudgetStore = defineStore('budget', () => {
     loadBudgets,
     loadDetail,
     loadStatus,
+    loadStatuses,
     create,
     update,
     remove,

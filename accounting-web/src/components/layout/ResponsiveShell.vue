@@ -4,8 +4,8 @@ import { paneNames, useResponsiveLayout } from '../../composables/useResponsiveL
 import { ringDist, useWheelScroll } from '../../composables/useWheelScroll'
 import AccountsView from '../../views/AccountsView.vue'
 import AssetsView from '../../views/AssetsView.vue'
-import BudgetView from '../../views/BudgetView.vue'
 import CalendarView from '../../views/CalendarView.vue'
+import PlansView from '../../views/PlansView.vue'
 import TransactionView from '../../views/TransactionView.vue'
 import ConfigPanel from './ConfigPanel.vue'
 import PageSwitcher from './PageSwitcher.vue'
@@ -19,7 +19,7 @@ const componentMap: Record<string, Component> = {
   assets: AssetsView,
   accounts: AccountsView,
   calendar: CalendarView,
-  budget: BudgetView,
+  plan: PlansView,
 }
 
 const paneWidth = computed(() => width.value / columns.value)
