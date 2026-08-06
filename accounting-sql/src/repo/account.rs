@@ -545,6 +545,63 @@ pub async fn account_find_root_id(
     Ok(AccountId(id))
 }
 
+/// 批量取每个输入账户的根账户（闭包表 depth 最大的祖先）在指定语言的系统显示名。
+/// 根账户在该语言无系统名的账户不出现在结果中；空输入返回空 vec。
+pub async fn account_root_names_by_ids(
+    conn: &mut SqliteConnection,
+    account_ids: &[AccountId],
+    lang: &str,
+) -> Result<Vec<(AccountId, String)>, DbError> {
+    if account_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut builder = sqlx::QueryBuilder::new(
+        "SELECT aa.account_id, an.name
+         FROM account_ancestors aa
+         JOIN account_names an ON an.account_id = aa.ancestor_id
+             AND an.is_system = 1 AND an.lang = ",
+    );
+    builder.push_bind(lang);
+    builder.push(" WHERE aa.account_id IN (");
+    let mut separated = builder.separated(", ");
+    for id in account_ids {
+        separated.push_bind(id.0);
+    }
+    builder.push(
+        ") AND aa.depth = (
+               SELECT MAX(depth) FROM account_ancestors sub
+               WHERE sub.account_id = aa.account_id
+           )
+         ORDER BY aa.account_id",
+    );
+    let rows: Vec<(i64, String)> = builder
+        .build_query_as()
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, name)| (AccountId(id), name))
+        .collect())
+}
+
+/// 系统根账户（parent_id IS NULL 且 is_system=1）不可改名，是则返回错误。
+pub async fn account_ensure_rename_allowed(
+    conn: &mut SqliteConnection,
+    id: AccountId,
+) -> Result<(), DbError> {
+    if let Some(account) = account_get(conn, id).await?
+        && account.parent_id.is_none()
+        && account.is_system
+    {
+        return Err(DbError::Database(format!(
+            "cannot rename system root account {}",
+            id.0
+        )));
+    }
+    Ok(())
+}
+
 #[derive(sqlx::FromRow)]
 struct AccountRow {
     id: i64,
@@ -983,6 +1040,108 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn test_root_names_by_ids_multi_level_multi_root() {
+        let mut conn = setup().await;
+        let assets_id = account_get_by_name(&mut conn, "Assets")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let fees_id = account_get_by_name(&mut conn, "Expenses:Fees")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let bank_id =
+            account_create_with_name(&mut conn, &bare_account(Some(assets_id)), "Bank", "en")
+                .await
+                .unwrap();
+        let checking_id =
+            account_create_with_name(&mut conn, &bare_account(Some(bank_id)), "Checking", "en")
+                .await
+                .unwrap();
+
+        // 多层级 + 多根混合：Bank/Checking → Assets，Fees → Expenses
+        let ids = vec![bank_id, checking_id, fees_id];
+        let en = account_root_names_by_ids(&mut conn, &ids, "en")
+            .await
+            .unwrap();
+        assert_eq!(
+            en,
+            vec![
+                (fees_id, "Expenses".to_string()),
+                (bank_id, "Assets".to_string()),
+                (checking_id, "Assets".to_string()),
+            ]
+        );
+
+        let zh = account_root_names_by_ids(&mut conn, &ids, "zh-CN")
+            .await
+            .unwrap();
+        assert_eq!(
+            zh,
+            vec![
+                (fees_id, "支出".to_string()),
+                (bank_id, "资产".to_string()),
+                (checking_id, "资产".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_root_names_by_ids_root_without_lang_name_is_skipped() {
+        let mut conn = setup().await;
+        // 造一个只有英文系统名的系统根账户
+        let root = Account {
+            id: AccountId(0),
+            parent_id: None,
+            closed_at: None,
+            is_system: true,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let root_id = account_create(&mut conn, &root).await.unwrap();
+        sqlx::query(
+            "INSERT INTO account_ancestors (account_id, ancestor_id, depth) VALUES (?1, ?1, 0)",
+        )
+        .bind(root_id.0)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO account_names (account_id, lang, name, is_system, is_display) VALUES (?1, 'en', 'WeirdRoot', 1, 1)",
+        )
+        .bind(root_id.0)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+        let child_id = account_create_with_closure(&mut conn, &bare_account(Some(root_id)))
+            .await
+            .unwrap();
+
+        // 英文查询正常返回
+        let en = account_root_names_by_ids(&mut conn, &[child_id], "en")
+            .await
+            .unwrap();
+        assert_eq!(en, vec![(child_id, "WeirdRoot".to_string())]);
+
+        // 中文查询：根无中文系统名 → 该账户不出现在结果中
+        let zh = account_root_names_by_ids(&mut conn, &[child_id], "zh-CN")
+            .await
+            .unwrap();
+        assert!(zh.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_root_names_by_ids_empty_input() {
+        let mut conn = setup().await;
+        let result = account_root_names_by_ids(&mut conn, &[], "en")
+            .await
+            .unwrap();
+        assert!(result.is_empty());
     }
 
     /// 查账户的完整祖先链（含自身 depth=0），按 depth 升序返回 (ancestor_id, depth)。

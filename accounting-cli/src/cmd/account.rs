@@ -188,7 +188,16 @@ impl AccountCmd {
                 db.account_rename(account_id, &args.new_name, lang)
                     .await
                     .map_err(|e| {
-                        accounting::error::AccountingError::DatabaseError(e.to_string())
+                        let msg = e.to_string();
+                        // 系统根账户改名保护：映射为本地化词条（参照 budget_not_found 惯例）
+                        if msg.contains("system root account") {
+                            accounting::error::AccountingError::InvalidTransaction(format!(
+                                "{}",
+                                t!("cannot_rename_system_root_account")
+                            ))
+                        } else {
+                            accounting::error::AccountingError::DatabaseError(msg)
+                        }
                     })?;
                 print_line(
                     &format!(

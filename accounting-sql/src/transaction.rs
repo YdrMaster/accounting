@@ -84,6 +84,7 @@ impl<'a> SqliteTransaction<'a> {
         new_name: &str,
         lang: &str,
     ) -> Result<(), DbError> {
+        crate::repo::account::account_ensure_rename_allowed(&mut self.tx, id).await?;
         crate::repo::account::account_rename(&mut self.tx, id, new_name, lang).await
     }
 
@@ -120,6 +121,15 @@ impl<'a> SqliteTransaction<'a> {
         lang: &str,
     ) -> Result<String, DbError> {
         crate::repo::account::account_find_root_name(&mut self.tx, account_id, lang).await
+    }
+
+    /// 批量解析每个输入账户的根账户在指定语言的系统显示名（单条 SQL）。
+    pub async fn account_root_names_by_ids(
+        &mut self,
+        account_ids: &[accounting::id::AccountId],
+        lang: &str,
+    ) -> Result<Vec<(accounting::id::AccountId, String)>, DbError> {
+        crate::repo::account::account_root_names_by_ids(&mut self.tx, account_ids, lang).await
     }
 
     pub async fn account_find_root_id(

@@ -11,6 +11,7 @@ use accounting::id::{AccountId, MemberId};
 use axum::{
     Json, Router,
     extract::{Path, State},
+    http::StatusCode,
     routing::{delete, get, put},
 };
 use rust_i18n::t;
@@ -152,25 +153,41 @@ async fn rename_account(
     Lang(lang): Lang,
     Path(id): Path<i64>,
     Json(req): Json<RenameAccountRequest>,
-) -> Result<String, String> {
+) -> Result<String, (StatusCode, String)> {
     let db = state.db();
+    let bad_request = |msg: String| (StatusCode::BAD_REQUEST, msg);
     let target = db
         .account_get(AccountId(id))
         .await
-        .map_err(|e| e.to_string())?
-        .ok_or(t!("account_not_found", locale = lang.as_str()).to_string())?;
+        .map_err(|e| bad_request(e.to_string()))?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            t!("account_not_found", locale = lang.as_str()).to_string(),
+        ))?;
     // 同层级检查同名（命中任意语言的名字即视为占用）
     if let Some(dup) = db
         .account_get_by_parent_and_name(target.parent_id, &req.name)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| bad_request(e.to_string()))?
         && dup.id.0 != id
     {
-        return Err(t!("account_name_exists", locale = lang.as_str()).to_string());
+        return Err(bad_request(
+            t!("account_name_exists", locale = lang.as_str()).to_string(),
+        ));
     }
     db.account_rename(AccountId(id), &req.name, &lang)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let msg = e.to_string();
+            // 系统根账户改名保护：映射为 400 + 本地化词条（参照 budget 的 map_error 惯例）
+            if msg.contains("system root account") {
+                bad_request(
+                    t!("cannot_rename_system_root_account", locale = lang.as_str()).to_string(),
+                )
+            } else {
+                bad_request(msg)
+            }
+        })?;
     Ok("renamed".to_string())
 }
 
@@ -558,5 +575,92 @@ mod tests {
         )
         .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn rename_system_root_account_returns_400_en() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+
+        let err = rename_account(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(assets),
+            Json(RenameAccountRequest {
+                name: "MyAssets".to_string(),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(
+            err.1.contains("System root account cannot be renamed"),
+            "unexpected error: {}",
+            err.1
+        );
+
+        // 根账户名保持不变
+        let names = state
+            .db()
+            .account_display_names(&[AccountId(assets)], "en")
+            .await
+            .unwrap();
+        assert_eq!(names.get(&AccountId(assets)).unwrap(), "Assets");
+    }
+
+    #[tokio::test]
+    async fn rename_system_root_account_returns_400_zh() {
+        let state = setup().await;
+        let expenses = account_id_by_name(&state, "Expenses").await;
+
+        let err = rename_account(
+            State(state.clone()),
+            Lang("zh-CN".to_string()),
+            Path(expenses),
+            Json(RenameAccountRequest {
+                name: "花销".to_string(),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(
+            err.1.contains("系统根账户不可改名"),
+            "unexpected error: {}",
+            err.1
+        );
+
+        // 根账户名保持不变
+        let names = state
+            .db()
+            .account_display_names(&[AccountId(expenses)], "zh-CN")
+            .await
+            .unwrap();
+        assert_eq!(names.get(&AccountId(expenses)).unwrap(), "支出");
+    }
+
+    #[tokio::test]
+    async fn rename_non_root_account_ok() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let bank = create_child(&state, assets, "Bank").await;
+
+        rename_account(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(bank),
+            Json(RenameAccountRequest {
+                name: "NewBank".to_string(),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let names = state
+            .db()
+            .account_display_names(&[AccountId(bank)], "en")
+            .await
+            .unwrap();
+        assert_eq!(names.get(&AccountId(bank)).unwrap(), "NewBank");
     }
 }

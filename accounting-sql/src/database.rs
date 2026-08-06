@@ -210,6 +210,7 @@ impl SqliteDatabase {
         lang: &str,
     ) -> Result<(), DbError> {
         let mut conn = self.acquire().await?;
+        crate::repo::account::account_ensure_rename_allowed(&mut conn, id).await?;
         crate::repo::account::account_rename(&mut conn, id, new_name, lang).await
     }
 
@@ -289,6 +290,16 @@ impl SqliteDatabase {
     ) -> Result<String, DbError> {
         let mut conn = self.acquire().await?;
         crate::repo::account::account_find_root_name(&mut conn, account_id, lang).await
+    }
+
+    /// 批量解析每个输入账户的根账户在指定语言的系统显示名（单条 SQL）。
+    pub async fn account_root_names_by_ids(
+        &self,
+        account_ids: &[accounting::id::AccountId],
+        lang: &str,
+    ) -> Result<Vec<(accounting::id::AccountId, String)>, DbError> {
+        let mut conn = self.acquire().await?;
+        crate::repo::account::account_root_names_by_ids(&mut conn, account_ids, lang).await
     }
 
     pub async fn account_find_root_id(
@@ -1365,6 +1376,143 @@ mod tests {
                 .unwrap();
 
         assert_eq!(root_names, vec!["Assets", "Equity", "Expenses", "Income"]);
+    }
+
+    fn bare_account(parent_id: Option<accounting::id::AccountId>) -> accounting::account::Account {
+        accounting::account::Account {
+            id: accounting::id::AccountId(0),
+            parent_id,
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_account_root_names_by_ids_wrapper() {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize().await.unwrap();
+
+        let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
+        let fees_id = db
+            .account_get_by_name("Expenses:Fees")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let bank_id = db
+            .account_create_with_name(&bare_account(Some(assets_id)), "Bank", "en")
+            .await
+            .unwrap();
+
+        let en = db
+            .account_root_names_by_ids(&[bank_id, fees_id], "en")
+            .await
+            .unwrap();
+        assert_eq!(
+            en,
+            vec![
+                (fees_id, "Expenses".to_string()),
+                (bank_id, "Assets".to_string()),
+            ]
+        );
+
+        // 事务包装路径
+        let mut tx = db.transaction().await.unwrap();
+        let zh = tx
+            .account_root_names_by_ids(&[bank_id, fees_id], "zh-CN")
+            .await
+            .unwrap();
+        assert_eq!(
+            zh,
+            vec![(fees_id, "支出".to_string()), (bank_id, "资产".to_string()),]
+        );
+
+        // 空输入
+        assert!(
+            db.account_root_names_by_ids(&[], "en")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_account_rename_rejects_system_root_en() {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize().await.unwrap();
+        let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
+
+        let err = db
+            .account_rename(assets_id, "MyAssets", "en")
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("system root account"),
+            "unexpected error: {err}"
+        );
+
+        // 根账户名保持不变
+        let names = db.account_display_names(&[assets_id], "en").await.unwrap();
+        assert_eq!(names.get(&assets_id).unwrap(), "Assets");
+    }
+
+    #[tokio::test]
+    async fn test_account_rename_rejects_system_root_zh_cn() {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize().await.unwrap();
+        let expenses_id = db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+
+        let err = db
+            .account_rename(expenses_id, "花销", "zh-CN")
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("system root account"),
+            "unexpected error: {err}"
+        );
+
+        // 事务路径同样拒绝
+        let mut tx = db.transaction().await.unwrap();
+        let err = tx
+            .account_rename(expenses_id, "花销", "zh-CN")
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("system root account"),
+            "unexpected error: {err}"
+        );
+        drop(tx);
+
+        // 根账户中文名保持不变
+        let names = db
+            .account_display_names(&[expenses_id], "zh-CN")
+            .await
+            .unwrap();
+        assert_eq!(names.get(&expenses_id).unwrap(), "支出");
+    }
+
+    #[tokio::test]
+    async fn test_account_rename_non_root_ok() {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize().await.unwrap();
+        let assets_id = db.account_get_by_name("Assets").await.unwrap().unwrap().id;
+        let bank_id = db
+            .account_create_with_name(&bare_account(Some(assets_id)), "Bank", "en")
+            .await
+            .unwrap();
+
+        db.account_rename(bank_id, "招商银行", "zh-CN")
+            .await
+            .unwrap();
+        let names = db.account_display_names(&[bank_id], "zh-CN").await.unwrap();
+        assert_eq!(names.get(&bank_id).unwrap(), "招商银行");
     }
 
     #[tokio::test]
