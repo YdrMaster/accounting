@@ -21,6 +21,8 @@ export const useSavingPlanStore = defineStore('savingPlan', () => {
   const currentStatus = ref<SavingPlanStatusDto | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  /** statuses 是否曾被加载过（用于交易变更后按需静默重拉） */
+  const statusesLoaded = ref(false)
 
   async function loadPlans() {
     loading.value = true
@@ -35,6 +37,7 @@ export const useSavingPlanStore = defineStore('savingPlan', () => {
   }
 
   async function loadStatuses(date?: string) {
+    statusesLoaded.value = true
     loading.value = true
     error.value = null
     try {
@@ -84,6 +87,7 @@ export const useSavingPlanStore = defineStore('savingPlan', () => {
     currentStatus,
     loading,
     error,
+    statusesLoaded,
     loadPlans,
     loadStatuses,
     loadStatus,

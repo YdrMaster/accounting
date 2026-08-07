@@ -8,6 +8,7 @@ import {
   updateChannel,
 } from '../api/client'
 import type { ChannelDto, ImportResultDto } from '../types/api'
+import { useTransactionStore } from './transaction'
 
 export const useChannelStore = defineStore('channel', () => {
   const channels = ref<ChannelDto[]>([])
@@ -82,7 +83,10 @@ export const useChannelStore = defineStore('channel', () => {
     importingChannelId.value = id
     error.value = null
     try {
-      return await importBill(id, memberId, file)
+      const result = await importBill(id, memberId, file)
+      // 导入即批量交易变更：后台静默重拉交易与派生数据，不阻塞结果提示
+      void useTransactionStore().reloadAll()
+      return result
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
       return undefined

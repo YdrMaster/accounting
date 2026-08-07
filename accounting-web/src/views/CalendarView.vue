@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watchEffect } from 'vue'
+import { computed, inject, onMounted, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { fetchDailySummary } from '../api/client'
 import CalendarGrid from '../components/CalendarGrid.vue'
 import TransactionList from '../components/TransactionList.vue'
 import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.vue'
 import { panelActionKey } from '../components/layout/panelAction'
+import { dataVersion } from '../stores/refresh'
 import { useTransactionStore } from '../stores/transaction'
 import type { DailySummaryDto } from '../types/api'
 import { todayStr } from '../utils/date'
@@ -67,7 +68,8 @@ function onEditTx(id: number) {
 
 function onDeleteTx(id: number) {
   if (confirm(t('calendar.confirmDelete'))) {
-    txStore.remove(id).then(() => loadDailyStats())
+    // remove 内部会刷新派生数据并递增 dataVersion，由下方 watcher 统一重载日历
+    txStore.remove(id)
   }
 }
 
@@ -78,8 +80,15 @@ function onFormClosed() {
 
 function onFormSaved() {
   // Data is already updated via create/update in store
-  loadDailyStats()
 }
+
+// 账目数据变更（增删改、导入）后重载日历统计与选中日的交易
+watch(dataVersion, () => {
+  loadDailyStats()
+  if (selectedDate.value) {
+    txStore.loadDay(selectedDate.value)
+  }
+})
 
 const panelAction = inject(panelActionKey, null)
 watchEffect(() => {

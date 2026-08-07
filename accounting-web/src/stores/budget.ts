@@ -18,6 +18,8 @@ export const useBudgetStore = defineStore('budget', () => {
   const currentStatus = ref<BudgetStatusDto | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  /** statuses 是否曾被加载过（用于交易变更后按需静默重拉） */
+  const statusesLoaded = ref(false)
 
   async function loadBudgets() {
     loading.value = true
@@ -56,6 +58,7 @@ export const useBudgetStore = defineStore('budget', () => {
   }
 
   async function loadStatuses(date?: string) {
+    statusesLoaded.value = true
     loading.value = true
     error.value = null
     try {
@@ -97,6 +100,7 @@ export const useBudgetStore = defineStore('budget', () => {
     currentStatus,
     loading,
     error,
+    statusesLoaded,
     loadBudgets,
     loadDetail,
     loadStatus,

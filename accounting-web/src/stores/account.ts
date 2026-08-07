@@ -7,8 +7,11 @@ export const useAccountStore = defineStore('account', () => {
   const accounts = ref<AccountDto[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  /** 是否曾加载过（用于数据变更后按需静默重拉） */
+  const loaded = ref(false)
 
   async function loadAccounts() {
+    loaded.value = true
     loading.value = true
     error.value = null
     try {
@@ -95,6 +98,7 @@ export const useAccountStore = defineStore('account', () => {
     accounts,
     loading,
     error,
+    loaded,
     loadAccounts,
     refreshAccount,
     removeAccount,

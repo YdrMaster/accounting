@@ -8,6 +8,7 @@ import AccountGrid from '../components/layout/AccountGrid.vue'
 import { panelActionKey } from '../components/layout/panelAction'
 import { useAccountDrag, type AccountDropResult } from '../composables/useAccountDrag'
 import { useAccountStore } from '../stores/account'
+import { notifyAccountsChanged } from '../stores/refresh'
 import type { AccountDto } from '../types/api'
 import { compileRows, type GridRow } from '../utils/accountGrid'
 import { loadSiblingOrder, saveSiblingOrder, sortSiblings } from '../utils/siblingOrder'
@@ -118,10 +119,12 @@ function onDrawerClosed() {
 
 function onAccountUpdated(updated: AccountDto) {
   store.refreshAccount(updated)
+  void notifyAccountsChanged()
 }
 
 function onAccountDeleted(id: number) {
   store.removeAccount(id)
+  void notifyAccountsChanged()
   expandedPath.value = expandedPath.value.filter(x => x !== id)
   if (selectedAccountId.value === id) {
     selectedAccountId.value = null
@@ -152,7 +155,7 @@ watchEffect(() => {
 
 function onAccountCreated() {
   createDrawerVisible.value = false
-  store.loadAccounts()
+  void notifyAccountsChanged()
 }
 
 const drag = useAccountDrag({
@@ -203,6 +206,7 @@ async function handleMoveAccount(draggedId: number, targetId: number) {
   try {
     const updated = await moveAccount(draggedId, targetId)
     store.refreshAccount(updated)
+    void notifyAccountsChanged()
     if (store.getChildren(targetId).length > 0 && !expandedPath.value.includes(targetId)) {
       expandedPath.value = [...expandedPath.value, targetId]
     }

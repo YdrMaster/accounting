@@ -10,6 +10,7 @@ import {
 import type { CreateTransactionData, TransactionDto, TxFilters } from '../types/api'
 import { dateOf, formatDate, todayStr } from '../utils/date'
 import { buildTxQuery, isFilterActive } from '../utils/txFilter'
+import { notifyTransactionsChanged } from './refresh'
 
 interface LoadedRange {
   from: string
@@ -205,6 +206,12 @@ export const useTransactionStore = defineStore('transaction', () => {
     setFilter(null)
   }
 
+  /** 交易数据变更后的统一收尾：日历缓存失效 + 派生数据（报表/预算/攒钱/账户）刷新 */
+  async function afterDataChanged(): Promise<void> {
+    calendarDays.value.clear()
+    await notifyTransactionsChanged()
+  }
+
   async function create(data: CreateTransactionData): Promise<number> {
     const id = await apiCreateTransaction(data)
     const tx = await apiFetchTransaction(id)
@@ -215,6 +222,7 @@ export const useTransactionStore = defineStore('transaction', () => {
         loadedRange.value = { ...loadedRange.value, to: txDate }
       }
     }
+    await afterDataChanged()
     return id
   }
 
@@ -233,22 +241,20 @@ export const useTransactionStore = defineStore('transaction', () => {
       else hi = mid
     }
     transactions.value.splice(lo, 0, tx)
+    await afterDataChanged()
   }
 
   async function remove(id: number): Promise<void> {
     await apiDeleteTransaction(id)
     transactions.value = transactions.value.filter(t => t.id !== id)
-    for (const [key, txs] of calendarDays.value) {
-      const idx = txs.findIndex(t => t.id === id)
-      if (idx !== -1) {
-        if (txs.length === 1) {
-          calendarDays.value.delete(key)
-        } else {
-          txs.splice(idx, 1)
-        }
-        break
-      }
-    }
+    await afterDataChanged()
+  }
+
+  /** 批量变更（如账单导入）后的整体重拉：清空缓存并重新加载，再刷新派生数据 */
+  async function reloadAll(): Promise<void> {
+    clearCache()
+    await loadInitial()
+    await notifyTransactionsChanged()
   }
 
   function clearCache() {
@@ -274,6 +280,7 @@ export const useTransactionStore = defineStore('transaction', () => {
     create,
     update,
     remove,
+    reloadAll,
     clearCache,
   }
 })

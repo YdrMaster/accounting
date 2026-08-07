@@ -16,6 +16,10 @@ export const useReportStore = defineStore('report', () => {
   const cashFlowLoading = ref(false)
   const cashFlowError = ref<string | null>(null)
 
+  /** 最近一次加载使用的参数，用于数据变更后的静默重拉 */
+  let lastTrendPeriod: ChartPeriod | null = null
+  let lastCashFlowQuery: { date: string; period: ChartPeriod } | null = null
+
   async function loadBalanceSheet(force = false) {
     if (!force && balanceSheet.value !== null) return
 
@@ -31,6 +35,7 @@ export const useReportStore = defineStore('report', () => {
   }
 
   async function loadNetWorthTrend(period: ChartPeriod) {
+    lastTrendPeriod = period
     trendLoading.value = true
     trendError.value = null
     try {
@@ -43,6 +48,7 @@ export const useReportStore = defineStore('report', () => {
   }
 
   async function loadCashFlowTab(date: string, period: ChartPeriod) {
+    lastCashFlowQuery = { date, period }
     cashFlowLoading.value = true
     cashFlowError.value = null
     try {
@@ -58,12 +64,24 @@ export const useReportStore = defineStore('report', () => {
     balanceSheet.value = null
   }
 
+  /** 数据变更后的静默重拉：只刷新此前加载过的报表，不抛错 */
+  async function refresh() {
+    const jobs: Promise<unknown>[] = []
+    if (balanceSheet.value !== null) jobs.push(loadBalanceSheet(true))
+    if (lastTrendPeriod !== null) jobs.push(loadNetWorthTrend(lastTrendPeriod))
+    if (lastCashFlowQuery !== null) {
+      jobs.push(loadCashFlowTab(lastCashFlowQuery.date, lastCashFlowQuery.period))
+    }
+    await Promise.allSettled(jobs)
+  }
+
   return {
     balanceSheet,
     loading,
     error,
     loadBalanceSheet,
     clearCache,
+    refresh,
     netWorthTrend,
     trendLoading,
     trendError,
