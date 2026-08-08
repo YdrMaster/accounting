@@ -219,10 +219,10 @@ function commoditySymbol(id: number): string {
 }
 
 .balance.positive {
-  color: #4ade80;
+  color: var(--color-income-soft);
 }
 
 .balance.negative {
-  color: #ff7b7b;
+  color: var(--color-expense-soft);
 }
 </style>

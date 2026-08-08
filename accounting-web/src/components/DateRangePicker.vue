@@ -295,7 +295,7 @@ const displayTo = computed(() => props.to || '—')
 
 .wd {
   text-align: center;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
   padding: 0.25rem 0;
 }

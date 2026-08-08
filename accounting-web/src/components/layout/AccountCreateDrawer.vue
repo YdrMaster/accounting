@@ -82,6 +82,8 @@ async function handleSubmit() {
   flex-direction: column;
   justify-content: flex-end;
   pointer-events: none;
+  /* 裁剪滑入动画中探出视口的抽屉，避免滚动条闪现 */
+  overflow: hidden;
 }
 
 .drawer {
@@ -152,7 +154,7 @@ async function handleSubmit() {
 
 .error-banner {
   background: rgba(231, 76, 60, 0.15);
-  color: #e74c3c;
+  color: var(--color-expense);
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
   font-size: 0.8125rem;

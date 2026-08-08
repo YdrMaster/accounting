@@ -70,7 +70,7 @@ async function removeMapping(category: string) {
   <div class="mapping-section">
     <div class="mapping-header">
       <span class="field-label">{{ t('config.importRules') }}</span>
-      <select v-model="selectedMemberId" class="member-select">
+      <select v-model="selectedMemberId" class="field-input member-select">
         <option v-for="member in memberStore.members" :key="member.id" :value="member.id">
           {{ member.name }}
         </option>
@@ -92,7 +92,7 @@ async function removeMapping(category: string) {
     <div class="add-row">
       <input
         v-model="newCategory"
-        class="inline-input"
+        class="field-input"
         :placeholder="t('config.mappingCategoryPlaceholder')"
         @keyup.enter="addMapping"
       />
@@ -128,22 +128,15 @@ async function removeMapping(category: string) {
   font-weight: 500;
 }
 
+/* 共享 .field-input 基础上的紧凑变体 */
 .member-select {
   padding: 0.25rem 0.5rem;
   border-radius: 0.375rem;
-  border: 1px solid var(--border);
-  background: var(--card-bg-alt);
-  color: var(--text-heading);
   font-size: 0.8125rem;
-  outline: none;
-}
-
-.member-select:focus {
-  border-color: var(--accent);
 }
 
 .store-error {
-  color: #e74c3c;
+  color: var(--color-expense);
   font-size: 0.8125rem;
   padding: 0.375rem 0.625rem;
   background: rgba(231, 76, 60, 0.1);
@@ -190,7 +183,7 @@ async function removeMapping(category: string) {
 }
 
 .delete-btn:hover {
-  color: #e74c3c;
+  color: var(--color-expense);
 }
 
 .add-row {
@@ -200,20 +193,9 @@ async function removeMapping(category: string) {
   align-items: center;
 }
 
-.inline-input {
+/* 共享 .field-input 基础上的布局补充：行内输入框占满剩余宽度 */
+.add-row .field-input {
   flex: 1;
-  padding: 0.375rem 0.5rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--border);
-  background: var(--card-bg-alt);
-  color: var(--text-heading);
-  font-size: 0.875rem;
-  outline: none;
-  min-width: 0;
-}
-
-.inline-input:focus {
-  border-color: var(--accent);
 }
 
 .mapping-picker {

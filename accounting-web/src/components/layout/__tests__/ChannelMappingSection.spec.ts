@@ -121,7 +121,7 @@ describe('ChannelMappingSection', () => {
     const wrapper = mountSection()
     await flushPromises()
 
-    await wrapper.find('.add-row input.inline-input').setValue('Expenses:交通出行')
+    await wrapper.find('.add-row input.field-input').setValue('Expenses:交通出行')
     wrapper.findComponent(AccountPicker).vm.$emit('update:modelValue', 10)
     await flushPromises()
     await wrapper.find('.add-row .add-btn').trigger('click')
@@ -152,7 +152,7 @@ describe('ChannelMappingSection', () => {
     const wrapper = mountSection()
     await flushPromises()
 
-    await wrapper.find('.add-row input.inline-input').setValue('Expenses:交通出行')
+    await wrapper.find('.add-row input.field-input').setValue('Expenses:交通出行')
     await wrapper.find('.add-row .add-btn').trigger('click')
     await flushPromises()
 

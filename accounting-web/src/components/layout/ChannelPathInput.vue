@@ -16,71 +16,14 @@ const { t } = useI18n()
 
 const channelStore = useChannelStore()
 
-const channelLevels = computed(() => {
-  const levels: Map<number, number[]> = new Map()
-  for (const node of props.modelValue) {
-    if (!levels.has(node.position)) {
-      levels.set(node.position, [])
-    }
-    levels.get(node.position)!.push(node.channel_id)
-  }
-  return levels
-})
+/** 线性链：忽略 channel_id 为 0 的占位节点，按 position 排序 */
+const chain = computed(() =>
+  props.modelValue.filter(n => n.channel_id > 0).sort((a, b) => a.position - b.position)
+)
 
-const maxPosition = computed(() => {
-  if (props.modelValue.length === 0) return -1
-  return Math.max(...props.modelValue.map(n => n.position))
-})
-
-function addLevel() {
-  const newPosition = maxPosition.value + 1
-  const newNode: ChannelPathNodeInput = {
-    position: newPosition,
-    channel_id: 0,
-    status: 'default',
-  }
-  emit('update:modelValue', [...props.modelValue, newNode])
-}
-
-function removeLevel(position: number) {
-  const filtered = props.modelValue.filter(n => n.position !== position)
-  // Re-index positions
-  const reindexed = filtered.map((n, idx) => ({ ...n, position: idx }))
-  emit('update:modelValue', reindexed)
-}
-
-function setChannel(position: number, channelId: number) {
-  const updated = props.modelValue.map(n => {
-    if (n.position === position) {
-      return { ...n, channel_id: channelId }
-    }
-    return n
-  })
-  emit('update:modelValue', updated)
-}
-
-function addChannelToLevel(position: number, channelId: number) {
-  const newNode: ChannelPathNodeInput = {
-    position,
-    channel_id: channelId,
-    status: 'default',
-  }
-  emit('update:modelValue', [...props.modelValue, newNode])
-}
-
-function removeChannelFromLevel(position: number, channelId: number) {
-  const filtered = props.modelValue.filter(
-    n => !(n.position === position && n.channel_id === channelId)
-  )
-  emit('update:modelValue', filtered)
-}
-
-function isLastLevel(position: number): boolean {
-  return position === maxPosition.value
-}
-
-function getChannelsForLevel(position: number): number[] {
-  return channelLevels.value.get(position) || []
+/** 候选渠道：已选的不允许重复选择 */
+function isChosen(channelId: number): boolean {
+  return chain.value.some(n => n.channel_id === channelId)
 }
 
 function channelName(id: number): string {
@@ -88,59 +31,52 @@ function channelName(id: number): string {
     channelStore.channels.find(c => c.id === id)?.name || t('channelInput.channelNumber', { id })
   )
 }
+
+/** 选中即追加到链尾：每选一个才能选下一个，中间不空不重 */
+function appendChannel(e: Event) {
+  const select = e.target as HTMLSelectElement
+  const channelId = Number(select.value)
+  if (!channelId) return
+  emit('update:modelValue', [
+    ...props.modelValue,
+    { position: chain.value.length, channel_id: channelId, status: 'default' },
+  ])
+  select.value = ''
+}
+
+/** 仅链尾可删 */
+function popLast() {
+  const last = chain.value[chain.value.length - 1]
+  if (!last) return
+  emit(
+    'update:modelValue',
+    props.modelValue.filter(n => n !== last)
+  )
+}
 </script>
 
 <template>
   <div class="channel-path-input">
-    <div v-for="pos in maxPosition + 1" :key="pos - 1" class="level-row">
-      <div class="level-label">{{ t('channelInput.level', { n: pos }) }}</div>
-      <div class="level-channels">
-        <span v-for="chId in getChannelsForLevel(pos - 1)" :key="chId" class="channel-chip">
-          {{ channelName(chId) }}
-          <button
-            v-if="isLastLevel(pos - 1) && getChannelsForLevel(pos - 1).length > 1"
-            @click="removeChannelFromLevel(pos - 1, chId)"
-          >
-            ×
-          </button>
+    <div class="path-chain">
+      <template v-for="(node, index) in chain" :key="node.position">
+        <span v-if="index > 0" class="chain-sep">▸</span>
+        <span class="channel-chip">
+          {{ channelName(node.channel_id) }}
+          <button v-if="index === chain.length - 1" @click="popLast">×</button>
         </span>
-        <select
-          v-if="isLastLevel(pos - 1) || getChannelsForLevel(pos - 1).length === 0"
-          @change="
-            e => {
-              const val = Number((e.target as HTMLSelectElement).value)
-              if (val) {
-                if (isLastLevel(pos - 1)) {
-                  addChannelToLevel(pos - 1, val)
-                } else {
-                  setChannel(pos - 1, val)
-                }
-                ;(e.target as HTMLSelectElement).value = ''
-              }
-            }
-          "
+      </template>
+      <select class="chain-select" @change="appendChannel">
+        <option value="">{{ t('channelInput.selectChannel') }}</option>
+        <option
+          v-for="ch in channelStore.channels"
+          :key="ch.id"
+          :value="ch.id"
+          :disabled="isChosen(ch.id)"
         >
-          <option value="">{{ t('channelInput.addChannel') }}</option>
-          <option
-            v-for="ch in channelStore.channels"
-            :key="ch.id"
-            :value="ch.id"
-            :disabled="getChannelsForLevel(pos - 1).includes(ch.id)"
-          >
-            {{ ch.name }}
-          </option>
-        </select>
-      </div>
-      <button
-        v-if="!isLastLevel(pos - 1) || getChannelsForLevel(pos - 1).length > 0"
-        class="remove-level-btn"
-        @click="removeLevel(pos - 1)"
-      >
-        ×
-      </button>
+          {{ ch.name }}
+        </option>
+      </select>
     </div>
-
-    <button class="add-level-btn" @click="addLevel">{{ t('channelInput.addLevel') }}</button>
   </div>
 </template>
 
@@ -151,37 +87,31 @@ function channelName(id: number): string {
   gap: 0.75rem;
 }
 
-.level-row {
+/* 链路横排：层级之间用 ▸ 分隔 */
+.path-chain {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.375rem;
   background: var(--card-bg-alt, #252525);
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   padding: 0.5rem;
 }
 
-.level-label {
+.chain-sep {
   color: var(--text-muted);
   font-size: 0.75rem;
-  min-width: 50px;
-}
-
-.level-channels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-  flex: 1;
-  align-items: center;
+  flex-shrink: 0;
 }
 
 .channel-chip {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.5ch;
   background: var(--accent, #646cff);
   color: #fff;
-  padding: 0.25rem 0.5rem;
+  padding: 0.25rem 0.5ch 0.25rem 0.5rem;
   border-radius: 0.25rem;
   font-size: 0.75rem;
 }
@@ -200,7 +130,9 @@ function channelName(id: number): string {
   opacity: 1;
 }
 
-.level-channels select {
+/* 幽灵芯片风格的内联下拉 */
+.chain-select {
+  appearance: none;
   background: transparent;
   border: 1px dashed var(--border);
   border-radius: 0.25rem;
@@ -210,37 +142,7 @@ function channelName(id: number): string {
   cursor: pointer;
 }
 
-.level-channels select:hover {
-  border-color: var(--accent, #646cff);
-  color: var(--accent, #646cff);
-}
-
-.remove-level-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 1.25rem;
-  cursor: pointer;
-  padding: 0.25rem;
-  line-height: 1;
-}
-
-.remove-level-btn:hover {
-  color: #e74c3c;
-}
-
-.add-level-btn {
-  background: var(--card-bg-alt, #252525);
-  border: 1px dashed var(--border);
-  border-radius: 0.5rem;
-  padding: 0.5rem;
-  color: var(--text-muted);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-
-.add-level-btn:hover {
+.chain-select:hover {
   border-color: var(--accent, #646cff);
   color: var(--accent, #646cff);
 }

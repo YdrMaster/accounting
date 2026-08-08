@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import Decimal from 'decimal.js'
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { fetchTransaction } from '../../api/client'
 import { useChannelStore } from '../../stores/channel'
@@ -10,6 +10,7 @@ import { useMemberStore } from '../../stores/member'
 import { useTagStore } from '../../stores/tag'
 import { useTransactionStore } from '../../stores/transaction'
 import type { ChannelPathNodeInput, CreateTransactionData } from '../../types/api'
+import { alertDialog } from '../../utils/dialog'
 import AccountPicker from './AccountPicker.vue'
 import ChannelPathInput from './ChannelPathInput.vue'
 
@@ -43,9 +44,8 @@ onMounted(async () => {
   if (props.editId) {
     await loadTransaction(props.editId)
   } else {
-    // Default values for new transaction（成员默认未选中，用户手工选择）
+    // Default values for new transaction（成员默认未选中，用户手工选择；只自动创建一个分录）
     dateTime.value = formatDateTime(new Date())
-    addPosting()
     addPosting()
   }
 })
@@ -65,6 +65,31 @@ interface PostingDraft {
 }
 
 const postings = ref<PostingDraft[]>([])
+
+/** 候选标签：只支持从已有标签中选择，不允许手工输入 */
+const availableTags = computed(() =>
+  tagStore.tags.filter(tag => !selectedTags.value.includes(tag.name))
+)
+
+function addTag(e: Event) {
+  const select = e.target as HTMLSelectElement
+  if (select.value) {
+    selectedTags.value.push(select.value)
+    select.value = ''
+  }
+}
+
+/** 备注框高度自适应：自动放大到无需滚动条即可显示全部文本 */
+const descRef = ref<HTMLTextAreaElement | null>(null)
+
+function autoGrow() {
+  const el = descRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+
+watch(description, () => nextTick(autoGrow))
 
 const isEdit = computed(() => !!props.editId)
 const formTitle = computed(() => (isEdit.value ? t('txForm.editTitle') : t('txForm.createTitle')))
@@ -95,6 +120,19 @@ function removePosting(index: number) {
   postings.value.splice(index, 1)
 }
 
+/** 金额输入过滤：只允许 -?\d*\.?\d*(负号仅首位、至多一个小数点) */
+function onAmountInput(index: number, e: Event) {
+  const input = e.target as HTMLInputElement
+  let v = input.value.replace(/[^\d.-]/g, '')
+  v = v.replace(/(?!^)-/g, '')
+  const firstDot = v.indexOf('.')
+  if (firstDot !== -1) {
+    v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '')
+  }
+  input.value = v
+  postings.value[index].amount = v
+}
+
 function onAccountSelect(index: number, accountId: number) {
   postings.value[index].accountId = accountId
   postings.value[index].accountName = accountStore.accountPath(accountId)
@@ -108,6 +146,9 @@ const isBalanced = computed(() => {
   }, new Decimal(0))
   return sum.isZero()
 })
+
+/** 存在未填完的分录（分类或金额为空）时不允许再添加新分录 */
+const canAddPosting = computed(() => postings.value.every(p => p.accountId && p.amount))
 
 const canSubmit = computed(() => {
   if (!isBalanced.value) return false
@@ -154,7 +195,7 @@ async function handleSubmit() {
     postings: postings.value.map(p => ({
       account: p.accountName,
       commodity: p.commodity,
-      // type="number" 的 v-model 会被 Vue 自动转成 number，后端 amount 要求字符串
+      // 后端 amount 要求字符串
       amount: String(p.amount),
       is_reimbursable: p.isReimbursable,
     })),
@@ -171,7 +212,7 @@ async function handleSubmit() {
     emit('close')
   } catch (e) {
     console.error('Failed to save transaction:', e)
-    alert(t('txForm.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
+    alertDialog(t('txForm.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
   }
 }
 </script>
@@ -185,46 +226,48 @@ async function handleSubmit() {
       </div>
 
       <div class="form-body">
-        <div class="field">
-          <label>{{ t('txForm.dateTime') }}</label>
-          <input v-model="dateTime" type="datetime-local" step="1" />
+        <div class="field-row">
+          <div class="field field-member">
+            <label>{{ t('txForm.member') }}</label>
+            <select v-model="memberId">
+              <option :value="null" disabled>{{ t('txForm.memberPlaceholder') }}</option>
+              <option v-for="m in memberStore.members" :key="m.id" :value="m.id">
+                {{ m.name }}
+              </option>
+            </select>
+          </div>
+
+          <div class="field field-date">
+            <label>{{ t('txForm.dateTime') }}</label>
+            <input v-model="dateTime" type="datetime-local" step="1" />
+          </div>
         </div>
 
         <div class="field">
           <label>{{ t('txForm.description') }}</label>
-          <textarea v-model="description" rows="2" :placeholder="t('txForm.optional')"></textarea>
+          <textarea
+            ref="descRef"
+            v-model="description"
+            class="desc-textarea"
+            rows="1"
+            :placeholder="t('txForm.optional')"
+            @input="autoGrow"
+          ></textarea>
         </div>
 
-        <div class="field">
-          <label>{{ t('txForm.member') }}</label>
-          <select v-model="memberId">
-            <option :value="null" disabled>{{ t('txForm.memberPlaceholder') }}</option>
-            <option v-for="m in memberStore.members" :key="m.id" :value="m.id">
-              {{ m.name }}
-            </option>
-          </select>
-        </div>
-
-        <div class="field">
+        <div class="field field-tags">
           <label>{{ t('txForm.tags') }}</label>
           <div class="tag-input">
             <span v-for="tag in selectedTags" :key="tag" class="tag-chip">
               {{ tag }}
               <button @click="selectedTags = selectedTags.filter(item => item !== tag)">×</button>
             </span>
-            <input
-              type="text"
-              :placeholder="t('txForm.tagPlaceholder')"
-              @keydown.enter="
-                e => {
-                  const input = e.target as HTMLInputElement
-                  if (input.value.trim()) {
-                    selectedTags.push(input.value.trim())
-                    input.value = ''
-                  }
-                }
-              "
-            />
+            <select class="tag-select" @change="addTag">
+              <option value="">{{ t('txForm.tagPlaceholder') }}</option>
+              <option v-for="tag in availableTags" :key="tag.id" :value="tag.name">
+                {{ tag.name }}
+              </option>
+            </select>
           </div>
         </div>
 
@@ -255,7 +298,14 @@ async function handleSubmit() {
 
           <div class="posting-field">
             <label>{{ t('txForm.amount') }}</label>
-            <input v-model="posting.amount" type="number" step="0.01" placeholder="0.00" />
+            <input
+              :value="posting.amount"
+              class="amount-input"
+              type="text"
+              inputmode="decimal"
+              placeholder="0.00"
+              @input="e => onAmountInput(index, e)"
+            />
           </div>
 
           <div class="posting-field checkbox-field">
@@ -270,7 +320,9 @@ async function handleSubmit() {
           </button>
         </div>
 
-        <button class="add-posting-btn" @click="addPosting">{{ t('txForm.addPosting') }}</button>
+        <button class="add-posting-btn" :disabled="!canAddPosting" @click="addPosting">
+          {{ t('txForm.addPosting') }}
+        </button>
       </div>
 
       <div class="form-footer">
@@ -373,6 +425,34 @@ async function handleSubmit() {
   gap: 0.375rem;
 }
 
+/* 成员 + 日期同一横排，成员宽度由内部文本自适应，日期占满剩余 */
+.field-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.field-member {
+  flex: 0 0 auto;
+}
+
+.field-member select {
+  align-self: flex-start;
+  width: auto;
+}
+
+.field-date {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 备注框：禁止拖动调整大小，宽度固定，高度随内容自适应，两端对齐 */
+.desc-textarea {
+  resize: none;
+  width: 100%;
+  overflow: hidden;
+  text-align: justify;
+}
+
 .field label {
   color: var(--text-muted);
   font-size: 0.8125rem;
@@ -390,14 +470,22 @@ async function handleSubmit() {
   outline: none;
 }
 
+/* 下拉不显示箭头 */
+.field select,
+.posting-field select {
+  appearance: none;
+}
+
 .field input:focus,
 .field textarea:focus,
 .field select:focus {
   border-color: var(--accent, #646cff);
 }
 
+/* 标签横排：与渠道链路同一视觉规格，只是没有 ▸ 分隔符 */
 .tag-input {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 0.375rem;
   background: var(--card-bg-alt, #252525);
@@ -409,10 +497,10 @@ async function handleSubmit() {
 .tag-chip {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.5ch;
   background: var(--accent, #646cff);
   color: #fff;
-  padding: 0.25rem 0.5rem;
+  padding: 0.25rem 0.5ch 0.25rem 0.5rem;
   border-radius: 0.25rem;
   font-size: 0.75rem;
 }
@@ -431,14 +519,22 @@ async function handleSubmit() {
   opacity: 1;
 }
 
-.tag-input input {
-  flex: 1;
-  min-width: 100px;
+/* 幽灵芯片风格的内联下拉（嵌套一层 .tag-input 以压过 .field select 的优先级） */
+.tag-input .tag-select {
+  appearance: none;
   background: transparent;
-  border: none;
-  color: var(--text-heading);
-  font-size: 0.875rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
   outline: none;
+  cursor: pointer;
+}
+
+.tag-input .tag-select:hover {
+  border-color: var(--accent, #646cff);
+  color: var(--accent, #646cff);
 }
 
 .section-title {
@@ -502,7 +598,7 @@ async function handleSubmit() {
 }
 
 .remove-btn:hover:not(:disabled) {
-  color: #e74c3c;
+  color: var(--color-expense);
 }
 
 .add-posting-btn {
@@ -516,9 +612,14 @@ async function handleSubmit() {
   transition: border-color 0.15s;
 }
 
-.add-posting-btn:hover {
+.add-posting-btn:hover:not(:disabled) {
   border-color: var(--accent, #646cff);
   color: var(--accent, #646cff);
+}
+
+.add-posting-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .form-footer {

@@ -288,16 +288,16 @@ function onDayClick(day: CalendarDay) {
 }
 
 .day-amount {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.2;
   white-space: nowrap;
 }
 
 .day-amount.expense {
-  color: #e74c3c;
+  color: var(--color-expense);
 }
 
 .day-amount.income {
-  color: #4ade80;
+  color: var(--color-income-soft);
 }
 </style>

@@ -6,8 +6,10 @@ import { panelActionKey } from '../components/layout/panelAction'
 import ProgressRing from '../components/ProgressRing.vue'
 import { useAccountStore } from '../stores/account'
 import { useBudgetStore } from '../stores/budget'
+import { alertDialog, confirmDialog } from '../utils/dialog'
 import type { BudgetLimitRequest, BudgetStatusDto } from '../types/api'
 import { formatDecimal } from '../utils/decimal'
+import { PALETTE } from '../utils/palette'
 
 const budgetStore = useBudgetStore()
 const accountStore = useAccountStore()
@@ -22,9 +24,9 @@ const showCreateDrawer = ref(false)
 const editingBudget = ref<BudgetStatusDto | null>(null)
 
 const RING_COLORS = {
-  green: '#2ecc71',
-  red: '#e74c3c',
-  gray: '#7f8c8d',
+  green: PALETTE.income,
+  red: PALETTE.expense,
+  gray: PALETTE.neutral,
 } as const
 
 function totals(status: BudgetStatusDto): { limit: number; actual: number } {
@@ -109,7 +111,7 @@ function onEditBudget(status: BudgetStatusDto) {
 }
 
 async function onDeleteBudget(id: number) {
-  if (confirm(t('budget.confirmDelete'))) {
+  if (await confirmDialog(t('budget.confirmDelete'))) {
     await budgetStore.remove(id)
     if (expandedBudgetId.value === id) {
       expandedBudgetId.value = null
@@ -152,11 +154,11 @@ function removeLimit(index: number) {
 
 async function submitBudget() {
   if (!formName.value.trim()) {
-    alert(t('budget.nameRequired'))
+    alertDialog(t('budget.nameRequired'))
     return
   }
   if (formLimits.value.length === 0) {
-    alert(t('budget.limitRequired'))
+    alertDialog(t('budget.limitRequired'))
     return
   }
 
@@ -178,7 +180,7 @@ async function submitBudget() {
     }
     onBudgetSaved()
   } catch (e) {
-    alert(t('budget.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
+    alertDialog(t('budget.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
   }
 }
 
@@ -388,12 +390,12 @@ watchEffect(() => {
 }
 
 .ring-amount {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 
 .ring-red .ring-label,
 .ring-red .ring-amount {
-  color: #e74c3c;
+  color: var(--color-expense);
 }
 
 .budget-info {
@@ -432,7 +434,7 @@ watchEffect(() => {
 
 .badge-expired {
   background: rgba(127, 140, 141, 0.2);
-  color: #7f8c8d;
+  color: var(--color-neutral);
 }
 
 .budget-actions {
@@ -457,8 +459,8 @@ watchEffect(() => {
 }
 
 .delete-btn:hover {
-  border-color: #e74c3c;
-  color: #e74c3c;
+  border-color: var(--color-expense);
+  color: var(--color-expense);
 }
 
 /* Inline status detail */
@@ -503,7 +505,7 @@ watchEffect(() => {
 .status-row.overspent .status-name,
 .status-row.overspent .item-remaining,
 .status-row.overspent .item-percentage {
-  color: #e74c3c;
+  color: var(--color-expense);
 }
 
 .status-nums {
@@ -646,7 +648,7 @@ watchEffect(() => {
 }
 
 .remove-limit-btn:hover {
-  color: #e74c3c;
+  color: var(--color-expense);
 }
 
 .add-limit-btn {

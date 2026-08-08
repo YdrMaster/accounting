@@ -8,6 +8,7 @@ import AccountGrid from '../components/layout/AccountGrid.vue'
 import { panelActionKey } from '../components/layout/panelAction'
 import { useAccountDrag, type AccountDropResult } from '../composables/useAccountDrag'
 import { useAccountStore } from '../stores/account'
+import { alertDialog, confirmDialog } from '../utils/dialog'
 import { notifyAccountsChanged } from '../stores/refresh'
 import type { AccountDto } from '../types/api'
 import { compileRows, type GridRow } from '../utils/accountGrid'
@@ -198,7 +199,7 @@ async function handleMoveAccount(draggedId: number, targetId: number) {
   const toType = store.getRootType(target)
   if (fromType !== null && toType !== null && fromType !== toType) {
     const typeLabel = typeLabels.value[toType] ?? toType
-    if (!confirm(t('accounts.moveTypeChangeConfirm', { type: typeLabel }))) return
+    if (!(await confirmDialog(t('accounts.moveTypeChangeConfirm', { type: typeLabel })))) return
   }
 
   const oldParentId = dragged.parent_id
@@ -212,7 +213,7 @@ async function handleMoveAccount(draggedId: number, targetId: number) {
     }
   } catch (e) {
     store.setAccountParent(draggedId, oldParentId)
-    alert(t('accounts.moveFailed', { message: e instanceof Error ? e.message : String(e) }))
+    alertDialog(t('accounts.moveFailed', { message: e instanceof Error ? e.message : String(e) }))
   }
 }
 

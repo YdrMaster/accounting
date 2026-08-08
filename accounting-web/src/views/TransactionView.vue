@@ -7,6 +7,7 @@ import TransactionList from '../components/TransactionList.vue'
 import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.vue'
 import { panelActionKey } from '../components/layout/panelAction'
 import { useTransactionStore } from '../stores/transaction'
+import { confirmDialog } from '../utils/dialog'
 import { monthOf, todayStr } from '../utils/date'
 
 const txStore = useTransactionStore()
@@ -92,8 +93,8 @@ function onEditTx(id: number) {
   showFormOverlay.value = true
 }
 
-function onDeleteTx(id: number) {
-  if (confirm(t('transactions.confirmDelete'))) {
+async function onDeleteTx(id: number) {
+  if (await confirmDialog(t('transactions.confirmDelete'))) {
     txStore.remove(id)
   }
 }

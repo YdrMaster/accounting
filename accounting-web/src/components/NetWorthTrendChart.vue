@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import type { ChartPeriod, NetWorthTrendPointDto } from '../types/api'
 import { formatAmount } from '../utils/amount'
 import { echarts } from '../utils/echarts'
+import { PALETTE } from '../utils/palette'
 
 const props = defineProps<{
   points: NetWorthTrendPointDto[]
@@ -81,8 +82,8 @@ function render() {
         data: liabilities,
         symbol: 'circle',
         symbolSize: 6,
-        lineStyle: { width: 1.5, color: '#ff7b7b' },
-        itemStyle: { color: '#ff7b7b' },
+        lineStyle: { width: 1.5, color: PALETTE.expenseSoft },
+        itemStyle: { color: PALETTE.expenseSoft },
       },
       {
         name: t('assets.netWorth'),
@@ -92,8 +93,8 @@ function render() {
         data: netWorth,
         symbol: 'circle',
         symbolSize: 6,
-        lineStyle: { width: 1.5, color: '#4ade80' },
-        itemStyle: { color: '#4ade80' },
+        lineStyle: { width: 1.5, color: PALETTE.incomeSoft },
+        itemStyle: { color: PALETTE.incomeSoft },
         areaStyle: { color: 'rgba(74, 222, 128, 0.15)' },
       },
     ],

@@ -11,6 +11,7 @@ import {
   updateAccountFields,
 } from '../../api/client'
 import type { AccountDto, MemberDto } from '../../types/api'
+import { confirmDialog } from '../../utils/dialog'
 
 const { t } = useI18n()
 
@@ -208,7 +209,7 @@ async function doReopen() {
 async function doDelete() {
   if (isRoot || isSystem) return
   clearMessages()
-  if (!confirm(t('drawer.deleteConfirm', { name: props.account.name }))) return
+  if (!(await confirmDialog(t('drawer.deleteConfirm', { name: props.account.name })))) return
   try {
     await deleteAccount(props.account.id)
     emit('deleted', props.account.id)
@@ -258,7 +259,7 @@ async function doDelete() {
               type="number"
               min="1"
               max="31"
-              class="input small"
+              class="field-input small"
               @change="doBillingDay"
             />
           </div>
@@ -270,7 +271,7 @@ async function doDelete() {
               type="number"
               min="1"
               max="31"
-              class="input small"
+              class="field-input small"
               @change="doRepaymentDay"
             />
           </div>
@@ -342,6 +343,8 @@ async function doDelete() {
   align-items: flex-end;
   justify-content: center;
   pointer-events: none;
+  /* 裁剪滑入动画中探出视口的抽屉，避免滚动条闪现 */
+  overflow: hidden;
 }
 
 .drawer {
@@ -422,8 +425,6 @@ async function doDelete() {
   box-sizing: border-box;
   margin: 0;
   flex: 1;
-  display: flex;
-  align-items: center;
 }
 
 .close-btn {
@@ -445,12 +446,12 @@ async function doDelete() {
 
 .error-msg {
   background: rgba(231, 76, 60, 0.15);
-  color: #e74c3c;
+  color: var(--color-expense);
 }
 
 .success-msg {
   background: rgba(39, 174, 96, 0.15);
-  color: #27ae60;
+  color: var(--color-income);
 }
 
 .drawer-body {
@@ -486,22 +487,7 @@ async function doDelete() {
   color: var(--text-heading);
 }
 
-.input {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border);
-  background: var(--card-bg-alt);
-  color: var(--text-heading);
-  font-size: 0.9375rem;
-  outline: none;
-}
-
-.input:focus {
-  border-color: var(--accent);
-}
-
-.input.small {
+.field-input.small {
   width: 5rem;
 }
 
@@ -609,12 +595,12 @@ async function doDelete() {
 }
 
 .action-btn.warn {
-  border-color: #f39c12;
-  color: #f39c12;
+  border-color: var(--color-warning);
+  color: var(--color-warning);
 }
 
 .action-btn.danger {
-  border-color: #e74c3c;
-  color: #e74c3c;
+  border-color: var(--color-expense);
+  color: var(--color-expense);
 }
 </style>

@@ -207,9 +207,9 @@ function onDblClick() {
 }
 
 .tag {
-  color: #e74c3c;
-  font-size: 0.6875rem;
-  border: 1px solid #e74c3c;
+  color: var(--color-expense);
+  font-size: 0.75rem;
+  border: 1px solid var(--color-expense);
   border-radius: 0.25rem;
   padding: 0 0.375rem;
   line-height: 1.4;
@@ -232,11 +232,11 @@ function onDblClick() {
 }
 
 .tx-name.refund {
-  color: #999;
+  color: var(--text-muted);
 }
 
 .tx-amount {
-  color: #e74c3c;
+  color: var(--color-expense);
   font-weight: 500;
   font-size: 0.9375rem;
   white-space: nowrap;
@@ -244,11 +244,11 @@ function onDblClick() {
 }
 
 .tx-amount.positive {
-  color: #27ae60;
+  color: var(--color-income);
 }
 
 .tx-amount.refund {
-  color: #999;
+  color: var(--text-muted);
 }
 
 .tx-bottom {
@@ -298,7 +298,7 @@ function onDblClick() {
 }
 
 .entry-amount {
-  color: #3498db;
+  color: var(--color-info);
   font-weight: 500;
   font-size: 0.75rem;
   white-space: nowrap;
@@ -306,11 +306,11 @@ function onDblClick() {
 }
 
 .entry-amount.positive {
-  color: #27ae60;
+  color: var(--color-income);
 }
 
 .entry-amount.negative {
-  color: #e74c3c;
+  color: var(--color-expense);
 }
 
 .expand-enter-active,

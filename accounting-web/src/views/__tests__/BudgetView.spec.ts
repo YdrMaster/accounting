@@ -9,6 +9,7 @@ import { i18n, setLocale } from '../../i18n'
 import { useAccountStore } from '../../stores/account'
 import { useBudgetStore } from '../../stores/budget'
 import type { BudgetStatusDto } from '../../types/api'
+import { dialogState, resolveDialog } from '../../utils/dialog'
 import BudgetView from '../BudgetView.vue'
 
 vi.mock('../../components/layout/AccountPicker.vue', () => ({
@@ -431,23 +432,24 @@ describe('BudgetView', () => {
 
   it('asks for confirmation before deleting and removes the budget', async () => {
     const { store, mountView } = setup([makeStatus()])
-    const confirmMock = vi.fn().mockReturnValue(true)
-    vi.stubGlobal('confirm', confirmMock)
     const wrapper = mountView()
     await nextTick()
 
     await wrapper.find('.delete-btn').trigger('click')
-    expect(confirmMock).toHaveBeenCalled()
-    expect(store.remove).toHaveBeenCalledWith(1)
+    expect(dialogState.visible).toBe(true)
+    resolveDialog(true)
+    await vi.waitFor(() => expect(store.remove).toHaveBeenCalledWith(1))
   })
 
   it('does not delete when confirmation is cancelled', async () => {
     const { store, mountView } = setup([makeStatus()])
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(false))
     const wrapper = mountView()
     await nextTick()
 
     await wrapper.find('.delete-btn').trigger('click')
+    expect(dialogState.visible).toBe(true)
+    resolveDialog(false)
+    await nextTick()
     expect(store.remove).not.toHaveBeenCalled()
   })
 })

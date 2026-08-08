@@ -9,6 +9,7 @@ import { i18n, setLocale } from '../../i18n'
 import { useAccountStore } from '../../stores/account'
 import { useSavingPlanStore } from '../../stores/savingPlan'
 import type { SavingPlanStatusDto } from '../../types/api'
+import { dialogState, resolveDialog } from '../../utils/dialog'
 import SavingPlanView from '../SavingPlanView.vue'
 
 vi.mock('../../components/layout/AccountPicker.vue', () => ({
@@ -279,8 +280,6 @@ describe('SavingPlanView', () => {
 
   it('rejects submit when required fields are invalid', async () => {
     const { store, panelAction, mountView } = setup([])
-    const alertMock = vi.fn()
-    vi.stubGlobal('alert', alertMock)
     const wrapper = mountView()
     await nextTick()
     panelAction.value[0].onClick()
@@ -289,39 +288,43 @@ describe('SavingPlanView', () => {
     // 名称为空
     await wrapper.find('.submit-btn').trigger('click')
     expect(store.create).not.toHaveBeenCalled()
-    expect(alertMock).toHaveBeenCalled()
+    expect(dialogState.visible).toBe(true)
+    resolveDialog(true)
 
     // 名称有了但目标金额非正
     await wrapper.find('input[type="text"]').setValue('计划')
     await wrapper.find('input[type="number"]').setValue('0')
     await wrapper.find('.submit-btn').trigger('click')
     expect(store.create).not.toHaveBeenCalled()
+    resolveDialog(true)
 
     // 金额有效但账户集合为空
     await wrapper.find('input[type="number"]').setValue('3000')
     await wrapper.find('.submit-btn').trigger('click')
     expect(store.create).not.toHaveBeenCalled()
+    resolveDialog(true)
   })
 
   it('asks for confirmation before deleting and removes the plan', async () => {
     const { store, mountView } = setup([makeStatus()])
-    const confirmMock = vi.fn().mockReturnValue(true)
-    vi.stubGlobal('confirm', confirmMock)
     const wrapper = mountView()
     await nextTick()
 
     await wrapper.find('.delete-btn').trigger('click')
-    expect(confirmMock).toHaveBeenCalled()
-    expect(store.remove).toHaveBeenCalledWith(1)
+    expect(dialogState.visible).toBe(true)
+    resolveDialog(true)
+    await vi.waitFor(() => expect(store.remove).toHaveBeenCalledWith(1))
   })
 
   it('does not delete when confirmation is cancelled', async () => {
     const { store, mountView } = setup([makeStatus()])
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(false))
     const wrapper = mountView()
     await nextTick()
 
     await wrapper.find('.delete-btn').trigger('click')
+    expect(dialogState.visible).toBe(true)
+    resolveDialog(false)
+    await nextTick()
     expect(store.remove).not.toHaveBeenCalled()
   })
 

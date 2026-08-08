@@ -309,7 +309,7 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
               v-if="renamingMemberId === member.id"
               ref="memberInputRef"
               v-model="renamingMemberName"
-              class="inline-input"
+              class="field-input"
               @keyup.enter="commitRenameMember"
               @blur="commitRenameMember"
               @keydown.escape="renamingMemberId = null"
@@ -321,10 +321,13 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
               &times;
             </button>
           </div>
+          <p v-if="memberStore.members.length === 0" class="empty-hint">
+            {{ t('config.emptyMembers') }}
+          </p>
           <div class="add-row">
             <input
               v-model="newMemberName"
-              class="inline-input"
+              class="field-input"
               :placeholder="t('config.newNamePlaceholder')"
               @keyup.enter="addMember"
             />
@@ -400,10 +403,13 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
               <ChannelMappingSection v-if="channel.has_import_adapter" :channel="channel" />
             </div>
           </div>
+          <p v-if="channelStore.channels.length === 0" class="empty-hint">
+            {{ t('config.emptyChannels') }}
+          </p>
           <div class="add-row">
             <input
               v-model="newChannelName"
-              class="inline-input"
+              class="field-input"
               :placeholder="t('config.newNamePlaceholder')"
               @keyup.enter="addChannel"
             />
@@ -428,7 +434,7 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
                 v-if="renamingTagId === tag.id"
                 ref="tagInputRef"
                 v-model="renamingTagName"
-                class="inline-input"
+                class="field-input"
                 @keyup.enter="commitRenameTag"
                 @blur="commitRenameTag"
                 @keydown.escape="renamingTagId = null"
@@ -452,10 +458,13 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
               &times;
             </button>
           </div>
+          <p v-if="tagStore.tags.length === 0" class="empty-hint">
+            {{ t('config.emptyTags') }}
+          </p>
           <div class="add-row">
             <input
               v-model="newTagName"
-              class="inline-input"
+              class="field-input"
               :placeholder="t('config.newNamePlaceholder')"
               @keyup.enter="addTag"
             />
@@ -541,6 +550,8 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
   justify-content: center;
   background: rgba(0, 0, 0, 0.4);
   pointer-events: auto;
+  /* 裁剪滑入动画中探出视口的抽屉，避免滚动条闪现 */
+  overflow: hidden;
 }
 
 .drawer {
@@ -631,7 +642,7 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
 }
 
 .store-error {
-  color: #e74c3c;
+  color: var(--color-expense);
   font-size: 0.8125rem;
   padding: 0.375rem 0.625rem;
   background: rgba(231, 76, 60, 0.1);
@@ -685,20 +696,10 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
   color: var(--text-muted);
 }
 
-.inline-input {
+/* 共享 .field-input 基础上的布局补充：行内输入框占满剩余宽度 */
+.list-item .field-input,
+.add-row .field-input {
   flex: 1;
-  padding: 0.375rem 0.5rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--border);
-  background: var(--card-bg-alt);
-  color: var(--text-heading);
-  font-size: 0.9375rem;
-  outline: none;
-  min-width: 0;
-}
-
-.inline-input:focus {
-  border-color: var(--accent);
 }
 
 .delete-btn {
@@ -713,7 +714,15 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
 }
 
 .delete-btn:hover {
-  color: #e74c3c;
+  color: var(--color-expense);
+}
+
+.empty-hint {
+  margin: 0;
+  padding: 0.5rem 0.625rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  text-align: center;
 }
 
 .add-row {
@@ -918,8 +927,8 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
 }
 
 .import-toast.error {
-  border-color: #e74c3c;
-  color: #e74c3c;
+  border-color: var(--color-expense);
+  color: var(--color-expense);
 }
 
 .import-toast-toggle {

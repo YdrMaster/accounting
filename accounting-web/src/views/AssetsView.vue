@@ -51,6 +51,6 @@ const activeTab = ref<Tab>('balance')
 
 .tabs button.active {
   color: var(--text-heading);
-  border-color: #4ade80;
+  border-color: var(--accent);
 }
 </style>

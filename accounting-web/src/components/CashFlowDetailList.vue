@@ -86,7 +86,7 @@ function percent(ratio: number): string {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  background: #60a5fa;
+  background: var(--color-info-soft);
 }
 
 .percent {
@@ -101,11 +101,11 @@ function percent(ratio: number): string {
 }
 
 .amount.expense {
-  color: #ff7b7b;
+  color: var(--color-expense-soft);
 }
 
 .amount.income {
-  color: #4ade80;
+  color: var(--color-income-soft);
 }
 
 .bar-track {
@@ -118,7 +118,7 @@ function percent(ratio: number): string {
 .bar {
   height: 100%;
   border-radius: 9999px;
-  background: #60a5fa;
+  background: var(--color-info-soft);
 }
 
 .empty {

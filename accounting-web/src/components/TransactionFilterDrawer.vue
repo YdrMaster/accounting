@@ -248,7 +248,7 @@ function done() {
         <input
           type="text"
           v-model="filter.keyword"
-          class="keyword-input"
+          class="field-input"
           :placeholder="t('txFilter.keywordPlaceholder')"
         />
         <label class="toggle-row">
@@ -346,15 +346,12 @@ function done() {
   color: #fff;
 }
 
-.keyword-input {
+/* 共享 .field-input 基础上的局部差异：透明背景、较小字号 */
+.field-input {
   width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
   background: transparent;
   color: var(--text-body);
   font-size: 0.875rem;
-  box-sizing: border-box;
 }
 
 .toggle-row {
@@ -442,7 +439,7 @@ function done() {
 }
 
 .remove-btn:hover {
-  color: #e55;
+  color: var(--color-expense);
   background: rgba(229, 85, 85, 0.1);
 }
 </style>

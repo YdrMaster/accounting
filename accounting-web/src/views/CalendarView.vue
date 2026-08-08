@@ -8,6 +8,7 @@ import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.
 import { panelActionKey } from '../components/layout/panelAction'
 import { dataVersion } from '../stores/refresh'
 import { useTransactionStore } from '../stores/transaction'
+import { confirmDialog } from '../utils/dialog'
 import type { DailySummaryDto } from '../types/api'
 import { todayStr } from '../utils/date'
 
@@ -66,8 +67,8 @@ function onEditTx(id: number) {
   showFormOverlay.value = true
 }
 
-function onDeleteTx(id: number) {
-  if (confirm(t('calendar.confirmDelete'))) {
+async function onDeleteTx(id: number) {
+  if (await confirmDialog(t('calendar.confirmDelete'))) {
     // remove 内部会刷新派生数据并递增 dataVersion，由下方 watcher 统一重载日历
     txStore.remove(id)
   }

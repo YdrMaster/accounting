@@ -6,8 +6,10 @@ import { panelActionKey } from '../components/layout/panelAction'
 import ProgressRing from '../components/ProgressRing.vue'
 import { useAccountStore } from '../stores/account'
 import { useSavingPlanStore } from '../stores/savingPlan'
+import { alertDialog, confirmDialog } from '../utils/dialog'
 import type { AccountAllocationDto, SavingPlanDto, SavingPlanStatusDto } from '../types/api'
 import { formatDecimal } from '../utils/decimal'
+import { PALETTE } from '../utils/palette'
 
 const savingPlanStore = useSavingPlanStore()
 const accountStore = useAccountStore()
@@ -22,9 +24,9 @@ const showDrawer = ref(false)
 const editingPlan = ref<SavingPlanDto | null>(null)
 
 const RING_COLORS = {
-  green: '#2ecc71',
-  yellow: '#f1c40f',
-  gray: '#7f8c8d',
+  green: PALETTE.income,
+  yellow: PALETTE.attention,
+  gray: PALETTE.neutral,
 } as const
 
 function ringClass(status: SavingPlanStatusDto): string {
@@ -88,7 +90,7 @@ function onEditPlan(plan: SavingPlanDto) {
 }
 
 async function onDeletePlan(id: number) {
-  if (confirm(t('savingPlan.confirmDelete'))) {
+  if (await confirmDialog(t('savingPlan.confirmDelete'))) {
     await savingPlanStore.remove(id)
     if (expandedPlanId.value === id) {
       expandedPlanId.value = null
@@ -133,7 +135,7 @@ function removeAccount(index: number) {
 
 function setAccount(index: number, accountId: number) {
   if (formAccountIds.value.some((id, i) => i !== index && id === accountId)) {
-    alert(t('savingPlan.duplicateAccount'))
+    alertDialog(t('savingPlan.duplicateAccount'))
     return
   }
   formAccountIds.value[index] = accountId
@@ -141,16 +143,16 @@ function setAccount(index: number, accountId: number) {
 
 async function submitPlan() {
   if (!formName.value.trim()) {
-    alert(t('savingPlan.nameRequired'))
+    alertDialog(t('savingPlan.nameRequired'))
     return
   }
   if (!(Number(formTarget.value) > 0)) {
-    alert(t('savingPlan.targetRequired'))
+    alertDialog(t('savingPlan.targetRequired'))
     return
   }
   const accountIds = [...new Set(formAccountIds.value.filter(id => id > 0))]
   if (accountIds.length === 0) {
-    alert(t('savingPlan.accountsRequired'))
+    alertDialog(t('savingPlan.accountsRequired'))
     return
   }
 
@@ -171,7 +173,7 @@ async function submitPlan() {
     }
     onPlanSaved()
   } catch (e) {
-    alert(t('savingPlan.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
+    alertDialog(t('savingPlan.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
   }
 }
 
@@ -443,17 +445,17 @@ watchEffect(() => {
 
 .badge-met {
   background: rgba(46, 204, 113, 0.15);
-  color: #2ecc71;
+  color: var(--color-income);
 }
 
 .badge-gap {
   background: rgba(241, 196, 15, 0.15);
-  color: #f1c40f;
+  color: var(--color-attention);
 }
 
 .badge-expired {
   background: rgba(127, 140, 141, 0.2);
-  color: #7f8c8d;
+  color: var(--color-neutral);
 }
 
 .budget-actions {
@@ -478,8 +480,8 @@ watchEffect(() => {
 }
 
 .delete-btn:hover {
-  border-color: #e74c3c;
-  color: #e74c3c;
+  border-color: var(--color-expense);
+  color: var(--color-expense);
 }
 
 /* Inline status detail */
@@ -679,7 +681,7 @@ watchEffect(() => {
 }
 
 .remove-account-btn:hover {
-  color: #e74c3c;
+  color: var(--color-expense);
 }
 
 .add-account-btn {
