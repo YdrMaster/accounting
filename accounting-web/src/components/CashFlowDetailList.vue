@@ -14,6 +14,11 @@ const props = defineProps<{
   side: 'expense' | 'income'
 }>()
 
+const emit = defineEmits<{
+  /** 点击明细行：跳转交易页面筛选该账户子树 */
+  select: [accountId: number]
+}>()
+
 const { t } = useI18n()
 
 const rows = computed(() => buildDetailRows(props.items, props.drillId))
@@ -29,8 +34,9 @@ function percent(ratio: number): string {
       <div
         v-for="row in rows"
         :key="row.accountId"
-        class="row"
+        class="row clickable"
         :style="{ paddingLeft: `${row.depth * 1.25}rem` }"
+        @click="emit('select', row.accountId)"
       >
         <div class="line">
           <span class="name">
@@ -61,6 +67,16 @@ function percent(ratio: number): string {
   flex-direction: column;
   gap: 0.25rem;
   box-sizing: border-box;
+}
+
+.clickable {
+  cursor: pointer;
+  border-radius: 0.375rem;
+  transition: background 0.15s ease;
+}
+
+.clickable:hover {
+  background: var(--border);
 }
 
 .line {

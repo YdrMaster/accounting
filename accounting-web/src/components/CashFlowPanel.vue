@@ -5,11 +5,18 @@ import CashFlowDetailList from '../components/CashFlowDetailList.vue'
 import CategorySunburst from '../components/CategorySunburst.vue'
 import PeriodNav from '../components/PeriodNav.vue'
 import PeriodSelect from '../components/PeriodSelect.vue'
+import { useWheelScroll } from '../composables/useWheelScroll'
+import { useAccountStore } from '../stores/account'
 import { useReportStore } from '../stores/report'
+import { useTransactionStore } from '../stores/transaction'
 import type { ChartPeriod } from '../types/api'
+import { expandSubtree } from '../utils/accountTree'
 import { todayStr } from '../utils/date'
 
 const reportStore = useReportStore()
+const accountStore = useAccountStore()
+const txStore = useTransactionStore()
+const { spinTo } = useWheelScroll()
 const { t } = useI18n()
 
 const refDate = ref(todayStr())
@@ -32,6 +39,25 @@ function load() {
 
 function onDrill(accountId: number | null) {
   drillId.value = accountId
+}
+
+/**
+ * 点击明细行：跳转交易页面，筛选当前周期 × 该账户子树（整体替换既有筛选）。
+ * 账户展开为「自身 + 全部后代」，与现金流量表的聚合口径对齐（design D1/D2）。
+ */
+function onSelectAccount(accountId: number) {
+  const cf = reportStore.cashFlow
+  if (!cf) return
+  txStore.setFilter({
+    from: cf.period_start,
+    to: cf.period_end,
+    accounts: expandSubtree(accountStore.accounts, accountId),
+    members: [],
+    tags: [],
+    channels: [],
+  })
+  // 环形布局：把交易面板（index 0）转回可视中心
+  spinTo(0)
 }
 
 onMounted(load)
@@ -86,6 +112,7 @@ watch([refDate, period, side], () => {
           :items="items"
           :drill-id="drillId"
           :side="side"
+          @select="onSelectAccount"
         />
         <div v-else class="loading">{{ t('common.loading') }}</div>
       </div>
