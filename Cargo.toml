@@ -10,6 +10,12 @@ members = [
 ]
 resolver = "3"
 
+# 发布构建调优：性能优先、保留 panic 信息（panic/opt-level 保持默认 unwind/3）
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+
 [workspace.dependencies]
 accounting.path = "accounting"
 accounting-sql.path = "accounting-sql"

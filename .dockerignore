@@ -1,0 +1,17 @@
+# 构建上下文排除
+.git/
+target/
+**/node_modules/
+accounting-web/dist/
+*.db
+*.db-shm
+*.db-wal
+openspec/
+docs/
+plan/
+spec/
+resources/
+.qoder/
+.kimi-code/
+.superpowers/
+.ignore/

@@ -66,6 +66,18 @@ HTTP API 由独立的 `accounting-auth` crate 提供认证（用户名 + 密码�
 - **API 接入**：`accounting-api` 启动时通过 `--auth-db`（默认 `auth.db`）初始化认证，所有业务 API（`/api/auth/*` 与 `/api/health` 除外）要求有效 session cookie
 - **部署前提**：必须通过 HTTPS 提供服务（session cookie 带 `Secure` 属性）；大陆 ECS 需域名 ICP 备案
 
+## 容器部署（CI 自动构建）
+
+push 到 main 或 `v*` tag 时，GitHub Actions 自动构建 distroless 镜像（约 15MB）并推送 GHCR。ECS 上 rootless podman 直接运行，无需编译：
+
+```bash
+podman run -d --name accounting \
+  -v ~/accounting/data:/data -p 3000:3000 -e TZ=Asia/Shanghai \
+  ghcr.io/<owner>/accounting:latest
+```
+
+详见 [`docs/deployment.md`](docs/deployment.md)。
+
 ## Workspace 结构
 
 ```plaintext
