@@ -181,6 +181,33 @@ describe('SavingPlanView', () => {
     expect(cards[2].text()).toContain('已失效')
   })
 
+  it('shows badges independently per plan by satisfaction even when all met are true (shared accounts)', async () => {
+    const { mountView } = setup([
+      makeStatus(), // satisfaction 100, met true → 已达标
+      makeStatus({
+        plan: makePlan({ id: 2, name: '水费', target_amount: '200' }),
+        target_amount: '200',
+        current_balance: '250',
+        gap: '-50',
+        met: true, // 账面达标(共享账户余额够),但分配口径不满足
+        allocated: '50',
+        satisfaction: '25',
+        accounts: [],
+      }),
+    ])
+    const wrapper = mountView()
+    await nextTick()
+
+    const cards = wrapper.findAll('.plan-card')
+    expect(cards[0].find('.badge-met').exists()).toBe(true)
+    // 计划 2 环形 25%,徽标 MUST NOT 显示「已达标」
+    expect(cards[1].find('.badge-met').exists()).toBe(false)
+    // 缺口按分配口径:target 200 - allocated 50 = 150,而非账面 gap -50
+    expect(cards[1].find('.badge-gap').exists()).toBe(true)
+    expect(cards[1].find('.badge-gap').text()).toContain('150')
+    expect(cards[1].find('.badge-gap').text()).not.toContain('-50')
+  })
+
   it('formats recurring-decimal satisfaction to two places in ring center and detail', async () => {
     const { mountView } = setup([
       makeStatus({

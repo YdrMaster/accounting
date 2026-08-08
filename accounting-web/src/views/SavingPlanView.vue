@@ -39,6 +39,11 @@ function ringColor(status: SavingPlanStatusDto): string {
   return Number(status.satisfaction) >= 100 ? RING_COLORS.green : RING_COLORS.yellow
 }
 
+/** 徽标缺口按分配口径:target − allocated(账面 gap 在详情区展示) */
+function allocationGap(status: SavingPlanStatusDto): string {
+  return formatDecimal(String(Number(status.target_amount) - Number(status.allocated)))
+}
+
 function periodLabel(period: string | null): string {
   const labels: Record<string, string> = {
     daily: t('savingPlan.period.daily'),
@@ -221,11 +226,12 @@ watchEffect(() => {
               <span v-if="status.expired" class="badge badge-expired">
                 {{ t('savingPlan.expired') }}
               </span>
-              <span v-else-if="status.met" class="badge badge-met">
+              <!-- 徽标与环形统一按分配口径 satisfaction 判定;账面 met 仅在详情区展示 -->
+              <span v-else-if="Number(status.satisfaction) >= 100" class="badge badge-met">
                 {{ t('savingPlan.metBadge') }}
               </span>
               <span v-else class="badge badge-gap">
-                {{ t('savingPlan.gapBadge', { amount: formatDecimal(status.gap) }) }}
+                {{ t('savingPlan.gapBadge', { amount: allocationGap(status) }) }}
               </span>
             </div>
           </div>
