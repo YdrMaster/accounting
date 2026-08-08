@@ -52,6 +52,20 @@ accounting          ← 核心库（纯数据模型 + 算法）
 
 详见 [`accounting-web/README.md`](accounting-web/README.md)。
 
+## 认证（公网部署）
+
+HTTP API 由独立的 `accounting-auth` crate 提供认证（用户名 + 密码，可选 TOTP 双因素）：
+
+- **独立数据库**：认证数据存储在单独的 `auth.db`（与账簿 `my.db` 物理分离），sqlx migration 管理
+- **用户管理**：不开放注册，使用 `auth-admin` 工具：
+  ```bash
+  auth-admin --db auth.db user add --username alice --password '<pwd>' --display-name '爱丽丝'
+  auth-admin --db auth.db user passwd --username alice --password '<new-pwd>'
+  auth-admin --db auth.db user list
+  ```
+- **API 接入**：`accounting-api` 启动时通过 `--auth-db`（默认 `auth.db`）初始化认证，所有业务 API（`/api/auth/*` 与 `/api/health` 除外）要求有效 session cookie
+- **部署前提**：必须通过 HTTPS 提供服务（session cookie 带 `Secure` 属性）；大陆 ECS 需域名 ICP 备案
+
 ## Workspace 结构
 
 ```plaintext
@@ -61,6 +75,7 @@ accounting          ← 核心库（纯数据模型 + 算法）
 ├── accounting-service/  # 业务层：Service + 事务
 ├── accounting-cli/      # CLI 入口
 ├── accounting-api/      # HTTP API 服务（axum）
+├── accounting-auth/     # 认证：登录/TOTP/session（独立 auth.db + auth-admin）
 ├── accounting-web/      # Web 前端（Vue 3 + Ant Design Vue）
 ├── spec/                # 设计文档
 ├── plan/                # 实现计划

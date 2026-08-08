@@ -15,6 +15,13 @@ vi.mock('../../../api/client', () => ({
   fetchTags: vi.fn().mockResolvedValue([]),
   fetchAccounts: vi.fn().mockResolvedValue([]),
   fetchMappings: vi.fn().mockResolvedValue([]),
+  fetchMe: vi.fn(),
+  login: vi.fn(),
+  loginTotp: vi.fn(),
+  logout: vi.fn(),
+  totpSetup: vi.fn(),
+  totpEnable: vi.fn(),
+  apiErrorMessage: vi.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   importBill: vi
     .fn()
     .mockResolvedValue({ imported: 0, skipped: 0, pending_tag_name: null, errors: [] }),

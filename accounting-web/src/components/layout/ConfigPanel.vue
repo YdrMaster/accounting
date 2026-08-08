@@ -8,6 +8,7 @@ import { useMemberStore } from '../../stores/member'
 import { useTagStore } from '../../stores/tag'
 import type { ChannelDto, MemberDto, TagDto } from '../../types/api'
 import AccountPicker from './AccountPicker.vue'
+import AccountSection from './AccountSection.vue'
 import ChannelMappingSection from './ChannelMappingSection.vue'
 
 const emit = defineEmits<{
@@ -21,7 +22,7 @@ const channelStore = useChannelStore()
 const tagStore = useTagStore()
 const accountStore = useAccountStore()
 
-type Tab = 'member' | 'channel' | 'tag' | 'language'
+type Tab = 'member' | 'channel' | 'tag' | 'language' | 'account'
 const activeTab = ref<Tab>('member')
 
 const languageOptions: { value: AppLocale; labelKey: string }[] = [
@@ -298,6 +299,14 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
         >
           {{ t('config.tabs.language') }}
         </button>
+        <button
+          type="button"
+          class="tab-btn"
+          :class="{ active: activeTab === 'account' }"
+          @click="activeTab = 'account'"
+        >
+          {{ t('config.tabs.account') }}
+        </button>
       </div>
 
       <div class="drawer-body">
@@ -489,6 +498,9 @@ function onChannelDrop(channel: ChannelDto, event: DragEvent) {
             </div>
           </div>
         </div>
+
+        <!-- 账户 tab -->
+        <AccountSection v-if="activeTab === 'account'" />
       </div>
 
       <!-- 导入成员确认对话框 -->

@@ -31,6 +31,9 @@ struct Args {
     /// 数据库文件路径
     #[arg(long, default_value = "my.db")]
     db: String,
+    /// 认证数据库文件路径
+    #[arg(long, default_value = "auth.db")]
+    auth_db: String,
     /// 监听端口
     #[arg(long, default_value = "3000")]
     port: u16,
@@ -170,13 +173,26 @@ async fn main() {
     let default_lang = args.lang.as_deref().unwrap_or("en");
     rust_i18n::set_locale(default_lang);
 
+    let auth_state = accounting_auth::init(&args.auth_db)
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to initialize auth database: {}", e);
+            std::process::exit(1);
+        });
+
     let state = Arc::new(handlers::member::AppState { db });
-    let app = router::create_app(state, &args.static_dir);
+    let app = router::create_app(state, &args.static_dir, auth_state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
     println!("Listening on http://localhost:{}", args.port);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
-    axum::serve(listener, app).await.unwrap();
+    // with_connect_info：登录频控需要客户端 IP（ConnectInfo<SocketAddr>）
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }

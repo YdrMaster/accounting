@@ -7,13 +7,54 @@ function apiUrl(path: string): string {
   return `${BASE_URL}${path}${sep}lang=${encodeURIComponent(i18n.global.locale.value)}`
 }
 
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+/** 带 HTTP 状态码的 API 错误，message 为服务端响应原文 */
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+/** 业务请求 401（会话过期）时的回调，由 App 注册（避免 client 与 auth store 循环依赖） */
+let unauthorizedHandler: (() => void) | null = null
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler
+}
+
+async function rawFetch(path: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(apiUrl(path), init)
+  // /auth/* 接口自身的 401（未登录、凭证错误）不触发全局登出
+  if (res.status === 401 && !path.startsWith('/auth')) {
+    unauthorizedHandler?.()
+  }
+  return res
+}
+
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await rawFetch(path, init)
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(text || res.statusText)
+    throw new ApiError(res.status, text || res.statusText)
   }
   return res.json() as Promise<T>
+}
+
+/** 从 apiFetch 抛出的错误中提取服务端 `{"error": "..."}` 文案 */
+export function apiErrorMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e)
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof (parsed as { error?: unknown }).error === 'string') {
+      return (parsed as { error: string }).error
+    }
+  } catch {
+    // 非 JSON 响应，原文返回
+  }
+  return raw
 }
 
 import type {
@@ -32,7 +73,9 @@ import type {
   CreateTransactionData,
   DailySummaryDto,
   ImportResultDto,
+  LoginResultDto,
   MappingDto,
+  MeDto,
   MemberDto,
   MoveAccountRequest,
   NetWorthTrendDto,
@@ -40,6 +83,8 @@ import type {
   SavingPlanDto,
   SavingPlanStatusDto,
   TagDto,
+  TotpEnableDto,
+  TotpSetupDto,
   TransactionDto,
   UpdateSavingPlanRequest,
 } from '../types/api'
@@ -53,7 +98,7 @@ export async function fetchMembers(): Promise<MemberDto[]> {
 }
 
 export async function renameAccount(id: number, name: string): Promise<void> {
-  const res = await fetch(apiUrl(`/accounts/${id}/rename`), {
+  const res = await rawFetch(`/accounts/${id}/rename`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -65,7 +110,7 @@ export async function renameAccount(id: number, name: string): Promise<void> {
 }
 
 export async function setAccountOwners(id: number, ownerIds: number[]): Promise<void> {
-  const res = await fetch(apiUrl(`/accounts/${id}/owner`), {
+  const res = await rawFetch(`/accounts/${id}/owner`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ owner_ids: ownerIds }),
@@ -77,7 +122,7 @@ export async function setAccountOwners(id: number, ownerIds: number[]): Promise<
 }
 
 export async function closeAccount(id: number): Promise<void> {
-  const res = await fetch(apiUrl(`/accounts/${id}/close`), { method: 'PUT' })
+  const res = await rawFetch(`/accounts/${id}/close`, { method: 'PUT' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -85,7 +130,7 @@ export async function closeAccount(id: number): Promise<void> {
 }
 
 export async function reopenAccount(id: number): Promise<void> {
-  const res = await fetch(apiUrl(`/accounts/${id}/open`), { method: 'PUT' })
+  const res = await rawFetch(`/accounts/${id}/open`, { method: 'PUT' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -93,7 +138,7 @@ export async function reopenAccount(id: number): Promise<void> {
 }
 
 export async function deleteAccount(id: number): Promise<void> {
-  const res = await fetch(apiUrl(`/accounts/${id}`), { method: 'DELETE' })
+  const res = await rawFetch(`/accounts/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -105,7 +150,7 @@ export async function updateAccountFields(
   billingDay: number | null,
   repaymentDay: number | null
 ): Promise<void> {
-  const res = await fetch(apiUrl(`/accounts/${id}/fields`), {
+  const res = await rawFetch(`/accounts/${id}/fields`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ billing_day: billingDay, repayment_day: repaymentDay }),
@@ -117,7 +162,7 @@ export async function updateAccountFields(
 }
 
 export async function createAccount(data: CreateAccountRequest): Promise<number> {
-  const res = await fetch(apiUrl(`/accounts`), {
+  const res = await rawFetch(`/accounts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -130,7 +175,7 @@ export async function createAccount(data: CreateAccountRequest): Promise<number>
 }
 
 export async function moveAccount(id: number, parentId: number): Promise<AccountDto> {
-  const res = await fetch(apiUrl(`/accounts/${id}/parent`), {
+  const res = await rawFetch(`/accounts/${id}/parent`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ parent_id: parentId } satisfies MoveAccountRequest),
@@ -154,7 +199,7 @@ export async function fetchTransaction(id: number): Promise<TransactionDto> {
 }
 
 export async function createTransaction(data: CreateTransactionData): Promise<number> {
-  const res = await fetch(apiUrl(`/transactions`), {
+  const res = await rawFetch(`/transactions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -167,7 +212,7 @@ export async function createTransaction(data: CreateTransactionData): Promise<nu
 }
 
 export async function updateTransaction(id: number, data: CreateTransactionData): Promise<void> {
-  const res = await fetch(apiUrl(`/transactions/${id}`), {
+  const res = await rawFetch(`/transactions/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -179,7 +224,7 @@ export async function updateTransaction(id: number, data: CreateTransactionData)
 }
 
 export async function deleteTransaction(id: number): Promise<void> {
-  const res = await fetch(apiUrl(`/transactions/${id}`), { method: 'DELETE' })
+  const res = await rawFetch(`/transactions/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -228,7 +273,7 @@ export async function fetchBudgetStatuses(date?: string): Promise<BudgetStatusDt
 }
 
 export async function createBudget(data: CreateBudgetRequest): Promise<BudgetDto> {
-  const res = await fetch(apiUrl(`/budgets`), {
+  const res = await rawFetch(`/budgets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -241,7 +286,7 @@ export async function createBudget(data: CreateBudgetRequest): Promise<BudgetDto
 }
 
 export async function updateBudget(id: number, data: CreateBudgetRequest): Promise<void> {
-  const res = await fetch(apiUrl(`/budgets/${id}`), {
+  const res = await rawFetch(`/budgets/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -253,7 +298,7 @@ export async function updateBudget(id: number, data: CreateBudgetRequest): Promi
 }
 
 export async function deleteBudget(id: number): Promise<void> {
-  const res = await fetch(apiUrl(`/budgets/${id}`), { method: 'DELETE' })
+  const res = await rawFetch(`/budgets/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -284,7 +329,7 @@ export async function fetchSavingPlanStatus(
 }
 
 export async function createSavingPlan(data: CreateSavingPlanRequest): Promise<SavingPlanDto> {
-  const res = await fetch(apiUrl(`/saving-plans`), {
+  const res = await rawFetch(`/saving-plans`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -297,7 +342,7 @@ export async function createSavingPlan(data: CreateSavingPlanRequest): Promise<S
 }
 
 export async function updateSavingPlan(id: number, data: UpdateSavingPlanRequest): Promise<void> {
-  const res = await fetch(apiUrl(`/saving-plans/${id}`), {
+  const res = await rawFetch(`/saving-plans/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -309,7 +354,7 @@ export async function updateSavingPlan(id: number, data: UpdateSavingPlanRequest
 }
 
 export async function deleteSavingPlan(id: number): Promise<void> {
-  const res = await fetch(apiUrl(`/saving-plans/${id}`), { method: 'DELETE' })
+  const res = await rawFetch(`/saving-plans/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -331,7 +376,7 @@ export async function createChannel(data: {
   description?: string
   account_id?: number
 }): Promise<number> {
-  const res = await fetch(apiUrl(`/channels`), {
+  const res = await rawFetch(`/channels`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -347,7 +392,7 @@ export async function updateChannel(
   id: number,
   data: { name?: string; description?: string; account_id?: number }
 ): Promise<void> {
-  const res = await fetch(apiUrl(`/channels/${id}`), {
+  const res = await rawFetch(`/channels/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -359,7 +404,7 @@ export async function updateChannel(
 }
 
 export async function deleteChannel(id: number): Promise<void> {
-  const res = await fetch(apiUrl(`/channels/${id}`), { method: 'DELETE' })
+  const res = await rawFetch(`/channels/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -371,7 +416,7 @@ export async function importBill(
   memberId: number,
   file: File
 ): Promise<ImportResultDto> {
-  const res = await fetch(apiUrl(`/channels/${channelId}/import?member_id=${memberId}`), {
+  const res = await rawFetch(`/channels/${channelId}/import?member_id=${memberId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: file,
@@ -398,7 +443,7 @@ export async function fetchMappings(memberId: number, channelId: number): Promis
 }
 
 export async function upsertMapping(dto: MappingDto): Promise<string> {
-  const res = await fetch(apiUrl(`/mappings`), {
+  const res = await rawFetch(`/mappings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(dto),
@@ -420,7 +465,7 @@ export async function deleteMapping(
     channel_id: String(channelId),
     category,
   }).toString()
-  const res = await fetch(apiUrl(`/mappings?${qs}`), { method: 'DELETE' })
+  const res = await rawFetch(`/mappings?${qs}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -428,7 +473,7 @@ export async function deleteMapping(
 }
 
 export async function createTag(data: { name: string; description?: string }): Promise<TagDto> {
-  const res = await fetch(apiUrl(`/tags`), {
+  const res = await rawFetch(`/tags`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -444,7 +489,7 @@ export async function updateTag(
   id: number,
   data: { name?: string; description?: string }
 ): Promise<TagDto> {
-  const res = await fetch(apiUrl(`/tags/${id}`), {
+  const res = await rawFetch(`/tags/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -457,7 +502,7 @@ export async function updateTag(
 }
 
 export async function deleteTag(id: number): Promise<void> {
-  const res = await fetch(apiUrl(`/tags/${id}`), { method: 'DELETE' })
+  const res = await rawFetch(`/tags/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -465,7 +510,7 @@ export async function deleteTag(id: number): Promise<void> {
 }
 
 export async function createMember(name: string): Promise<MemberDto> {
-  const res = await fetch(apiUrl(`/members`), {
+  const res = await rawFetch(`/members`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -478,7 +523,7 @@ export async function createMember(name: string): Promise<MemberDto> {
 }
 
 export async function renameMember(id: number, name: string): Promise<MemberDto> {
-  const res = await fetch(apiUrl(`/members/${id}`), {
+  const res = await rawFetch(`/members/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -491,9 +536,53 @@ export async function renameMember(id: number, name: string): Promise<MemberDto>
 }
 
 export async function deleteMember(id: number): Promise<void> {
-  const res = await fetch(apiUrl(`/members/${id}`), { method: 'DELETE' })
+  const res = await rawFetch(`/members/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
   }
+}
+
+// ─── 认证 ───
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
+export async function login(username: string, password: string): Promise<LoginResultDto> {
+  return apiFetch<LoginResultDto>('/auth/login', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+export async function loginTotp(pendingToken: string, code: string): Promise<LoginResultDto> {
+  return apiFetch<LoginResultDto>('/auth/login/totp', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ pending_token: pendingToken, code }),
+  })
+}
+
+export async function fetchMe(): Promise<MeDto> {
+  return apiFetch<MeDto>('/auth/me')
+}
+
+export async function logout(): Promise<void> {
+  const res = await rawFetch('/auth/logout', { method: 'POST' })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new ApiError(res.status, text || res.statusText)
+  }
+}
+
+export async function totpSetup(): Promise<TotpSetupDto> {
+  return apiFetch<TotpSetupDto>('/auth/totp/setup', { method: 'POST' })
+}
+
+export async function totpEnable(code: string): Promise<TotpEnableDto> {
+  return apiFetch<TotpEnableDto>('/auth/totp/enable', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ code }),
+  })
 }

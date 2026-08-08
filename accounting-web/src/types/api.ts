@@ -308,3 +308,26 @@ export interface CreateAccountRequest {
 export interface MoveAccountRequest {
   parent_id: number
 }
+
+// ─── 认证 ───
+
+export interface MeDto {
+  username: string
+  display_name: string
+  totp_enabled: boolean
+}
+
+export interface LoginResultDto {
+  require_totp: boolean
+  pending_token?: string
+  display_name: string
+  totp_enabled: boolean
+}
+
+export interface TotpSetupDto {
+  otpauth_uri: string
+}
+
+export interface TotpEnableDto {
+  recovery_codes: string[]
+}
