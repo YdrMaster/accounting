@@ -25,4 +25,4 @@
 ## 5. 文档与首次发布
 
 - [x] 5.1 部署文档（README 新章节或 docs/deployment.md）：ECS rootless podman 运行命令、TZ 注入、auth-admin 用法、GHCR public 设置、国内拉取加速、nonroot 变体的 chown 说明
-- [ ] 5.2 push tag 触发首次 CI 构建，确认 GHCR 出现镜像并设置包可见性
+- [x] 5.2 push tag 触发首次 CI 构建，确认 GHCR 出现镜像并设置包可见性
