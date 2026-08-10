@@ -1,6 +1,6 @@
-# try-frontend
+# accounting-web
 
-基于 Vue 3.6 + Vite + TypeScript 的最小单页应用（SPA）。
+[`accounting-api`](../accounting-api) 的 Web 前端：基于 Vue 3.6 + Vite + TypeScript 的单页应用（SPA）。
 
 ## 技术栈
 

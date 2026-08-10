@@ -1,20 +1,35 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Project context (shown to AI when creating artifacts)
+context: |
+  项目：复式记账系统（PTA/Endpoint Model），个人与家庭使用，首个发布版本已上线。
+  仓库分为 Rust workspace 后端 + Vue 前端：
+  - 后端分层 crate：accounting（纯模型+算法，零 IO）→ accounting-sql（sqlx SQLite，Repository+闭包表）→ accounting-service（Service+事务编排）→ accounting-cli / accounting-api（axum）/ accounting-beancount；accounting-auth 为独立认证子系统（独立 auth.db）。
+  - 前端：accounting-web（Vue 3 + Vite + TypeScript）。
+  数据库：SQLite 单机，严格关系化 schema，账户层次靠闭包表，账户类型由根节点名推导（无 account_type 列）。
+  仅 4 类账户：Asset / Equity / Income / Expense（已移除 Liability，见归档 remove-liability）。
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  语言与文风约定：
+  - 规格用中文撰写；英文保留给 RFC-2119 关键字（SHALL/MUST/MUST NOT/SHOULD/SHALL NOT）、代码标识符、Rust 类型名、API 路径、JSON 字段名、HTTP 状态码。
+  - Scenario 用字面英文 marker：`- **WHEN** …` / `- **THEN** …`（可加 `- **AND**`/`- **BUT**`）。
+  - 跨规格引用用散文括号：（见 `other-capability`）。引用归档变更用内联代码（如 `add-user-auth`）。
+  - 活规格格式严格：`# <capability>` → `## Purpose` → `## Requirements` → `### Requirement: <name>` → `#### Scenario: <name>`；绝不出现 `## ADDED/MODIFIED/REMOVED` 增量头（那是变更 delta 的语法，sync 时会被剥离）。
+  - 无 YAML front-matter；唯一 YAML 是变更旁挂的 `.openspec.yaml`（仅 `schema` + `created`，纯文档/基础设施变更加 `skip_specs: true`）。
+
+  工作流：openspec new change → 写 proposal/design/tasks（必要时 specs delta）→ openspec validate →
+  openspec archive（默认 sync 活规格；纯文档/基础设施变更加 --skip-specs）。设计决策（why/备选否决/风险）落在
+  归档变更的 design.md，作为决策来源；活规格只承载行为事实。
+
+# Per-artifact rules
+rules:
+  proposal:
+    - "标题用 `# Proposal: <slug>`，段落用 `## Why` / `## What Changes` / `## Capabilities` / `## Impact`。"
+    - "Capabilities 分 `### New Capabilities` 与 `### Modified Capabilities`，列为空也保留标题。"
+  design:
+    - "标题用 `# Design: <slug>`，段落用 `## Context` / `## Goals / Non-Goals` / `## Decisions` / `## Risks / Trade-offs` / `## Migration Plan` / `## Open Questions`。"
+    - "决策用 `### D1` / `### D2` 编号；每条给出理由与被否决的备选（说明否决原因）。"
+  tasks:
+    - "标题用 `# Tasks: <slug>`，分组用 `## 1.` 等，任务项用 `- [ ]` / 回溯归档用 `- [x]`。"
+  specs:
+    - "增量头仅四选一：`## ADDED Requirements` / `## MODIFIED Requirements` / `## REMOVED Requirements` / `## RENAMED Requirements`。"
+    - "每个 Requirement 必须含至少一个 `#### Scenario` 块。"

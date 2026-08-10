@@ -1,4 +1,4 @@
-//! auth-admin：用户管理命令行工具（公网不开注册/改密接口，见 design.md D8）
+//! auth-admin：用户管理命令行工具（公网不开注册/改密接口，见归档 `add-user-auth` design.md D8）
 
 use clap::{Parser, Subcommand};
 

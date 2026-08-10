@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use time::Duration;
 
-/// 登录失败统一文案（防用户名枚举，见 design.md D-安全决策）
+/// 登录失败统一文案（防用户名枚举，见归档 `add-user-auth` design.md 安全决策）
 const MSG_BAD_CREDENTIALS: &str = "用户名或密码错误";
 /// TOTP 第二步失败文案
 const MSG_BAD_TOTP: &str = "验证码错误";

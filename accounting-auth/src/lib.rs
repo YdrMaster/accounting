@@ -1,11 +1,13 @@
-//! accounting-auth：独立认证子系统（单 crate 垂直切片，见 design.md D1）
+//! accounting-auth：独立认证子系统（单 crate 垂直切片，决策见
+//! `openspec/changes/archive/2026-08-08-add-user-auth/design.md` D1）
 //!
 //! 内部按 `db` / `service` / `api` 划分，对外只暴露：
 //! - [`AuthState`] / [`init`]：初始化独立 auth.db（sqlx + SQLite）
 //! - [`router`]：认证 HTTP API（`/api/auth/*`）
 //! - [`require_auth`]：业务路由认证中间件（注入 [`CurrentUser`]）
 //!
-//! 部署注意：session cookie 带 `Secure`，必须经 HTTPS 访问（见 design.md Risks）。
+//! 部署注意：session cookie 带 `Secure`，必须经 HTTPS 访问
+//! （决策见上述归档 `design.md` 的 Risks / Trade-offs）。
 
 pub mod api;
 pub mod db;

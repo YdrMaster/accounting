@@ -8,7 +8,7 @@ use rand::rngs::OsRng;
 pub const STEP_SECS: u64 = 30;
 /// 动态码位数
 pub const CODE_DIGITS: u32 = 6;
-/// otpauth:// URI 的 issuer（产品名常量，见 design.md Open Questions）
+/// otpauth:// URI 的 issuer（产品名常量，见归档 `add-user-auth` design.md Open Questions）
 pub const ISSUER: &str = "Accounting";
 
 type HmacSha1 = Hmac<sha1::Sha1>;

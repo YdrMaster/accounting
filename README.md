@@ -88,11 +88,29 @@ podman run -d --name accounting \
 ├── accounting-cli/      # CLI 入口
 ├── accounting-api/      # HTTP API 服务（axum）
 ├── accounting-auth/     # 认证：登录/TOTP/session（独立 auth.db + auth-admin）
-├── accounting-web/      # Web 前端（Vue 3 + Ant Design Vue）
-├── spec/                # 设计文档
-├── plan/                # 实现计划
-└── docs/                # 项目文档
+├── accounting-beancount/# Beancount 导入/导出互转
+├── accounting-web/      # Web 前端（Vue 3）
+├── spec/                # 分层设计文档（core / sql / service）
+├── openspec/            # 活规格 + 归档变更（规格驱动开发）
+└── docs/                # 项目文档（部署、缺口、参考文章）
 ```
+
+## 各 crate 文档
+
+| Crate | README | 分层设计 |
+|------|------|------|
+| accounting（核心库） | [`accounting/README.md`](accounting/README.md) | [`spec/core.md`](spec/core.md) |
+| accounting-sql（数据库层） | [`accounting-sql/README.md`](accounting-sql/README.md) | [`spec/sql.md`](spec/sql.md) |
+| accounting-service（业务层） | [`accounting-service/README.md`](accounting-service/README.md) | [`spec/service.md`](spec/service.md) |
+| accounting-cli（CLI） | [`accounting-cli/README.md`](accounting-cli/README.md) | — |
+| accounting-api（HTTP API） | [`accounting-api/README.md`](accounting-api/README.md) | — |
+| accounting-auth（认证） | [`accounting-auth/README.md`](accounting-auth/README.md) | — |
+| accounting-beancount（导入导出） | [`accounting-beancount/README.md`](accounting-beancount/README.md) | — |
+| accounting-web（Web 前端） | [`accounting-web/README.md`](accounting-web/README.md) | — |
+
+项目文档：[`docs/deployment.md`](docs/deployment.md)（容器部署）、[`docs/gaps.md`](docs/gaps.md)（已知缺口与待办）、[`docs/articles/`](docs/articles/)（参考文章）。
+
+规格与变更历史见 [`openspec/`](openspec/)——活规格置于 `openspec/specs/`，已落地变更的决策来源置于 `openspec/changes/archive/`。本项目用 `openspec` CLI（见 `.claude/skills/openspec-*`）进行规格驱动开发：`openspec list`、`openspec new change`、`openspec validate`、`openspec archive`。
 
 ## 快速开始
 
