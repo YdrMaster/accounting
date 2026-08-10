@@ -37,12 +37,12 @@ enum SavingPlanResponse {
 impl axum::response::IntoResponse for SavingPlanResponse {
     fn into_response(self) -> axum::response::Response {
         match self {
-            SavingPlanResponse::Created(json) => (StatusCode::CREATED, json).into_response(),
-            SavingPlanResponse::Ok(json) => (StatusCode::OK, json).into_response(),
-            SavingPlanResponse::NotFound(msg) => {
+            Self::Created(json) => (StatusCode::CREATED, json).into_response(),
+            Self::Ok(json) => (StatusCode::OK, json).into_response(),
+            Self::NotFound(msg) => {
                 (StatusCode::NOT_FOUND, Json(ApiError { error: msg })).into_response()
             }
-            SavingPlanResponse::BadRequest(msg) => {
+            Self::BadRequest(msg) => {
                 (StatusCode::BAD_REQUEST, Json(ApiError { error: msg })).into_response()
             }
         }
@@ -109,7 +109,7 @@ fn parse_request(
 ) -> Result<ParsedPlanRequest, String> {
     let period = parse_period_opt(period)?;
     let deadline = parse_deadline(deadline)?;
-    let target = Decimal::from_str(target_amount).map_err(|e| format!("无效金额: {}", e))?;
+    let target = Decimal::from_str(target_amount).map_err(|e| format!("无效金额: {e}"))?;
     let ids: Vec<AccountId> = account_ids.iter().map(|&id| AccountId(id)).collect();
     Ok(ParsedPlanRequest {
         period,
@@ -334,7 +334,7 @@ fn status_to_dto(
 fn parse_status_date(query: &SavingPlanStatusQuery) -> Result<chrono::NaiveDate, String> {
     match query.date {
         Some(ref d) => {
-            chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|e| format!("无效日期: {}", e))
+            chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|e| format!("无效日期: {e}"))
         }
         None => Ok(chrono::Local::now().date_naive()),
     }
@@ -503,7 +503,7 @@ mod tests {
         let tx = Transaction {
             id: TransactionId(0),
             date_time: NaiveDateTime::parse_from_str(
-                &format!("{} 00:00:00", date),
+                &format!("{date} 00:00:00"),
                 "%Y-%m-%d %H:%M:%S",
             )
             .unwrap(),
@@ -532,8 +532,7 @@ mod tests {
         let alipay = account_id(state, "Assets:Alipay").await;
         let wechat = account_id(state, "Assets:WeChat").await;
         let body = format!(
-            r#"{{"name":"旅行基金","period":null,"deadline":"2026-09-30","commodity_id":1,"target_amount":"5000","account_ids":[{},{}]}}"#,
-            alipay, wechat
+            r#"{{"name":"旅行基金","period":null,"deadline":"2026-09-30","commodity_id":1,"target_amount":"5000","account_ids":[{alipay},{wechat}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         respond(create_saving_plan(State(state.clone()), Lang("zh".to_string()), Json(req)).await)
@@ -554,8 +553,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         let body = format!(
-            r#"{{"name":"{}","period":null,"deadline":"{}","commodity_id":1,"target_amount":"{}","account_ids":[{}]}}"#,
-            name, deadline, target, ids
+            r#"{{"name":"{name}","period":null,"deadline":"{deadline}","commodity_id":1,"target_amount":"{target}","account_ids":[{ids}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, json) = respond(
@@ -601,8 +599,7 @@ mod tests {
         create_travel_fund(&state).await;
         let bank = account_id(&state, "Assets:Bank").await;
         let body = format!(
-            r#"{{"name":"房租备用金","period":"monthly","deadline":null,"commodity_id":1,"target_amount":"6000","account_ids":[{}]}}"#,
-            bank
+            r#"{{"name":"房租备用金","period":"monthly","deadline":null,"commodity_id":1,"target_amount":"6000","account_ids":[{bank}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (created_status, _) = respond(
@@ -643,8 +640,7 @@ mod tests {
         let state = setup().await;
         let alipay = account_id(&state, "Assets:Alipay").await;
         let body = format!(
-            r#"{{"name":"","period":null,"deadline":null,"commodity_id":1,"target_amount":"100","account_ids":[{}]}}"#,
-            alipay
+            r#"{{"name":"","period":null,"deadline":null,"commodity_id":1,"target_amount":"100","account_ids":[{alipay}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, json) = respond(
@@ -673,8 +669,7 @@ mod tests {
         let state = setup().await;
         let food = account_id(&state, "Expenses:Food").await;
         let body = format!(
-            r#"{{"name":"测试","period":null,"deadline":null,"commodity_id":1,"target_amount":"100","account_ids":[{}]}}"#,
-            food
+            r#"{{"name":"测试","period":null,"deadline":null,"commodity_id":1,"target_amount":"100","account_ids":[{food}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, json) = respond(
@@ -690,8 +685,7 @@ mod tests {
         let state = setup().await;
         let alipay = account_id(&state, "Assets:Alipay").await;
         let body = format!(
-            r#"{{"name":"测试","period":null,"deadline":null,"commodity_id":9999,"target_amount":"100","account_ids":[{}]}}"#,
-            alipay
+            r#"{{"name":"测试","period":null,"deadline":null,"commodity_id":9999,"target_amount":"100","account_ids":[{alipay}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, json) = respond(
@@ -707,8 +701,7 @@ mod tests {
         let state = setup().await;
         let alipay = account_id(&state, "Assets:Alipay").await;
         let body = format!(
-            r#"{{"name":"测试","period":"fortnightly","deadline":null,"commodity_id":1,"target_amount":"100","account_ids":[{}]}}"#,
-            alipay
+            r#"{{"name":"测试","period":"fortnightly","deadline":null,"commodity_id":1,"target_amount":"100","account_ids":[{alipay}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, json) = respond(
@@ -724,8 +717,7 @@ mod tests {
         let state = setup().await;
         let alipay = account_id(&state, "Assets:Alipay").await;
         let body = format!(
-            r#"{{"name":"测试","period":null,"deadline":"not-a-date","commodity_id":1,"target_amount":"100","account_ids":[{}]}}"#,
-            alipay
+            r#"{{"name":"测试","period":null,"deadline":"not-a-date","commodity_id":1,"target_amount":"100","account_ids":[{alipay}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, json) = respond(
@@ -745,8 +737,7 @@ mod tests {
         let wechat = account_id(&state, "Assets:WeChat").await;
         let bank = account_id(&state, "Assets:Bank").await;
         let body = format!(
-            r#"{{"name":"三账户计划","period":null,"deadline":null,"commodity_id":1,"target_amount":"1000","account_ids":[{},{},{}]}}"#,
-            alipay, wechat, bank
+            r#"{{"name":"三账户计划","period":null,"deadline":null,"commodity_id":1,"target_amount":"1000","account_ids":[{alipay},{wechat},{bank}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (_, created) = respond(
@@ -787,8 +778,7 @@ mod tests {
         let bank = account_id(&state, "Assets:Bank").await;
 
         let body = format!(
-            r#"{{"name":"欧洲旅行基金","period":null,"deadline":"2026-12-31","commodity_id":1,"target_amount":"8000","account_ids":[{}]}}"#,
-            bank
+            r#"{{"name":"欧洲旅行基金","period":null,"deadline":"2026-12-31","commodity_id":1,"target_amount":"8000","account_ids":[{bank}]}}"#
         );
         let req: UpdateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, json) = respond(
@@ -821,8 +811,7 @@ mod tests {
         let state = setup().await;
         let bank = account_id(&state, "Assets:Bank").await;
         let body = format!(
-            r#"{{"name":"x","period":null,"deadline":null,"commodity_id":1,"target_amount":"100","account_ids":[{}]}}"#,
-            bank
+            r#"{{"name":"x","period":null,"deadline":null,"commodity_id":1,"target_amount":"100","account_ids":[{bank}]}}"#
         );
         let req: UpdateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, json) = respond(
@@ -846,8 +835,7 @@ mod tests {
         let id = created["id"].as_i64().unwrap();
         let alipay = account_id(&state, "Assets:Alipay").await;
         let body = format!(
-            r#"{{"name":"旅行基金","period":null,"deadline":null,"commodity_id":1,"target_amount":"5000","account_ids":[{},{}]}}"#,
-            alipay, alipay
+            r#"{{"name":"旅行基金","period":null,"deadline":null,"commodity_id":1,"target_amount":"5000","account_ids":[{alipay},{alipay}]}}"#
         );
         let req: UpdateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, json) = respond(
@@ -871,8 +859,7 @@ mod tests {
         let id = created["id"].as_i64().unwrap();
         let food = account_id(&state, "Expenses:Food").await;
         let body = format!(
-            r#"{{"name":"旅行基金","period":null,"deadline":null,"commodity_id":1,"target_amount":"5000","account_ids":[{}]}}"#,
-            food
+            r#"{{"name":"旅行基金","period":null,"deadline":null,"commodity_id":1,"target_amount":"5000","account_ids":[{food}]}}"#
         );
         let req: UpdateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, _) = respond(
@@ -1083,8 +1070,7 @@ mod tests {
         let state = setup().await;
         let bank = account_id(&state, "Assets:Bank").await;
         let body = format!(
-            r#"{{"name":"房租备用金","period":"monthly","deadline":null,"commodity_id":1,"target_amount":"6000","account_ids":[{}]}}"#,
-            bank
+            r#"{{"name":"房租备用金","period":"monthly","deadline":null,"commodity_id":1,"target_amount":"6000","account_ids":[{bank}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (_, created) = respond(
@@ -1240,8 +1226,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         let body = format!(
-            r#"{{"name":"{}","period":null,"deadline":null,"commodity_id":1,"target_amount":"{}","account_ids":[{}]}}"#,
-            name, target, ids
+            r#"{{"name":"{name}","period":null,"deadline":null,"commodity_id":1,"target_amount":"{target}","account_ids":[{ids}]}}"#
         );
         let req: CreateSavingPlanRequest = serde_json::from_str(&body).unwrap();
         let (status, json) = respond(

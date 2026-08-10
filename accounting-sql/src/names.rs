@@ -202,7 +202,7 @@ impl EntityNames {
         };
 
         if count > 0 {
-            return Err(DbError::Database(format!("名字 \"{}\" 已存在", name)));
+            return Err(DbError::Database(format!("名字 \"{name}\" 已存在")));
         }
         Ok(())
     }

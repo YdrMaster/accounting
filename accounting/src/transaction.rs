@@ -16,9 +16,9 @@ impl TransactionKind {
     /// 从数据库整数值解析
     pub fn from_db(value: i32) -> Option<Self> {
         match value {
-            1 => Some(TransactionKind::Normal),
-            2 => Some(TransactionKind::Refund),
-            3 => Some(TransactionKind::Reimbursement),
+            1 => Some(Self::Normal),
+            2 => Some(Self::Refund),
+            3 => Some(Self::Reimbursement),
             _ => None,
         }
     }

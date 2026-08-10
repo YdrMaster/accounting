@@ -85,17 +85,17 @@ pub enum RowErrorDetail {
 impl fmt::Display for RowErrorDetail {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RowErrorDetail::MissingColumn { index, name } => {
+            Self::MissingColumn { index, name } => {
                 write!(f, "missing column at index {index} ({name})")
             }
-            RowErrorDetail::AmountParse { value, source } => {
+            Self::AmountParse { value, source } => {
                 write!(f, "amount parse failed for '{value}': {source}")
             }
-            RowErrorDetail::DateParse { value } => {
+            Self::DateParse { value } => {
                 write!(f, "date parse failed for '{value}'")
             }
-            RowErrorDetail::ClosedTransaction => write!(f, "transaction closed"),
-            RowErrorDetail::Other { message } => write!(f, "{message}"),
+            Self::ClosedTransaction => write!(f, "transaction closed"),
+            Self::Other { message } => write!(f, "{message}"),
         }
     }
 }
@@ -103,8 +103,8 @@ impl fmt::Display for RowErrorDetail {
 impl fmt::Display for AdaptError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AdaptError::Encoding { source } => write!(f, "encoding error: {source}"),
-            AdaptError::Row { row, detail } => write!(f, "row {row}: {detail}"),
+            Self::Encoding { source } => write!(f, "encoding error: {source}"),
+            Self::Row { row, detail } => write!(f, "row {row}: {detail}"),
         }
     }
 }

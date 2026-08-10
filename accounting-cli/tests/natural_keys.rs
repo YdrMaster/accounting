@@ -5,7 +5,7 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn db_path() -> String {
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-    format!("/tmp/accounting_cli_natural_keys_test_{}.db", id)
+    format!("/tmp/accounting_cli_natural_keys_test_{id}.db")
 }
 
 fn run(db: &str, args: &[&str]) -> String {
@@ -20,8 +20,7 @@ fn run(db: &str, args: &[&str]) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
         panic!(
-            "accounting-cli failed: db={} args={:?}\nstdout={}\nstderr={}",
-            db, args, stdout, stderr
+            "accounting-cli failed: db={db} args={args:?}\nstdout={stdout}\nstderr={stderr}"
         );
     }
     stdout.to_string()

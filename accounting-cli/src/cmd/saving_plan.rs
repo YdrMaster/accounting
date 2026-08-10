@@ -94,11 +94,11 @@ impl SavingPlanCmd {
         lang: &str,
     ) -> Result<(), AccountingError> {
         match self {
-            SavingPlanCmd::Create(args) => self::create(db, args, lang).await,
-            SavingPlanCmd::List => self::list(db, lang).await,
-            SavingPlanCmd::Show(args) => self::show(db, args, lang).await,
-            SavingPlanCmd::Update(args) => self::update(db, args, lang).await,
-            SavingPlanCmd::Delete(args) => self::delete(db, args).await,
+            Self::Create(args) => self::create(db, args, lang).await,
+            Self::List => self::list(db, lang).await,
+            Self::Show(args) => self::show(db, args, lang).await,
+            Self::Update(args) => self::update(db, args, lang).await,
+            Self::Delete(args) => self::delete(db, args).await,
         }
     }
 }

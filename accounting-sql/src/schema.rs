@@ -1003,7 +1003,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-            assert_eq!(parent_id, Some(equity_id), "{} 应挂在 Equity 根下", leaf);
+            assert_eq!(parent_id, Some(equity_id), "{leaf} 应挂在 Equity 根下");
         }
     }
 
@@ -1025,7 +1025,7 @@ mod tests {
         ];
         for (sql, expected) in checks {
             let count: i64 = sqlx::query_scalar(*sql).fetch_one(&mut conn).await.unwrap();
-            assert_eq!(&count, expected, "重复 seed 后计数异常: {}", sql);
+            assert_eq!(&count, expected, "重复 seed 后计数异常: {sql}");
         }
     }
 
@@ -1091,13 +1091,11 @@ mod tests {
                 .unwrap();
             assert!(
                 cols.contains(&"created_at".to_string()),
-                "{} 缺少 created_at",
-                table
+                "{table} 缺少 created_at"
             );
             assert!(
                 cols.contains(&"updated_at".to_string()),
-                "{} 缺少 updated_at",
-                table
+                "{table} 缺少 updated_at"
             );
         }
     }

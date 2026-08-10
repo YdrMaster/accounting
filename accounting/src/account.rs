@@ -23,7 +23,7 @@ impl Account {
     /// 根据全量账户映射与显示名映射拼装完整路径，如 Assets:Bank:Checking
     pub fn display_path(
         &self,
-        accounts_by_id: &HashMap<AccountId, Account>,
+        accounts_by_id: &HashMap<AccountId, Self>,
         display_names: &HashMap<AccountId, String>,
     ) -> String {
         let name = display_names

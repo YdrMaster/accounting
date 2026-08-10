@@ -86,11 +86,11 @@ impl BudgetCmd {
         lang: &str,
     ) -> Result<(), AccountingError> {
         match self {
-            BudgetCmd::Create(args) => self::create(db, args, lang).await,
-            BudgetCmd::List => self::list(db, lang).await,
-            BudgetCmd::Show(args) => self::show(db, args, lang).await,
-            BudgetCmd::Update(args) => self::update(db, args, lang).await,
-            BudgetCmd::Delete(args) => self::delete(db, args).await,
+            Self::Create(args) => self::create(db, args, lang).await,
+            Self::List => self::list(db, lang).await,
+            Self::Show(args) => self::show(db, args, lang).await,
+            Self::Update(args) => self::update(db, args, lang).await,
+            Self::Delete(args) => self::delete(db, args).await,
         }
     }
 }

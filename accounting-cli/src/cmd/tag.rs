@@ -44,7 +44,7 @@ impl TagCmd {
         lang: &str,
     ) -> Result<(), accounting::error::AccountingError> {
         match self {
-            TagCmd::List => {
+            Self::List => {
                 let service = accounting_service::tag_service::TagService::new(db.clone());
                 let tags = service.list().await?;
                 let ids: Vec<accounting::id::TagId> = tags.iter().map(|t| t.id).collect();
@@ -73,19 +73,19 @@ impl TagCmd {
                     .collect();
                 print_vec(&rows, format);
             }
-            TagCmd::Add(args) => {
+            Self::Add(args) => {
                 let service = accounting_service::tag_service::TagService::new(db);
                 let id = service
                     .add(args.name.clone(), args.description, lang)
                     .await?;
                 print_line(&format!("{}", t!("tag_created", id = id.0)), format);
             }
-            TagCmd::Delete(args) => {
+            Self::Delete(args) => {
                 let service = accounting_service::tag_service::TagService::new(db);
                 service.delete(&args.name).await?;
                 print_line(&format!("{}", t!("tag_deleted", name = args.name)), format);
             }
-            TagCmd::Rename(args) => {
+            Self::Rename(args) => {
                 let tag = db
                     .tag_get_by_name(&args.name)
                     .await

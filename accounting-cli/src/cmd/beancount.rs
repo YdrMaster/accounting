@@ -33,8 +33,8 @@ impl BeancountCmd {
         lang: &str,
     ) -> Result<(), AccountingError> {
         match self {
-            BeancountCmd::Export(args) => run_export(db, args, lang).await,
-            BeancountCmd::Import(args) => run_import(db, args).await,
+            Self::Export(args) => run_export(db, args, lang).await,
+            Self::Import(args) => run_import(db, args).await,
         }
     }
 }

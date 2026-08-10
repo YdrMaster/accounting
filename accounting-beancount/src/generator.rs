@@ -40,7 +40,7 @@ pub fn generate(data: &BeancountData) -> String {
 }
 
 fn write_metadata(out: &mut String, key: &str, value: &str) {
-    let _ = writeln!(out, "    {}: {}", key, value);
+    let _ = writeln!(out, "    {key}: {value}");
 }
 
 fn escape_string(s: &str) -> String {
@@ -107,7 +107,7 @@ fn generate_transaction(out: &mut String, tx: &BTransaction) {
     let tags_str = if tx.tags.is_empty() {
         String::new()
     } else {
-        let tags: Vec<String> = tx.tags.iter().map(|t| format!("#{}", t)).collect();
+        let tags: Vec<String> = tx.tags.iter().map(|t| format!("#{t}")).collect();
         format!(" {}", tags.join(" "))
     };
 
@@ -205,7 +205,7 @@ fn generate_document(out: &mut String, doc: &BDocument) {
         escape_string(&doc.filename),
     );
     if let Some(tx_id) = doc.transaction_internal_id {
-        let _ = writeln!(out, "    transaction_id: {}", tx_id);
+        let _ = writeln!(out, "    transaction_id: {tx_id}");
     }
     let _ = writeln!(out);
 }
@@ -301,8 +301,7 @@ mod tests {
         let output = generate(&data);
         assert!(
             output.contains("1970-01-01 commodity CNY"),
-            "expected default commodity date, got:\n{}",
-            output
+            "expected default commodity date, got:\n{output}"
         );
         assert!(output.contains("internal_id: 1"));
         assert!(output.contains("precision: 2"));
@@ -315,8 +314,7 @@ mod tests {
         let output = generate(&data);
         assert!(
             output.contains("2024-01-15 commodity CNY"),
-            "expected created_at date, got:\n{}",
-            output
+            "expected created_at date, got:\n{output}"
         );
     }
 
@@ -353,8 +351,7 @@ mod tests {
         assert!(output.contains("member: \"张三\""));
         assert!(
             output.contains("channel_path: \"微信√\""),
-            "expected text channel_path, got:\n{}",
-            output
+            "expected text channel_path, got:\n{output}"
         );
         assert!(output.contains("支出:食品 150.00 CNY"));
         assert!(output.contains("资产:现金 -150.00 CNY"));

@@ -438,7 +438,7 @@ pub fn parse_period(s: &str) -> Result<accounting::finance_period::FinancePeriod
         "weekly-mon" => Ok(FinancePeriod::WeeklyFromMonday),
         "monthly" => Ok(FinancePeriod::Monthly),
         "yearly" => Ok(FinancePeriod::Yearly),
-        _ => Err(format!("无效周期类型: {}", s)),
+        _ => Err(format!("无效周期类型: {s}")),
     }
 }
 
@@ -476,7 +476,7 @@ pub fn parse_deadline(s: Option<&str>) -> Result<Option<chrono::NaiveDate>, Stri
     match s {
         Some(s) if !s.is_empty() => chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
             .map(Some)
-            .map_err(|e| format!("无效日期: {}", e)),
+            .map_err(|e| format!("无效日期: {e}")),
         _ => Ok(None),
     }
 }

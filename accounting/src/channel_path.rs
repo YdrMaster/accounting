@@ -15,9 +15,9 @@ impl ChannelPathStatus {
     /// 将数据库存储的整数转换为枚举
     pub fn from_i32(v: i32) -> Self {
         match v {
-            1 => ChannelPathStatus::Pending,
-            2 => ChannelPathStatus::Verified,
-            _ => ChannelPathStatus::Default,
+            1 => Self::Pending,
+            2 => Self::Verified,
+            _ => Self::Default,
         }
     }
 
@@ -29,9 +29,9 @@ impl ChannelPathStatus {
     /// 返回状态字符串
     pub fn as_str(&self) -> &'static str {
         match self {
-            ChannelPathStatus::Default => "default",
-            ChannelPathStatus::Pending => "pending",
-            ChannelPathStatus::Verified => "verified",
+            Self::Default => "default",
+            Self::Pending => "pending",
+            Self::Verified => "verified",
         }
     }
 }
@@ -41,10 +41,10 @@ impl std::str::FromStr for ChannelPathStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "default" => Ok(ChannelPathStatus::Default),
-            "pending" => Ok(ChannelPathStatus::Pending),
-            "verified" => Ok(ChannelPathStatus::Verified),
-            _ => Err(format!("unknown channel path status: {}", s)),
+            "default" => Ok(Self::Default),
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            _ => Err(format!("unknown channel path status: {s}")),
         }
     }
 }

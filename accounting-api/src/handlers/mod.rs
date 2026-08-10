@@ -35,7 +35,7 @@ where
             .filter(|s| !s.is_empty())
             .unwrap_or("en")
             .to_string();
-        Ok(Lang(lang))
+        Ok(Self(lang))
     }
 }
 

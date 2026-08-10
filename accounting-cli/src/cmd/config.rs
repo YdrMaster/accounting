@@ -31,7 +31,7 @@ impl ConfigCmd {
         lang: &str,
     ) -> Result<(), accounting::error::AccountingError> {
         match self {
-            ConfigCmd::Export(args) => {
+            Self::Export(args) => {
                 let service = ConfigService::new(db);
                 let config = service.export(lang).await?;
                 let yaml = serde_yaml::to_string(&config)
@@ -40,7 +40,7 @@ impl ConfigCmd {
                     .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
                 println!("{}", t!("config_exported", file = args.file.display()));
             }
-            ConfigCmd::Import(args) => {
+            Self::Import(args) => {
                 let yaml = std::fs::read_to_string(&args.file)
                     .map_err(|e| accounting::error::AccountingError::Unknown(e.to_string()))?;
                 let config: ConfigFile = serde_yaml::from_str(&yaml).map_err(|e| {

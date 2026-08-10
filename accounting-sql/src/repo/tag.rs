@@ -141,7 +141,7 @@ pub async fn tag_delete(conn: &mut SqliteConnection, name: &str) -> Result<(), D
             return Err(DbError::Database("系统内置标签不可删除".to_string()));
         }
         None => {
-            return Err(DbError::Database(format!("Tag not found: {}", name)));
+            return Err(DbError::Database(format!("Tag not found: {name}")));
         }
         Some((tag_id, _)) => {
             sqlx::query("DELETE FROM tags WHERE id = ?1")

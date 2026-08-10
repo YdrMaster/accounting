@@ -56,17 +56,15 @@ pub enum BudgetError {
 impl std::fmt::Display for BudgetError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BudgetError::EmptyName => write!(f, "预算表名称不能为空"),
-            BudgetError::EmptyLimits => write!(f, "限额列表不能为空"),
-            BudgetError::AccountNotFound(id) => write!(f, "账户不存在: {}", id),
-            BudgetError::DuplicateAccount(id) => write!(f, "账户重复: {}", id),
-            BudgetError::InvalidAmount(amount) => write!(f, "限额金额无效: {}", amount),
-            BudgetError::CommodityNotFound(id) => write!(f, "币种不存在: {}", id),
-            BudgetError::BudgetNotFound(id) => write!(f, "预算表不存在: {}", id),
-            BudgetError::AccountNotExpense(id) => {
-                write!(f, "限额账户必须位于支出根账户子树内: {}", id)
-            }
-            BudgetError::DatabaseError(msg) => write!(f, "数据库错误: {}", msg),
+            Self::EmptyName => write!(f, "预算表名称不能为空"),
+            Self::EmptyLimits => write!(f, "限额列表不能为空"),
+            Self::AccountNotFound(id) => write!(f, "账户不存在: {id}"),
+            Self::DuplicateAccount(id) => write!(f, "账户重复: {id}"),
+            Self::InvalidAmount(amount) => write!(f, "限额金额无效: {amount}"),
+            Self::CommodityNotFound(id) => write!(f, "币种不存在: {id}"),
+            Self::BudgetNotFound(id) => write!(f, "预算表不存在: {id}"),
+            Self::AccountNotExpense(id) => write!(f, "限额账户必须位于支出根账户子树内: {id}"),
+            Self::DatabaseError(msg) => write!(f, "数据库错误: {msg}"),
         }
     }
 }

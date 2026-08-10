@@ -162,11 +162,11 @@ async fn main() {
     let db = accounting_sql::SqliteDatabase::open(&args.db)
         .await
         .unwrap_or_else(|e| {
-            eprintln!("Failed to open database: {}", e);
+            eprintln!("Failed to open database: {e}");
             std::process::exit(1);
         });
     db.initialize().await.unwrap_or_else(|e| {
-        eprintln!("Failed to initialize database: {}", e);
+        eprintln!("Failed to initialize database: {e}");
         std::process::exit(1);
     });
     // API 启动时的 locale 用 --lang 或默认 en；每个请求的 locale 由 handler 按请求参数决定
@@ -176,7 +176,7 @@ async fn main() {
     let auth_state = accounting_auth::init(&args.auth_db)
         .await
         .unwrap_or_else(|e| {
-            eprintln!("Failed to initialize auth database: {}", e);
+            eprintln!("Failed to initialize auth database: {e}");
             std::process::exit(1);
         });
 

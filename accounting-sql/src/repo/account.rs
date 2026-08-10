@@ -220,7 +220,7 @@ pub async fn account_get_or_create_by_path(
         }
     }
 
-    parent_id.ok_or_else(|| DbError::Database(format!("failed to create account path: {}", path)))
+    parent_id.ok_or_else(|| DbError::Database(format!("failed to create account path: {path}")))
 }
 
 pub async fn account_update_by_path(
@@ -232,7 +232,7 @@ pub async fn account_update_by_path(
 ) -> Result<(), DbError> {
     let account = account_get_by_name(conn, path)
         .await?
-        .ok_or_else(|| DbError::Database(format!("account not found: {}", path)))?;
+        .ok_or_else(|| DbError::Database(format!("account not found: {path}")))?;
 
     sqlx::query(
         "UPDATE accounts SET closed_at = ?1, billing_day = ?2, repayment_day = ?3 WHERE id = ?4",
@@ -351,7 +351,7 @@ pub async fn account_update_parent(
     for node in subtree {
         let account = account_get(&mut *conn, AccountId(node))
             .await?
-            .ok_or_else(|| DbError::Database(format!("账户 {} 不存在", node)))?;
+            .ok_or_else(|| DbError::Database(format!("账户 {node} 不存在")))?;
         account_insert_closure_rows(&mut *conn, &account).await?;
     }
 
@@ -624,7 +624,7 @@ impl TryFrom<AccountRow> for Account {
             None => None,
         };
 
-        Ok(Account {
+        Ok(Self {
             id: AccountId(row.id),
             parent_id: row.parent_id.map(AccountId),
             closed_at,
@@ -1235,8 +1235,7 @@ mod tests {
         for node in [b, c, d] {
             assert!(
                 !account_is_descendant_of(&mut conn, node, a).await.unwrap(),
-                "{:?} 不应再以 A 为祖先",
-                node
+                "{node:?} 不应再以 A 为祖先"
             );
         }
         // 根推导随新父链变化

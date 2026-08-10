@@ -130,8 +130,7 @@ mod tests {
         assert!(!beancount_text.is_empty());
         assert!(
             beancount_text.contains("资产:工商银行"),
-            "zh-CN 导出应含中文账户路径，got:\n{}",
-            beancount_text
+            "zh-CN 导出应含中文账户路径，got:\n{beancount_text}"
         );
 
         // 写入 beancount 文件
@@ -231,13 +230,11 @@ mod tests {
         // 同一库，系统根账户路径随 lang 变化
         assert!(
             en_text.contains("open Assets:"),
-            "en 导出应含英文系统账户路径，got:\n{}",
-            en_text
+            "en 导出应含英文系统账户路径，got:\n{en_text}"
         );
         assert!(
             zh_text.contains("open 资产:"),
-            "zh-CN 导出应含中文系统账户路径，got:\n{}",
-            zh_text
+            "zh-CN 导出应含中文系统账户路径，got:\n{zh_text}"
         );
         assert_ne!(en_text, zh_text);
 

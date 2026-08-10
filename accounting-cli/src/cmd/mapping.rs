@@ -65,9 +65,9 @@ impl MappingCmd {
         format: OutputFormat,
     ) -> Result<(), AccountingError> {
         match self {
-            MappingCmd::Set(args) => args.run(db, format).await,
-            MappingCmd::List(args) => args.run(db, format).await,
-            MappingCmd::Delete(args) => args.run(db, format).await,
+            Self::Set(args) => args.run(db, format).await,
+            Self::List(args) => args.run(db, format).await,
+            Self::Delete(args) => args.run(db, format).await,
         }
     }
 }

@@ -30,20 +30,20 @@ impl FinancePeriod {
     /// ```
     pub fn period_range(&self, date: NaiveDate) -> (NaiveDate, NaiveDate) {
         match self {
-            FinancePeriod::Daily => (date, date),
-            FinancePeriod::WeeklyFromSunday => {
+            Self::Daily => (date, date),
+            Self::WeeklyFromSunday => {
                 let weekday = date.weekday().num_days_from_sunday() as i64;
                 let start = date - chrono::Duration::days(weekday);
                 let end = start + chrono::Duration::days(6);
                 (start, end)
             }
-            FinancePeriod::WeeklyFromMonday => {
+            Self::WeeklyFromMonday => {
                 let weekday = date.weekday().num_days_from_monday() as i64;
                 let start = date - chrono::Duration::days(weekday);
                 let end = start + chrono::Duration::days(6);
                 (start, end)
             }
-            FinancePeriod::Monthly => {
+            Self::Monthly => {
                 let year = date.year();
                 let month = date.month();
                 let start = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
@@ -53,7 +53,7 @@ impl FinancePeriod {
                     - chrono::Duration::days(1);
                 (start, end)
             }
-            FinancePeriod::Yearly => {
+            Self::Yearly => {
                 let year = date.year();
                 let start = NaiveDate::from_ymd_opt(year, 1, 1).unwrap();
                 let end = NaiveDate::from_ymd_opt(year, 12, 31).unwrap();
@@ -65,11 +65,11 @@ impl FinancePeriod {
     /// 从整数创建 FinancePeriod
     pub fn from_i64(value: i64) -> Option<Self> {
         match value {
-            1 => Some(FinancePeriod::Daily),
-            2 => Some(FinancePeriod::WeeklyFromSunday),
-            3 => Some(FinancePeriod::WeeklyFromMonday),
-            4 => Some(FinancePeriod::Monthly),
-            5 => Some(FinancePeriod::Yearly),
+            1 => Some(Self::Daily),
+            2 => Some(Self::WeeklyFromSunday),
+            3 => Some(Self::WeeklyFromMonday),
+            4 => Some(Self::Monthly),
+            5 => Some(Self::Yearly),
             _ => None,
         }
     }
@@ -83,11 +83,11 @@ impl FinancePeriod {
 impl std::fmt::Display for FinancePeriod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FinancePeriod::Daily => write!(f, "Daily"),
-            FinancePeriod::WeeklyFromSunday => write!(f, "WeeklyFromSunday"),
-            FinancePeriod::WeeklyFromMonday => write!(f, "WeeklyFromMonday"),
-            FinancePeriod::Monthly => write!(f, "Monthly"),
-            FinancePeriod::Yearly => write!(f, "Yearly"),
+            Self::Daily => write!(f, "Daily"),
+            Self::WeeklyFromSunday => write!(f, "WeeklyFromSunday"),
+            Self::WeeklyFromMonday => write!(f, "WeeklyFromMonday"),
+            Self::Monthly => write!(f, "Monthly"),
+            Self::Yearly => write!(f, "Yearly"),
         }
     }
 }

@@ -19,13 +19,13 @@ impl PostingRole {
     }
 
     /// 从映射 key 解析出 (PostingRole, 原始分类名)
-    pub fn from_key(key: &str) -> Option<(PostingRole, &str)> {
+    pub fn from_key(key: &str) -> Option<(Self, &str)> {
         if let Some(cat) = key.strip_prefix("Assets:") {
-            Some((PostingRole::Asset, cat))
+            Some((Self::Asset, cat))
         } else if let Some(cat) = key.strip_prefix("Income:") {
-            Some((PostingRole::IncomeExpense, cat))
+            Some((Self::IncomeExpense, cat))
         } else if let Some(cat) = key.strip_prefix("Expenses:") {
-            Some((PostingRole::IncomeExpense, cat))
+            Some((Self::IncomeExpense, cat))
         } else {
             None
         }
@@ -37,8 +37,8 @@ impl PostingRole {
     /// - IncomeExpense 角色：退款（`is_refund`）或金额为正返回 `Expenses`，金额为负返回 `Income`
     pub fn fallback_root(&self, amount: Decimal, is_refund: bool) -> &'static str {
         match self {
-            PostingRole::Asset => "Assets",
-            PostingRole::IncomeExpense => {
+            Self::Asset => "Assets",
+            Self::IncomeExpense => {
                 if is_refund || amount > Decimal::ZERO {
                     "Expenses"
                 } else {

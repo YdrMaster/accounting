@@ -140,7 +140,7 @@ fn apply_transaction_filter(builder: &mut QueryBuilder<sqlx::Sqlite>, filter: &T
     }
     if let Some(ref keyword) = filter.keyword {
         builder.push("AND transactions.description LIKE ");
-        builder.push_bind(format!("%{}%", keyword));
+        builder.push_bind(format!("%{keyword}%"));
         builder.push(" ");
     }
     // 账户过滤使用 EXISTS 子查询，避免 JOIN 导致行膨胀
@@ -245,7 +245,7 @@ impl TryFrom<TransactionRow> for Transaction {
         let date_time = NaiveDateTime::parse_from_str(&row.date_time, "%Y-%m-%d %H:%M:%S")
             .map_err(|e| DbError::Database(e.to_string()))?;
 
-        Ok(Transaction {
+        Ok(Self {
             id: TransactionId(row.id),
             date_time,
             description: row.description,

@@ -1348,8 +1348,8 @@ mod tests {
     async fn test_open_creates_missing_file() {
         let path = "../target/test_open_creates_missing_file.db";
         let _ = std::fs::remove_file(path);
-        let _ = std::fs::remove_file(format!("{}-wal", path));
-        let _ = std::fs::remove_file(format!("{}-shm", path));
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
 
         let db = SqliteDatabase::open(path).await.unwrap();
         drop(db);
@@ -1357,8 +1357,8 @@ mod tests {
         assert!(std::path::Path::new(path).exists());
 
         let _ = std::fs::remove_file(path);
-        let _ = std::fs::remove_file(format!("{}-wal", path));
-        let _ = std::fs::remove_file(format!("{}-shm", path));
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
     }
 
     #[tokio::test]

@@ -23,7 +23,7 @@ impl BudgetRow {
             .period
             .map(|v| {
                 FinancePeriod::from_i64(v)
-                    .ok_or_else(|| DbError::Database(format!("Invalid budget period value: {}", v)))
+                    .ok_or_else(|| DbError::Database(format!("Invalid budget period value: {v}")))
             })
             .transpose()?;
         Ok(Budget {
@@ -42,7 +42,7 @@ fn format_deadline(deadline: Option<NaiveDate>) -> Option<String> {
 
 fn parse_deadline(raw: String) -> Result<NaiveDate, DbError> {
     NaiveDate::parse_from_str(&raw, "%Y-%m-%d")
-        .map_err(|e| DbError::Database(format!("Invalid deadline value: {} ({})", raw, e)))
+        .map_err(|e| DbError::Database(format!("Invalid deadline value: {raw} ({e})")))
 }
 
 #[derive(FromRow)]

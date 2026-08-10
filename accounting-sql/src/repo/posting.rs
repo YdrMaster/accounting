@@ -541,7 +541,7 @@ fn apply_posting_filter(
     }
     if let Some(ref keyword) = filter.keyword {
         builder.push("AND t.description LIKE ");
-        builder.push_bind(format!("%{}%", keyword));
+        builder.push_bind(format!("%{keyword}%"));
         builder.push(" ");
     }
 }
@@ -1532,7 +1532,7 @@ mod tests {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO transactions (date_time, description, member_id) VALUES (?1, 'test', ?2) RETURNING id",
         )
-        .bind(format!("{} 12:00:00", date))
+        .bind(format!("{date} 12:00:00"))
         .bind(member_id)
         .fetch_one(conn)
         .await

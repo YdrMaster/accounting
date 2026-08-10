@@ -30,7 +30,7 @@ pub fn print_vec<T: Tabled + Serialize>(values: &[T], format: OutputFormat) {
 /// 打印单行消息
 pub fn print_line(msg: &str, format: OutputFormat) {
     match format {
-        OutputFormat::Json => println!("{{\"result\":\"{}\"}}", msg),
-        OutputFormat::Table => println!("{}", msg),
+        OutputFormat::Json => println!("{{\"result\":\"{msg}\"}}"),
+        OutputFormat::Table => println!("{msg}"),
     }
 }

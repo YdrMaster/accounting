@@ -662,13 +662,13 @@ mod tests {
                 Err(e) => {
                     errors += 1;
                     if errors <= 3 {
-                        eprintln!("skip: {}", e);
+                        eprintln!("skip: {e}");
                     }
                 }
             }
         }
         eprintln!("成功: {count} 条, 跳过: {errors} 条");
-        eprintln!("分类: {:?}", categories);
+        eprintln!("分类: {categories:?}");
         assert!(
             count > 0,
             "应至少导入一条记录，实际成功 {count}，跳过 {errors}"

@@ -214,7 +214,7 @@ fn parse_account_close(
 
     let closed_at = NaiveDate::from_str(date_str).map_err(|_| BeancountError::ParseError {
         line: line_num,
-        message: format!("invalid date: {}", date_str),
+        message: format!("invalid date: {date_str}"),
     })?;
 
     if let Some(account) = accounts.iter_mut().find(|a| a.path == path) {
@@ -461,7 +461,7 @@ fn parse_amount_cost(
     if parts.len() < 2 {
         return Err(BeancountError::ParseError {
             line: 0,
-            message: format!("invalid amount: {}", s),
+            message: format!("invalid amount: {s}"),
         });
     }
 
@@ -508,19 +508,19 @@ fn split_datetime(line: &str, line_num: usize) -> Result<(NaiveDateTime, &str), 
     let time_or_flag = parts[1];
 
     if time_or_flag.contains(':') {
-        let datetime_str = format!("{} {}", date_str, time_or_flag);
+        let datetime_str = format!("{date_str} {time_or_flag}");
         let dt = NaiveDateTime::parse_from_str(&datetime_str, "%Y-%m-%d %H:%M:%S")
             .or_else(|_| NaiveDateTime::parse_from_str(&datetime_str, "%Y-%m-%d %H:%M"))
             .map_err(|_| BeancountError::ParseError {
                 line: line_num,
-                message: format!("invalid datetime: {}", datetime_str),
+                message: format!("invalid datetime: {datetime_str}"),
             })?;
         let rest = if parts.len() > 3 { parts[3] } else { "" };
         Ok((dt, rest))
     } else {
         let date = NaiveDate::from_str(date_str).map_err(|_| BeancountError::ParseError {
             line: line_num,
-            message: format!("invalid date: {}", date_str),
+            message: format!("invalid date: {date_str}"),
         })?;
         let dt = date.and_hms_opt(0, 0, 0).unwrap();
         let rest = if parts.len() > 2 {
@@ -559,7 +559,7 @@ fn parse_txn_header(rest: &str) -> (String, Vec<String>) {
                 description = if payee.is_empty() {
                     narration
                 } else {
-                    format!("{} - {}", payee, narration)
+                    format!("{payee} - {narration}")
                 };
             }
         } else {

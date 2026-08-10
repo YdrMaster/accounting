@@ -5,7 +5,7 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn db_path() -> String {
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-    format!("/tmp/accounting_cli_saving_plan_test_{}.db", id)
+    format!("/tmp/accounting_cli_saving_plan_test_{id}.db")
 }
 
 fn run(db: &str, args: &[&str]) -> String {
@@ -20,8 +20,7 @@ fn run(db: &str, args: &[&str]) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
         panic!(
-            "accounting-cli failed: db={} args={:?}\nstdout={}\nstderr={}",
-            db, args, stdout, stderr
+            "accounting-cli failed: db={db} args={args:?}\nstdout={stdout}\nstderr={stderr}"
         );
     }
     stdout.to_string()
@@ -70,8 +69,8 @@ fn setup_funded() -> String {
         ("Assets:E", "500"),
     ] {
         run(&db, &["account", "add", path]);
-        let neg = format!("Income:Salary:CNY:-{}", amount);
-        let pos = format!("{}:CNY:{}", path, amount);
+        let neg = format!("Income:Salary:CNY:-{amount}");
+        let pos = format!("{path}:CNY:{amount}");
         run(
             &db,
             &[
@@ -138,20 +137,20 @@ fn test_saving_plan_list_satisfaction_column() {
     );
 
     let out = run(&db, &["saving-plan", "list"]);
-    assert!(out.contains("Satisfaction"), "list 输出: {}", out);
+    assert!(out.contains("Satisfaction"), "list 输出: {out}");
     let line1 = out
         .lines()
         .find(|l| l.contains("计划1"))
         .expect("list 应包含计划1");
-    assert!(line1.contains("100"), "计划1 满足率应为 100: {}", line1);
+    assert!(line1.contains("100"), "计划1 满足率应为 100: {line1}");
     let line2 = out
         .lines()
         .find(|l| l.contains("计划2"))
         .expect("list 应包含计划2");
-    assert!(line2.contains("75"), "计划2 满足率应为 75: {}", line2);
+    assert!(line2.contains("75"), "计划2 满足率应为 75: {line2}");
     // 未归一化的 "100.00"/"75.00" 不应出现
-    assert!(!line1.contains("100.00"), "满足率应归一化: {}", line1);
-    assert!(!line2.contains("75.00"), "满足率应归一化: {}", line2);
+    assert!(!line1.contains("100.00"), "满足率应归一化: {line1}");
+    assert!(!line2.contains("75.00"), "满足率应归一化: {line2}");
 }
 
 #[test]
@@ -199,17 +198,15 @@ fn test_saving_plan_show_allocation_detail() {
     );
 
     let out = run(&db, &["saving-plan", "show", "计划1"]);
-    assert!(out.contains("满足率：100%"), "show 输出: {}", out);
-    assert!(out.contains("分配明细"), "show 输出: {}", out);
+    assert!(out.contains("满足率：100%"), "show 输出: {out}");
+    assert!(out.contains("分配明细"), "show 输出: {out}");
     assert!(
         out.contains("资产:A：余额 3000，被占用 0，本计划分配 2000"),
-        "show 输出: {}",
-        out
+        "show 输出: {out}"
     );
     assert!(
         out.contains("资产:B：余额 1000，被占用 0，本计划分配 1000"),
-        "show 输出: {}",
-        out
+        "show 输出: {out}"
     );
 }
 
@@ -278,16 +275,14 @@ fn test_saving_plan_show_allocation_classic_three_plans() {
     );
 
     let out = run(&db, &["saving-plan", "show", "计划3"]);
-    assert!(out.contains("满足率：75%"), "show 输出: {}", out);
+    assert!(out.contains("满足率：75%"), "show 输出: {out}");
     assert!(
         out.contains("资产:A：余额 3000，被占用 2000，本计划分配 1000"),
-        "show 输出: {}",
-        out
+        "show 输出: {out}"
     );
     assert!(
         out.contains("资产:E：余额 500，被占用 0，本计划分配 500"),
-        "show 输出: {}",
-        out
+        "show 输出: {out}"
     );
 }
 

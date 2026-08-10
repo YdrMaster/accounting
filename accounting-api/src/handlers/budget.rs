@@ -36,12 +36,12 @@ enum BudgetResponse {
 impl axum::response::IntoResponse for BudgetResponse {
     fn into_response(self) -> axum::response::Response {
         match self {
-            BudgetResponse::Created(json) => (StatusCode::CREATED, json).into_response(),
-            BudgetResponse::Ok(json) => (StatusCode::OK, json).into_response(),
-            BudgetResponse::NotFound(msg) => {
+            Self::Created(json) => (StatusCode::CREATED, json).into_response(),
+            Self::Ok(json) => (StatusCode::OK, json).into_response(),
+            Self::NotFound(msg) => {
                 (StatusCode::NOT_FOUND, Json(ApiError { error: msg })).into_response()
             }
-            BudgetResponse::BadRequest(msg) => {
+            Self::BadRequest(msg) => {
                 (StatusCode::BAD_REQUEST, Json(ApiError { error: msg })).into_response()
             }
         }
@@ -72,7 +72,7 @@ fn parse_limits(limits: &[BudgetLimitRequest]) -> Result<Vec<(AccountId, Decimal
     limits
         .iter()
         .map(|l| {
-            let amount = Decimal::from_str(&l.amount).map_err(|e| format!("无效金额: {}", e))?;
+            let amount = Decimal::from_str(&l.amount).map_err(|e| format!("无效金额: {e}"))?;
             Ok((AccountId(l.account_id), amount))
         })
         .collect()
@@ -284,7 +284,7 @@ fn budget_status_to_dto(
 fn parse_status_date(query: &BudgetStatusQuery) -> Result<chrono::NaiveDate, BudgetResponse> {
     match query.date {
         Some(ref d) => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d")
-            .map_err(|e| BudgetResponse::BadRequest(format!("无效日期: {}", e))),
+            .map_err(|e| BudgetResponse::BadRequest(format!("无效日期: {e}"))),
         None => Ok(chrono::Local::now().date_naive()),
     }
 }
@@ -422,8 +422,7 @@ mod tests {
         let state = setup().await;
         let food = food_id(&state).await;
         let body = format!(
-            r#"{{"name":"月度生活","commodity_id":1,"limits":[{{"account_id":{},"amount":"2000"}}]}}"#,
-            food
+            r#"{{"name":"月度生活","commodity_id":1,"limits":[{{"account_id":{food},"amount":"2000"}}]}}"#
         );
         let req: CreateBudgetRequest = serde_json::from_str(&body).unwrap();
         assert_eq!(req.period, None);
@@ -443,8 +442,7 @@ mod tests {
         let state = setup().await;
         let food = food_id(&state).await;
         let body = format!(
-            r#"{{"name":"月度生活","period":"monthly","commodity_id":1,"limits":[{{"account_id":{},"amount":"2000"}}]}}"#,
-            food
+            r#"{{"name":"月度生活","period":"monthly","commodity_id":1,"limits":[{{"account_id":{food},"amount":"2000"}}]}}"#
         );
         let req: CreateBudgetRequest = serde_json::from_str(&body).unwrap();
         let (status, json) =
@@ -460,8 +458,7 @@ mod tests {
         let state = setup().await;
         let food = food_id(&state).await;
         let body = format!(
-            r#"{{"name":"促销预算","deadline":"2026-09-30","commodity_id":1,"limits":[{{"account_id":{},"amount":"500"}}]}}"#,
-            food
+            r#"{{"name":"促销预算","deadline":"2026-09-30","commodity_id":1,"limits":[{{"account_id":{food},"amount":"500"}}]}}"#
         );
         let req: CreateBudgetRequest = serde_json::from_str(&body).unwrap();
         let (status, json) =
@@ -696,7 +693,7 @@ mod tests {
         let tx = Transaction {
             id: TransactionId(0),
             date_time: NaiveDateTime::parse_from_str(
-                &format!("{} 00:00:00", date),
+                &format!("{date} 00:00:00"),
                 "%Y-%m-%d %H:%M:%S",
             )
             .unwrap(),

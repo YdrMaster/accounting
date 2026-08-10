@@ -41,7 +41,7 @@ impl MemberCmd {
         lang: &str,
     ) -> Result<(), accounting::error::AccountingError> {
         match self {
-            MemberCmd::List(args) => {
+            Self::List(args) => {
                 let service = accounting_service::member_service::MemberService::new(db.clone());
                 let members = service.list(args.limit, args.offset).await?;
                 let ids: Vec<accounting::id::MemberId> = members.iter().map(|m| m.id).collect();
@@ -54,12 +54,12 @@ impl MemberCmd {
                     .collect();
                 print_vec(&rows, format);
             }
-            MemberCmd::Add(args) => {
+            Self::Add(args) => {
                 let service = accounting_service::member_service::MemberService::new(db);
                 let id = service.add(args.name, lang).await?;
                 print_line(&format!("{}", t!("member_created", id = id.0)), format);
             }
-            MemberCmd::Delete(args) => {
+            Self::Delete(args) => {
                 let id = resolve_member(&db, &args.name).await?;
                 let service = accounting_service::member_service::MemberService::new(db);
                 service.delete(id).await?;

@@ -36,7 +36,7 @@ impl ReportCmd {
         lang: &str,
     ) -> Result<(), AccountingError> {
         match self {
-            ReportCmd::Bs => {
+            Self::Bs => {
                 let service =
                     accounting_service::report::balance_sheet::BalanceSheetService::new(db.clone());
                 let bs = service.balance_sheet().await?;
@@ -70,7 +70,7 @@ impl ReportCmd {
                     print_vec(&rows, format);
                 }
             }
-            ReportCmd::CashFlow(args) => {
+            Self::CashFlow(args) => {
                 let today = chrono::Local::now().date_naive();
                 let date = match &args.date {
                     Some(d) => parse_date(d)?,

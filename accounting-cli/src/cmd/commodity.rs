@@ -29,7 +29,7 @@ impl CommodityCmd {
         lang: &str,
     ) -> Result<(), accounting::error::AccountingError> {
         match self {
-            CommodityCmd::List => {
+            Self::List => {
                 let service =
                     accounting_service::commodity_service::CommodityService::new(db.clone());
                 let commodities = service.list().await?;
@@ -44,7 +44,7 @@ impl CommodityCmd {
                     .collect();
                 print_vec(&rows, format);
             }
-            CommodityCmd::Add(args) => {
+            Self::Add(args) => {
                 let service = accounting_service::commodity_service::CommodityService::new(db);
                 let id = service
                     .add(args.symbol, args.name, args.precision, lang)

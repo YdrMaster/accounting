@@ -136,7 +136,7 @@ fn parse_period(s: &str) -> Result<FinancePeriod, String> {
         "weekly-sun" => Ok(FinancePeriod::WeeklyFromSunday),
         "monthly" => Ok(FinancePeriod::Monthly),
         "yearly" => Ok(FinancePeriod::Yearly),
-        _ => Err(format!("未知周期类型: {}", s)),
+        _ => Err(format!("未知周期类型: {s}")),
     }
 }
 
@@ -151,7 +151,7 @@ async fn cash_flow(
     let today = chrono::Local::now().date_naive();
     let date = match query.date {
         Some(d) => {
-            NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(|e| format!("Invalid date: {}", e))?
+            NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(|e| format!("Invalid date: {e}"))?
         }
         None => today,
     };
@@ -259,7 +259,7 @@ fn parse_chart_period(s: &str) -> Result<FinancePeriod, String> {
         "weekly" => Ok(FinancePeriod::WeeklyFromMonday),
         "monthly" => Ok(FinancePeriod::Monthly),
         "yearly" => Ok(FinancePeriod::Yearly),
-        _ => Err(format!("不支持的周期类型: {}", s)),
+        _ => Err(format!("不支持的周期类型: {s}")),
     }
 }
 

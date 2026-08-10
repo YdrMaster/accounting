@@ -52,7 +52,7 @@ async fn list_accounts(
         let root_name = root_display_name(a, &accounts_by_id, &names);
         let account_type = root_name
             .and_then(|n| AccountType::from_str(&n).ok())
-            .map(|ty| format!("{:?}", ty))
+            .map(|ty| format!("{ty:?}"))
             .unwrap_or_else(|| "Asset".to_string());
         dtos.push(AccountDto {
             id: a.id.0,
@@ -309,7 +309,7 @@ async fn set_parent(
         .await
         .ok()
         .and_then(|n| AccountType::from_str(&n).ok())
-        .map(|ty| format!("{:?}", ty))
+        .map(|ty| format!("{ty:?}"))
         .unwrap_or_else(|| "Asset".to_string());
     let owner_ids: Vec<i64> = db
         .account_get_owners(account.id)

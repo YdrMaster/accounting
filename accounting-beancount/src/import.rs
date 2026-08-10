@@ -125,7 +125,7 @@ pub async fn import(
             .find(|m| &m.name == member_name)
             .ok_or_else(|| BeancountError::ParseError {
                 line: 0,
-                message: format!("transaction references unknown member: {}", member_name),
+                message: format!("transaction references unknown member: {member_name}"),
             })?;
 
         let member_id = member_id_map
@@ -133,7 +133,7 @@ pub async fn import(
             .copied()
             .ok_or_else(|| BeancountError::ParseError {
                 line: 0,
-                message: format!("member {} has no internal_id mapping", member_name),
+                message: format!("member {member_name} has no internal_id mapping"),
             })?;
 
         let transaction = Transaction {

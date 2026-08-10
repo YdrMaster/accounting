@@ -340,7 +340,7 @@ async fn export_transactions(
             data.documents.push(BDocument {
                 date: tx.date_time.date(),
                 account: account_path,
-                filename: format!("attachments/{}", file_name),
+                filename: format!("attachments/{file_name}"),
                 transaction_internal_id: Some(tx.id.0),
             });
         }

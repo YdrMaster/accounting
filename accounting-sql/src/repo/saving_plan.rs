@@ -16,7 +16,7 @@ fn format_deadline(deadline: Option<NaiveDate>) -> Option<String> {
 
 fn parse_deadline(raw: &str) -> Result<NaiveDate, DbError> {
     NaiveDate::parse_from_str(raw, "%Y-%m-%d")
-        .map_err(|e| DbError::Database(format!("Invalid deadline value: {} ({})", raw, e)))
+        .map_err(|e| DbError::Database(format!("Invalid deadline value: {raw} ({e})")))
 }
 
 #[derive(FromRow)]
@@ -34,7 +34,7 @@ impl SavingPlanRow {
             .period
             .map(|v| {
                 FinancePeriod::from_i64(v).ok_or_else(|| {
-                    DbError::Database(format!("Invalid saving plan period value: {}", v))
+                    DbError::Database(format!("Invalid saving plan period value: {v}"))
                 })
             })
             .transpose()?;

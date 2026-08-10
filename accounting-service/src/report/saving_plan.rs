@@ -566,7 +566,7 @@ mod tests {
         let tx = Transaction {
             id: TransactionId(0),
             date_time: NaiveDateTime::parse_from_str(
-                &format!("{} 00:00:00", date),
+                &format!("{date} 00:00:00"),
                 "%Y-%m-%d %H:%M:%S",
             )
             .unwrap(),

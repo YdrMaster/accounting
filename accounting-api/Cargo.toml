@@ -19,3 +19,6 @@ rust-i18n.workspace = true
 axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "fs"] }
+
+[lints]
+workspace = true

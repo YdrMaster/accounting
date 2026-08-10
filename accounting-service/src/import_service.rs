@@ -32,11 +32,11 @@ pub enum ImportError {
 impl std::fmt::Display for ImportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ImportError::UnsupportedSource { source } => write!(f, "unsupported source: {source}"),
-            ImportError::ChannelNotFound { source } => write!(f, "channel not found: {source}"),
-            ImportError::CnyCommodityNotFound => write!(f, "default commodity CNY not found"),
-            ImportError::Parse { source } => write!(f, "parse error: {source}"),
-            ImportError::Database { source } => write!(f, "database error: {source}"),
+            Self::UnsupportedSource { source } => write!(f, "unsupported source: {source}"),
+            Self::ChannelNotFound { source } => write!(f, "channel not found: {source}"),
+            Self::CnyCommodityNotFound => write!(f, "default commodity CNY not found"),
+            Self::Parse { source } => write!(f, "parse error: {source}"),
+            Self::Database { source } => write!(f, "database error: {source}"),
         }
     }
 }
@@ -645,8 +645,7 @@ mod tests {
             names_en
                 .values()
                 .all(|names| names.iter().any(|n| n == "pending")),
-            "en 显示名应为 pending: {:?}",
-            names_en
+            "en 显示名应为 pending: {names_en:?}"
         );
         let names_zh = db
             .tag_names_by_transactions(&result.transaction_ids, "zh-CN")
@@ -656,8 +655,7 @@ mod tests {
             names_zh
                 .values()
                 .all(|names| names.iter().any(|n| n == "待处理")),
-            "zh-CN 显示名应为 待处理: {:?}",
-            names_zh
+            "zh-CN 显示名应为 待处理: {names_zh:?}"
         );
     }
 

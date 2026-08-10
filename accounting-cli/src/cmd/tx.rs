@@ -117,7 +117,7 @@ impl TxCmd {
         lang: &str,
     ) -> Result<(), AccountingError> {
         match self {
-            TxCmd::Add(args) => {
+            Self::Add(args) => {
                 // 解析参数并提交新交易
                 let (tx, postings, tag_ids, channel_path_nodes) = parse_tx_args(args, &db).await?;
                 let service = accounting_service::transaction_service::TransactionService::new(db);
@@ -126,7 +126,7 @@ impl TxCmd {
                     .await?;
                 print_line(&format!("{}", t!("tx_created", id = id.0)), format);
             }
-            TxCmd::List(args) => {
+            Self::List(args) => {
                 // 构建过滤条件并查询交易列表
                 let limit = args.limit;
                 let offset = args.offset;
@@ -155,7 +155,7 @@ impl TxCmd {
                     .collect();
                 print_vec(&rows, format);
             }
-            TxCmd::Show(args) => {
+            Self::Show(args) => {
                 // 查询单笔交易详情并打印交易与分录及链路
                 let service =
                     accounting_service::transaction_service::TransactionService::new(db.clone());
@@ -201,13 +201,13 @@ impl TxCmd {
                     None => print_line(&format!("{}", t!("tx_not_found", id = args.id)), format),
                 }
             }
-            TxCmd::Delete(args) => {
+            Self::Delete(args) => {
                 // 删除指定交易
                 let service = accounting_service::transaction_service::TransactionService::new(db);
                 service.delete(TransactionId(args.id)).await?;
                 print_line(&format!("{}", t!("tx_deleted", id = args.id)), format);
             }
-            TxCmd::Update(args) => {
+            Self::Update(args) => {
                 // 解析更新参数并执行全量替换
                 let id = args.id;
                 let (mut tx, postings, tag_ids, channel_path_nodes) =
@@ -219,7 +219,7 @@ impl TxCmd {
                     .await?;
                 print_line(&format!("{}", t!("tx_updated", id = id)), format);
             }
-            TxCmd::Reconcile(args) => {
+            Self::Reconcile(args) => {
                 // 对账标记：默认设为 verified，--unset 时回到 default
                 let status = if args.unset {
                     ChannelPathStatus::Default

@@ -39,7 +39,7 @@ pub fn create_app(
         .route("/api/health", axum::routing::get(|| async { "ok" }))
         .fallback_service(
             ServeDir::new(static_dir)
-                .fallback(ServeFile::new(format!("{}/index.html", static_dir))),
+                .fallback(ServeFile::new(format!("{static_dir}/index.html"))),
         )
         .layer(CorsLayer::permissive())
         .with_state(state)

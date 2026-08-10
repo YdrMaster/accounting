@@ -10,6 +10,11 @@ members = [
 ]
 resolver = "3"
 
+# 风格门控：内联命名格式参数、impl 块内用 Self
+[workspace.lints.clippy]
+uninlined_format_args = "deny"
+use_self = "deny"
+
 # 发布构建调优：性能优先、保留 panic 信息（panic/opt-level 保持默认 unwind/3）
 [profile.release]
 lto = "fat"

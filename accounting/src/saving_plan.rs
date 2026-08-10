@@ -57,17 +57,15 @@ pub enum SavingPlanError {
 impl std::fmt::Display for SavingPlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SavingPlanError::EmptyName => write!(f, "攒钱计划名称不能为空"),
-            SavingPlanError::EmptyAccounts => write!(f, "账户集合不能为空"),
-            SavingPlanError::AccountNotFound(id) => write!(f, "账户不存在: {}", id),
-            SavingPlanError::DuplicateAccount(id) => write!(f, "账户重复: {}", id),
-            SavingPlanError::InvalidAmount(amount) => write!(f, "目标金额无效: {}", amount),
-            SavingPlanError::CommodityNotFound(id) => write!(f, "币种不存在: {}", id),
-            SavingPlanError::PlanNotFound(id) => write!(f, "攒钱计划不存在: {}", id),
-            SavingPlanError::AccountNotAsset(id) => {
-                write!(f, "账户必须位于资产根账户子树内: {}", id)
-            }
-            SavingPlanError::DatabaseError(msg) => write!(f, "数据库错误: {}", msg),
+            Self::EmptyName => write!(f, "攒钱计划名称不能为空"),
+            Self::EmptyAccounts => write!(f, "账户集合不能为空"),
+            Self::AccountNotFound(id) => write!(f, "账户不存在: {id}"),
+            Self::DuplicateAccount(id) => write!(f, "账户重复: {id}"),
+            Self::InvalidAmount(amount) => write!(f, "目标金额无效: {amount}"),
+            Self::CommodityNotFound(id) => write!(f, "币种不存在: {id}"),
+            Self::PlanNotFound(id) => write!(f, "攒钱计划不存在: {id}"),
+            Self::AccountNotAsset(id) => write!(f, "账户必须位于资产根账户子树内: {id}"),
+            Self::DatabaseError(msg) => write!(f, "数据库错误: {msg}"),
         }
     }
 }

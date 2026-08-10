@@ -82,7 +82,7 @@ impl AccountCmd {
         lang: &str,
     ) -> Result<(), accounting::error::AccountingError> {
         match self {
-            AccountCmd::List(args) => {
+            Self::List(args) => {
                 let service = accounting_service::account_service::AccountService::new(db.clone());
                 let root_id = match args.r#type {
                     Some(ref path) => Some(resolve_account(&db, path).await?),
@@ -107,14 +107,14 @@ impl AccountCmd {
                 }
                 print_vec(&rows, format);
             }
-            AccountCmd::Add(args) => {
+            Self::Add(args) => {
                 let service = accounting_service::account_service::AccountService::new(db);
                 let id = service
                     .create_cascading(&args.path, lang, args.billing_day, args.repayment_day, &[])
                     .await?;
                 print_line(&format!("{}", t!("account_created", id = id.0)), format);
             }
-            AccountCmd::Show(args) => {
+            Self::Show(args) => {
                 let service = accounting_service::account_service::AccountService::new(db.clone());
                 let account_id = resolve_account(&db, &args.path).await?;
                 let account = service.get(account_id).await?;
@@ -141,7 +141,7 @@ impl AccountCmd {
                     ),
                 }
             }
-            AccountCmd::Close(args) => {
+            Self::Close(args) => {
                 let account_id = resolve_account(&db, &args.path).await?;
                 let service = accounting_service::account_service::AccountService::new(db);
                 service.close(account_id).await?;
@@ -150,7 +150,7 @@ impl AccountCmd {
                     format,
                 );
             }
-            AccountCmd::Reopen(args) => {
+            Self::Reopen(args) => {
                 let account_id = resolve_account(&db, &args.path).await?;
                 let service = accounting_service::account_service::AccountService::new(db);
                 service.reopen(account_id).await?;
@@ -159,7 +159,7 @@ impl AccountCmd {
                     format,
                 );
             }
-            AccountCmd::Balance(args) => {
+            Self::Balance(args) => {
                 let account_id = resolve_account(&db, &args.path).await?;
                 let symbols: std::collections::HashMap<_, _> = db
                     .commodity_list()
@@ -183,7 +183,7 @@ impl AccountCmd {
                     print_vec(&rows, format);
                 }
             }
-            AccountCmd::Rename(args) => {
+            Self::Rename(args) => {
                 let account_id = resolve_account(&db, &args.path).await?;
                 db.account_rename(account_id, &args.new_name, lang)
                     .await

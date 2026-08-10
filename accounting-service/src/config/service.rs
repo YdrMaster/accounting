@@ -316,7 +316,7 @@ impl ConfigService {
             let mut member_ids = Vec::new();
             for member_name in &owner.members {
                 let member_id = *member_id_cache.get(member_name).ok_or_else(|| {
-                    AccountingError::InvalidTransaction(format!("成员不存在: {}", member_name))
+                    AccountingError::InvalidTransaction(format!("成员不存在: {member_name}"))
                 })?;
                 member_ids.push(member_id);
             }
@@ -363,8 +363,7 @@ impl ConfigService {
                     .ok_or_else(|| AccountingError::AccountNotFound(account_path.clone()))?;
                 let amount = Decimal::from_str(amount_str).map_err(|e| {
                     AccountingError::InvalidTransaction(format!(
-                        "金额解析失败 {}: {}",
-                        amount_str, e
+                        "金额解析失败 {amount_str}: {e}"
                     ))
                 })?;
                 limits.push((account_id, amount));
@@ -402,8 +401,7 @@ fn parse_budget_period(s: &str) -> Result<FinancePeriod, AccountingError> {
         "Monthly" => Ok(FinancePeriod::Monthly),
         "Yearly" => Ok(FinancePeriod::Yearly),
         _ => Err(AccountingError::InvalidTransaction(format!(
-            "未知的预算周期: {}",
-            s
+            "未知的预算周期: {s}"
         ))),
     }
 }

@@ -41,8 +41,8 @@ pub struct TxQuery {
 }
 
 impl TxQuery {
-    fn from_pairs(pairs: Vec<(String, String)>) -> Result<TxQuery, String> {
-        let mut q = TxQuery {
+    fn from_pairs(pairs: Vec<(String, String)>) -> Result<Self, String> {
+        let mut q = Self {
             from: None,
             to: None,
             account: Vec::new(),
@@ -66,7 +66,7 @@ impl TxQuery {
                 "reimbursable" => {
                     q.reimbursable =
                         Some(value.parse::<bool>().map_err(|e| {
-                            format!("Invalid reimbursable value '{}': {}", value, e)
+                            format!("Invalid reimbursable value '{value}': {e}")
                         })?)
                 }
                 "limit" => q.limit = Some(parse_id(&key, &value)?),
@@ -81,7 +81,7 @@ impl TxQuery {
 fn parse_id(key: &str, value: &str) -> Result<i64, String> {
     value
         .parse::<i64>()
-        .map_err(|e| format!("Invalid {} value '{}': {}", key, value, e))
+        .map_err(|e| format!("Invalid {key} value '{value}': {e}"))
 }
 
 /// 解析日期时间字符串
@@ -175,13 +175,13 @@ async fn list_transactions(
 
     if let Some(from) = query.from {
         let date = NaiveDate::parse_from_str(&from, "%Y-%m-%d")
-            .map_err(|e| format!("Invalid from date: {}", e))?;
+            .map_err(|e| format!("Invalid from date: {e}"))?;
         filter.start_date = Some(date);
     }
 
     if let Some(to) = query.to {
         let date = NaiveDate::parse_from_str(&to, "%Y-%m-%d")
-            .map_err(|e| format!("Invalid to date: {}", e))?;
+            .map_err(|e| format!("Invalid to date: {e}"))?;
         filter.end_date = Some(date);
     }
 
@@ -199,7 +199,7 @@ async fn list_transactions(
         if let Some(tag) = tag {
             filter.tag_ids.push(tag.id);
         } else {
-            return Err(format!("Tag not found: {}", tag_name));
+            return Err(format!("Tag not found: {tag_name}"));
         }
     }
 
@@ -355,7 +355,7 @@ async fn build_postings(
             .ok_or_else(|| format!("Commodity not found: {}", posting_req.commodity))?;
 
         let amount =
-            Decimal::from_str(&posting_req.amount).map_err(|e| format!("Invalid amount: {}", e))?;
+            Decimal::from_str(&posting_req.amount).map_err(|e| format!("Invalid amount: {e}"))?;
 
         postings.push(Posting {
             id: PostingId(0),
@@ -407,7 +407,7 @@ fn build_channel_path_nodes(
             let status = n
                 .status
                 .parse()
-                .map_err(|e| format!("Invalid status: {}", e))?;
+                .map_err(|e| format!("Invalid status: {e}"))?;
             Ok::<_, String>(ChannelPathNode {
                 position: n.position,
                 channel_id: ChannelId(n.channel_id),

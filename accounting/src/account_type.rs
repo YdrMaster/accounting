@@ -14,21 +14,20 @@ pub enum AccountType {
 impl AccountType {
     /// 返回该类型账户的关闭条件说明
     pub fn close_conditions(self) -> String {
-        match self {
-            AccountType::Asset => rust_i18n::t!("close_condition_balance_zero").to_string(),
-            AccountType::Equity | AccountType::Income | AccountType::Expense => {
-                rust_i18n::t!("close_condition_unlimited").to_string()
-            }
-        }
+        let key = match self {
+            Self::Asset => "close_condition_balance_zero",
+            Self::Equity | Self::Income | Self::Expense => "close_condition_unlimited",
+        };
+        rust_i18n::t!(key).to_string()
     }
 
     /// 返回本地化的显示名称
     pub fn display_name(self) -> String {
         let key = match self {
-            AccountType::Asset => "account_type_asset",
-            AccountType::Equity => "account_type_equity",
-            AccountType::Income => "account_type_income",
-            AccountType::Expense => "account_type_expense",
+            Self::Asset => "account_type_asset",
+            Self::Equity => "account_type_equity",
+            Self::Income => "account_type_income",
+            Self::Expense => "account_type_expense",
         };
         rust_i18n::t!(key).to_string()
     }
@@ -43,7 +42,7 @@ impl std::str::FromStr for AccountType {
             "equity" | "权益" => Ok(Self::Equity),
             "income" | "收入" => Ok(Self::Income),
             "expense" | "expenses" | "支出" => Ok(Self::Expense),
-            _ => Err(format!("unknown account root name: {}", root_name)),
+            _ => Err(format!("unknown account root name: {root_name}")),
         }
     }
 }
