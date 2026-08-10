@@ -20,19 +20,23 @@ Assets:Cash           -678 CNY
 ### 分层架构
 
 ```plaintext
-accounting-cli      ← CLI 入口（clap + tokio + tabled）
-    ↓
-accounting-service  ← 业务层（Service + 事务编排）
-    ↓
-accounting-sql      ← 数据库层（Repository traits + SQLite）
-    ↓
-accounting          ← 核心库（纯数据模型 + 算法）
+accounting            ← 核心：模型 + 算法（零 IO）
+  ├─ accounting-auth    ← 独立认证岛（自有 auth.db，不依赖核心）
+  └─ accounting-sql     ← 持久层（Repository + SQLite）
+       ├─ accounting-beancount  ← 库分支：导入 / 导出
+       └─ accounting-service     ← 业务编排
+            ├─ accounting-cli     ← CLI 叶子
+            └─ accounting-api     ← HTTP 叶子
+                 └─ accounting-web  ← 托管静态前端
 ```
 
-- **核心库（accounting）**：定义数据模型（Account, Transaction, Posting 等）和纯算法（交易验证、余额计算、闭包表计算），零 IO，可独立测试
-- **数据库层（accounting-sql）**：Repository 模式 + SQLite 实现。Schema 严格关系化（11 张表），账户层次通过 **闭包表（closure table）** 维护，支持高效的后代聚合查询
-- **业务层（accounting-service）**：Service 封装事务边界。AccountService 处理账户创建/关闭/重开（含闭包表维护和级联操作），TransactionService 处理交易提交/更新/删除（含核心库验证）
+- **核心（accounting）**：定义数据模型（Account, Transaction, Posting 等）与纯算法（交易验证、余额计算、账户树后代聚合），零 IO，可独立测试
+- **持久层（accounting-sql）**：Repository 模式 + SQLite 实现。Schema 严格关系化（11 张表），账户层次通过 **闭包表 `account_ancestors`** 维护，支持高效后代聚合查询；管理 10 个内置系统账户种子
+- **业务编排（accounting-service）**：Service 封装事务边界。AccountService 处理账户创建/关闭/重开（含账户树闭包维护与级联操作），TransactionService 处理交易提交/更新/删除（含核心库验证）
+- **导入 / 导出（accounting-beancount）**：库侧分支，依赖 core + sql，由 cli 与 api 调用，做 Beancount 文本互转
 - **CLI（accounting-cli）**：面向用户的命令行接口，支持 `--format table|json` 两种输出
+- **HTTP（accounting-api）**：axum 服务入口，组合 service + sql + auth，并托管 web 静态产物
+- **认证（accounting-auth）**：独立子系统，自有 `auth.db`（不依赖 core / sql），对 api 提供 `require_auth`
 
 ### 关键设计决策
 
@@ -91,7 +95,7 @@ podman run -d --name accounting \
 ├── accounting-beancount/# Beancount 导入/导出互转
 ├── accounting-web/      # Web 前端（Vue 3）
 ├── spec/                # 分层设计文档（core / sql / service）
-├── openspec/            # 活规格 + 归档变更（规格驱动开发）
+├── openspec/            # 行为规格 + 设计决策（规格驱动开发）
 └── docs/                # 项目文档（部署、缺口、参考文章）
 ```
 
@@ -110,7 +114,7 @@ podman run -d --name accounting \
 
 项目文档：[`docs/deployment.md`](docs/deployment.md)（容器部署）、[`docs/gaps.md`](docs/gaps.md)（已知缺口与待办）、[`docs/articles/`](docs/articles/)（参考文章）。
 
-规格与变更历史见 [`openspec/`](openspec/)——活规格置于 `openspec/specs/`，已落地变更的决策来源置于 `openspec/changes/archive/`。本项目用 `openspec` CLI（见 `.claude/skills/openspec-*`）进行规格驱动开发：`openspec list`、`openspec new change`、`openspec validate`、`openspec archive`。
+规格与设计决策见 [`openspec/`](openspec/)——行为规格置于 `openspec/specs/`，设计决策置于 `openspec/changes/archive/`。本项目用 `openspec` CLI（见 `.claude/skills/openspec-*`）进行规格驱动开发：`openspec list`、`openspec new change`、`openspec validate`、`openspec archive`。
 
 ## 快速开始
 

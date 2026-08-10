@@ -24,8 +24,8 @@ accounting my.db beancount import ./output/transactions.beancount
 
 ## 相关规格
 
-活规格见 `beancount-export`、`beancount-import`；导入导出能力的决策来源见归档 `openspec/changes/archive/2026-06-27-beancount-import-export/`。
+规格见 `beancount-export`、`beancount-import`；导入导出能力的设计决策见 `openspec/changes/archive/2026-06-27-beancount-import-export/`。
 
 ## 分层上下文
 
-见根 [`README.md`](../README.md) 的"各 crate 文档"。
+见根 [`README.md`](../README.md) 的"分层架构"。库侧分支，依赖 `accounting` + `accounting-sql`，由 `accounting-cli` 与 `accounting-api` 调用——与 `accounting-service` 同级，非其下属。

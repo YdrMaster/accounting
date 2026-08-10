@@ -1,6 +1,6 @@
 # accounting-web
 
-[`accounting-api`](../accounting-api) 的 Web 前端：基于 Vue 3.6 + Vite + TypeScript 的单页应用（SPA）。
+[`accounting-api`](../accounting-api) 的 Web 前端：基于 Vue 3.6 + Vite + TypeScript 的单页应用（SPA）。构建产物由 `accounting-api` 经 `--static-dir` 托管为静态资源。
 
 ## 技术栈
 

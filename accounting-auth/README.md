@@ -27,8 +27,8 @@ auth-admin --db auth.db user list
 
 ## 设计文档
 
-决策来源（单 crate 垂直切片的理由、TOTP 参数、安全决策、限流、session 策略、D1–D8、Risks / Trade-offs）见归档 [`add-user-auth`](../openspec/changes/archive/2026-08-08-add-user-auth/design.md)。活规格见 `user-auth`、`web-auth-ui`。
+设计决策（单 crate 垂直切片的理由、TOTP 参数、安全决策、限流、session 策略、D1–D8、Risks / Trade-offs）见 [`add-user-auth`](../openspec/changes/archive/2026-08-08-add-user-auth/design.md)。规格见 `user-auth`、`web-auth-ui`。
 
 ## 分层上下文
 
-见根 [`README.md`](../README.md) 的"认证（公网部署）"与"各 crate 文档"。
+见根 [`README.md`](../README.md) 的"认证（公网部署）"。独立认证子系统，不依赖 `accounting` / `accounting-sql`，自有 `auth.db`，对 `accounting-api` 提供 `require_auth`。

@@ -1,6 +1,6 @@
 # accounting-cli
 
-基于 clap + tokio 的命令行记账工具。
+命令行记账工具：clap + tokio 入口。叶子 crate，组合 `accounting-service`（业务编排）、`accounting-sql`（数据层）、`accounting-beancount`（导入导出）。
 
 ## 基本用法
 
@@ -79,3 +79,7 @@ accounting my.db beancount import ./output/transactions.beancount
 ## 完整文档
 
 详细命令说明和操作示例请见 [`docs/`](docs/README.md)。
+
+## 分层上下文
+
+见根 [`README.md`](../README.md) 的"分层架构"。本 crate 为叶子，依赖 `accounting-service` + `accounting-sql` + `accounting-beancount`。

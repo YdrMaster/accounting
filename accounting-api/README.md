@@ -21,11 +21,11 @@ axum HTTP 服务入口。位于分层架构顶层，组合 [`accounting-service`
 
 ## 部署
 
-公网部署需经 HTTPS（session cookie 带 `Secure`）。容器部署见 [`../docs/deployment.md`](../docs/deployment.md)（活规格 `container-deployment`）。
+公网部署需经 HTTPS（session cookie 带 `Secure`）。容器部署见 [`../docs/deployment.md`](../docs/deployment.md)（见 `container-deployment`）。
 
 ## 相关规格
 
-- 认证：活规格 `user-auth`、`web-auth-ui`；决策来源见归档 [`add-user-auth`](../openspec/changes/archive/2026-08-08-add-user-auth/design.md)。
+- 认证：规格 `user-auth`、`web-auth-ui`；设计决策见 [`add-user-auth`](../openspec/changes/archive/2026-08-08-add-user-auth/design.md)。
 - 业务 API：`transaction-api`、`budget-api`、`saving-plan-api`、`member-api`、`tag-api`、`channel-api`、`mapping-api`、`transaction-summary-api` 等。
 - 容器与数据刷新：`container-deployment`、`data-refresh`。
 
