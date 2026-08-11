@@ -19,9 +19,7 @@ fn run(db: &str, args: &[&str]) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
-        panic!(
-            "accounting-cli failed: db={db} args={args:?}\nstdout={stdout}\nstderr={stderr}"
-        );
+        panic!("accounting-cli failed: db={db} args={args:?}\nstdout={stdout}\nstderr={stderr}");
     }
     stdout.to_string()
 }
@@ -137,7 +135,7 @@ fn test_saving_plan_list_satisfaction_column() {
     );
 
     let out = run(&db, &["saving-plan", "list"]);
-    assert!(out.contains("Satisfaction"), "list 输出: {out}");
+    assert!(out.contains("满足率"), "list 输出: {out}");
     let line1 = out
         .lines()
         .find(|l| l.contains("计划1"))
@@ -344,7 +342,7 @@ fn test_saving_plan_create_recurring() {
 
     let out = run(&db, &["saving-plan", "list"]);
     assert!(out.contains("房租备用金"));
-    assert!(out.contains("Monthly"));
+    assert!(out.contains("每月"));
 }
 
 #[test]

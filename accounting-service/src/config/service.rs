@@ -3,6 +3,7 @@ use accounting::finance_period::FinancePeriod;
 use accounting::id::{AccountId, ChannelId, CommodityId, MemberId};
 use accounting_sql::SqliteDatabase;
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 
@@ -210,7 +211,10 @@ impl ConfigService {
                 }
                 YamlBudget {
                     name: budget_names.get(&budget.id).cloned().unwrap_or_default(),
-                    period: budget.period.map(|p| p.to_string()).unwrap_or_default(),
+                    period: budget
+                        .period
+                        .map(|p| p.config_key().to_string())
+                        .unwrap_or_default(),
                     commodity,
                     limits: limit_map,
                 }
@@ -235,7 +239,7 @@ impl ConfigService {
             .as_ref()
             .map(|s| s.language.clone())
             .ok_or_else(|| {
-                AccountingError::InvalidTransaction("导入文件缺少 settings.language".to_string())
+                AccountingError::InvalidTransaction(t!("config_err_missing_language").to_string())
             })?;
 
         // 缓存：自然键 -> ID
@@ -316,7 +320,9 @@ impl ConfigService {
             let mut member_ids = Vec::new();
             for member_name in &owner.members {
                 let member_id = *member_id_cache.get(member_name).ok_or_else(|| {
-                    AccountingError::InvalidTransaction(format!("成员不存在: {member_name}"))
+                    AccountingError::InvalidTransaction(
+                        t!("config_err_member_not_found", name = member_name).to_string(),
+                    )
                 })?;
                 member_ids.push(member_id);
             }
@@ -328,10 +334,14 @@ impl ConfigService {
         // 7. account mappings
         for mapping in &data.account_mappings {
             let member_id = *member_id_cache.get(&mapping.member).ok_or_else(|| {
-                AccountingError::InvalidTransaction(format!("成员不存在: {}", mapping.member))
+                AccountingError::InvalidTransaction(
+                    t!("config_err_member_not_found", name = mapping.member).to_string(),
+                )
             })?;
             let channel_id = *channel_id_cache.get(&mapping.channel).ok_or_else(|| {
-                AccountingError::InvalidTransaction(format!("渠道不存在: {}", mapping.channel))
+                AccountingError::InvalidTransaction(
+                    t!("config_err_channel_not_found", name = mapping.channel).to_string(),
+                )
             })?;
 
             for (category, account_path) in &mapping.mappings {
@@ -362,9 +372,14 @@ impl ConfigService {
                     .get(account_path)
                     .ok_or_else(|| AccountingError::AccountNotFound(account_path.clone()))?;
                 let amount = Decimal::from_str(amount_str).map_err(|e| {
-                    AccountingError::InvalidTransaction(format!(
-                        "金额解析失败 {amount_str}: {e}"
-                    ))
+                    AccountingError::InvalidTransaction(
+                        t!(
+                            "config_err_amount_parse_failed",
+                            amount = amount_str,
+                            error = e
+                        )
+                        .to_string(),
+                    )
                 })?;
                 limits.push((account_id, amount));
             }
@@ -395,14 +410,14 @@ impl ConfigService {
 
 fn parse_budget_period(s: &str) -> Result<FinancePeriod, AccountingError> {
     match s {
-        "Daily" => Ok(FinancePeriod::Daily),
-        "WeeklyFromSunday" => Ok(FinancePeriod::WeeklyFromSunday),
-        "WeeklyFromMonday" => Ok(FinancePeriod::WeeklyFromMonday),
-        "Monthly" => Ok(FinancePeriod::Monthly),
-        "Yearly" => Ok(FinancePeriod::Yearly),
-        _ => Err(AccountingError::InvalidTransaction(format!(
-            "未知的预算周期: {s}"
-        ))),
+        "daily" | "Daily" => Ok(FinancePeriod::Daily),
+        "weekly_sun" | "WeeklyFromSunday" => Ok(FinancePeriod::WeeklyFromSunday),
+        "weekly_mon" | "WeeklyFromMonday" => Ok(FinancePeriod::WeeklyFromMonday),
+        "monthly" | "Monthly" => Ok(FinancePeriod::Monthly),
+        "yearly" | "Yearly" => Ok(FinancePeriod::Yearly),
+        _ => Err(AccountingError::InvalidTransaction(
+            t!("config_err_unknown_budget_period", period = s).to_string(),
+        )),
     }
 }
 
@@ -414,6 +429,32 @@ mod tests {
     use accounting::id::CommodityId;
     use rust_decimal::Decimal;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn parse_budget_period_accepts_snake_and_legacy_pascalcase() {
+        // 新格式：snake-case 机器键
+        assert_eq!(
+            parse_budget_period("monthly").unwrap(),
+            FinancePeriod::Monthly
+        );
+        assert_eq!(
+            parse_budget_period("weekly_sun").unwrap(),
+            FinancePeriod::WeeklyFromSunday
+        );
+        assert_eq!(parse_budget_period("daily").unwrap(), FinancePeriod::Daily);
+        // 向后兼容：旧配置文件的 PascalCase 仍可读
+        assert_eq!(
+            parse_budget_period("Monthly").unwrap(),
+            FinancePeriod::Monthly
+        );
+        assert_eq!(
+            parse_budget_period("WeeklyFromSunday").unwrap(),
+            FinancePeriod::WeeklyFromSunday
+        );
+        assert_eq!(parse_budget_period("Daily").unwrap(), FinancePeriod::Daily);
+        // 未知值报错（不再穿透为某变体）
+        assert!(parse_budget_period("hourly").is_err());
+    }
 
     async fn setup_db() -> SqliteDatabase {
         let db = SqliteDatabase::open_in_memory().await.unwrap();

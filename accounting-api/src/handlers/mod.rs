@@ -13,6 +13,7 @@ pub mod transaction;
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
+use rust_i18n::t;
 use std::convert::Infallible;
 
 /// 请求语言：取自 query 参数 `?lang=`（如 `?lang=zh-CN`），缺省 `en`。
@@ -37,6 +38,14 @@ where
             .to_string();
         Ok(Self(lang))
     }
+}
+
+/// 将底层 DB 错误映射为通用本地化文案，不向前端泄露原始 sqlite 文本。
+///
+/// 走进程 locale（与 `AccountingError::Display` 一致）。DB 错误属罕见运行时故障，
+/// 原始细节对终端用户无意义，故取通用文案。
+pub(crate) fn map_db_error(_e: &accounting_sql::error::DbError) -> String {
+    t!("err_database").to_string()
 }
 
 #[cfg(test)]

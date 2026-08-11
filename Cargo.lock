@@ -43,6 +43,7 @@ dependencies = [
  "clap",
  "hmac 0.12.1",
  "rand 0.8.7",
+ "rust-i18n",
  "serde",
  "serde_json",
  "sha1 0.10.7",

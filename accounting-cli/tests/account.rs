@@ -19,9 +19,7 @@ fn run(db: &str, args: &[&str], lang: &str) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
-        panic!(
-            "accounting-cli failed: db={db} args={args:?}\nstdout={stdout}\nstderr={stderr}"
-        );
+        panic!("accounting-cli failed: db={db} args={args:?}\nstdout={stdout}\nstderr={stderr}");
     }
     stdout.to_string()
 }

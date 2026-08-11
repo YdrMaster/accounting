@@ -6,6 +6,7 @@ use crate::dto::{
     period_to_string,
 };
 use crate::handlers::{Lang, member::AppState};
+use accounting::budget::BudgetError;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, BudgetId, CommodityId};
 use accounting_service::report::budget::BudgetService;
@@ -16,6 +17,7 @@ use axum::{
     routing::get,
 };
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -50,8 +52,8 @@ impl axum::response::IntoResponse for BudgetResponse {
 
 fn map_error(e: AccountingError) -> BudgetResponse {
     let msg = e.to_string();
-    // 仅「预算表不存在」映射 404；账户/币种不存在等校验失败均为 400
-    if msg.contains("预算表不存在") {
+    // 状态码按错误变体判定，不依赖本地化字面量
+    if matches!(e, AccountingError::Budget(BudgetError::BudgetNotFound(_))) {
         BudgetResponse::NotFound(msg)
     } else {
         BudgetResponse::BadRequest(msg)
@@ -68,11 +70,15 @@ fn budget_to_dto(b: &accounting::budget::Budget, name: String) -> BudgetDto {
     }
 }
 
-fn parse_limits(limits: &[BudgetLimitRequest]) -> Result<Vec<(AccountId, Decimal)>, String> {
+fn parse_limits(
+    limits: &[BudgetLimitRequest],
+    lang: &str,
+) -> Result<Vec<(AccountId, Decimal)>, String> {
     limits
         .iter()
         .map(|l| {
-            let amount = Decimal::from_str(&l.amount).map_err(|e| format!("无效金额: {e}"))?;
+            let amount = Decimal::from_str(&l.amount)
+                .map_err(|e| t!("err_invalid_amount", locale = lang, error = e).to_string())?;
             Ok((AccountId(l.account_id), amount))
         })
         .collect()
@@ -123,15 +129,15 @@ async fn create_budget(
     Lang(lang): Lang,
     Json(req): Json<CreateBudgetRequest>,
 ) -> BudgetResponse {
-    let period = match parse_period_opt(req.period.as_deref()) {
+    let period = match parse_period_opt(req.period.as_deref(), &lang) {
         Ok(p) => p,
         Err(e) => return BudgetResponse::BadRequest(e),
     };
-    let deadline = match parse_deadline(req.deadline.as_deref()) {
+    let deadline = match parse_deadline(req.deadline.as_deref(), &lang) {
         Ok(d) => d,
         Err(e) => return BudgetResponse::BadRequest(e),
     };
-    let limits = match parse_limits(&req.limits) {
+    let limits = match parse_limits(&req.limits, &lang) {
         Ok(l) => l,
         Err(e) => return BudgetResponse::BadRequest(e),
     };
@@ -202,15 +208,15 @@ async fn update_budget(
     Path(id): Path<i64>,
     Json(req): Json<UpdateBudgetRequest>,
 ) -> BudgetResponse {
-    let period = match parse_period_opt(req.period.as_deref()) {
+    let period = match parse_period_opt(req.period.as_deref(), &lang) {
         Ok(p) => p,
         Err(e) => return BudgetResponse::BadRequest(e),
     };
-    let deadline = match parse_deadline(req.deadline.as_deref()) {
+    let deadline = match parse_deadline(req.deadline.as_deref(), &lang) {
         Ok(d) => d,
         Err(e) => return BudgetResponse::BadRequest(e),
     };
-    let limits = match parse_limits(&req.limits) {
+    let limits = match parse_limits(&req.limits, &lang) {
         Ok(l) => l,
         Err(e) => return BudgetResponse::BadRequest(e),
     };
@@ -281,10 +287,14 @@ fn budget_status_to_dto(
 }
 
 /// 解析状态查询的 date 参数（缺省当天；格式无效返回 400）
-fn parse_status_date(query: &BudgetStatusQuery) -> Result<chrono::NaiveDate, BudgetResponse> {
+fn parse_status_date(
+    query: &BudgetStatusQuery,
+    lang: &str,
+) -> Result<chrono::NaiveDate, BudgetResponse> {
     match query.date {
-        Some(ref d) => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d")
-            .map_err(|e| BudgetResponse::BadRequest(format!("无效日期: {e}"))),
+        Some(ref d) => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|e| {
+            BudgetResponse::BadRequest(t!("err_invalid_date", locale = lang, error = e).to_string())
+        }),
         None => Ok(chrono::Local::now().date_naive()),
     }
 }
@@ -296,7 +306,7 @@ async fn get_budget_status(
     Path(id): Path<i64>,
     Query(query): Query<BudgetStatusQuery>,
 ) -> BudgetResponse {
-    let date = match parse_status_date(&query) {
+    let date = match parse_status_date(&query, &lang) {
         Ok(d) => d,
         Err(r) => return r,
     };
@@ -324,7 +334,7 @@ async fn list_budget_statuses(
     Lang(lang): Lang,
     Query(query): Query<BudgetStatusQuery>,
 ) -> BudgetResponse {
-    let date = match parse_status_date(&query) {
+    let date = match parse_status_date(&query, &lang) {
         Ok(d) => d,
         Err(r) => return r,
     };
@@ -487,7 +497,7 @@ mod tests {
             respond(create_budget(State(state.clone()), Lang("en".to_string()), Json(req)).await)
                 .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(json["error"].as_str().unwrap().contains("无效日期"));
+        assert!(json["error"].as_str().unwrap().contains("Invalid date"));
     }
 
     #[tokio::test]
@@ -518,7 +528,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(json["error"].as_str().unwrap().contains("不存在"));
+        assert!(json["error"].as_str().unwrap().contains("not found"));
     }
 
     #[tokio::test]
@@ -526,7 +536,7 @@ mod tests {
         let state = setup().await;
         let (status, json) = respond(delete_budget(State(state.clone()), Path(999)).await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(json["error"].as_str().unwrap().contains("预算表不存在"));
+        assert!(json["error"].as_str().unwrap().contains("not found"));
     }
 
     /// 创建一个月度预算并返回其 ID
@@ -809,7 +819,7 @@ mod tests {
         let state = setup().await;
         let (status, json) = statuses_json(&state, Some("invalid")).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(json["error"].as_str().unwrap().contains("无效日期"));
+        assert!(json["error"].as_str().unwrap().contains("Invalid date"));
     }
 
     #[tokio::test]

@@ -31,12 +31,13 @@ pub enum ImportError {
 
 impl std::fmt::Display for ImportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // 稳定的非本地化变体标识（两边界 CLI/API 均按变体映射 t!，Display 仅 Debug 用）
         match self {
-            Self::UnsupportedSource { source } => write!(f, "unsupported source: {source}"),
-            Self::ChannelNotFound { source } => write!(f, "channel not found: {source}"),
-            Self::CnyCommodityNotFound => write!(f, "default commodity CNY not found"),
-            Self::Parse { source } => write!(f, "parse error: {source}"),
-            Self::Database { source } => write!(f, "database error: {source}"),
+            Self::UnsupportedSource { source } => write!(f, "import_unsupported_source: {source}"),
+            Self::ChannelNotFound { source } => write!(f, "import_channel_not_found: {source}"),
+            Self::CnyCommodityNotFound => write!(f, "import_cny_commodity_not_found"),
+            Self::Parse { source } => write!(f, "import_parse_failed: {source}"),
+            Self::Database { source } => write!(f, "import_database_error: {source}"),
         }
     }
 }
@@ -177,16 +178,12 @@ impl ImportService {
                     let error = if let Some(row) = entry.row {
                         AdaptError::Row {
                             row,
-                            detail: crate::import::RowErrorDetail::Other {
-                                message: e.to_string(),
-                            },
+                            detail: crate::import::RowErrorDetail::Other { error: e },
                         }
                     } else {
                         AdaptError::Row {
                             row: 0,
-                            detail: crate::import::RowErrorDetail::Other {
-                                message: e.to_string(),
-                            },
+                            detail: crate::import::RowErrorDetail::Other { error: e },
                         }
                     };
                     result.errors.push(error);

@@ -10,6 +10,7 @@
 //! （决策见上述归档 `design.md` 的 Risks / Trade-offs）。
 
 pub mod api;
+rust_i18n::i18n!("locales", fallback = "en");
 pub mod db;
 pub mod error;
 pub mod service;

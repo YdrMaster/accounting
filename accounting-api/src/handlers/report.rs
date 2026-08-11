@@ -16,6 +16,7 @@ use axum::{
 };
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -129,14 +130,14 @@ fn into_entry((cid, amount): (CommodityId, Decimal)) -> BalanceEntry {
     }
 }
 
-fn parse_period(s: &str) -> Result<FinancePeriod, String> {
+fn parse_period(s: &str, lang: &str) -> Result<FinancePeriod, String> {
     match s.to_lowercase().as_str() {
         "daily" => Ok(FinancePeriod::Daily),
         "weekly" | "weekly-mon" => Ok(FinancePeriod::WeeklyFromMonday),
         "weekly-sun" => Ok(FinancePeriod::WeeklyFromSunday),
         "monthly" => Ok(FinancePeriod::Monthly),
         "yearly" => Ok(FinancePeriod::Yearly),
-        _ => Err(format!("未知周期类型: {s}")),
+        _ => Err(t!("err_unknown_period_type", locale = lang, period = s).to_string()),
     }
 }
 
@@ -150,13 +151,12 @@ async fn cash_flow(
 
     let today = chrono::Local::now().date_naive();
     let date = match query.date {
-        Some(d) => {
-            NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(|e| format!("Invalid date: {e}"))?
-        }
+        Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d")
+            .map_err(|e| t!("err_invalid_date", locale = lang.as_str(), error = e).to_string())?,
         None => today,
     };
     let period = match query.period {
-        Some(p) => parse_period(&p)?,
+        Some(p) => parse_period(&p, &lang)?,
         None => FinancePeriod::Monthly,
     };
     let commodity_id = CommodityId(query.commodity.unwrap_or(1));
@@ -220,12 +220,13 @@ struct DailySummaryItem {
 /// 获取按天收支汇总（仅返回有交易的日期，按日期升序）
 async fn daily_summary(
     State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
     Query(query): Query<DailySummaryQuery>,
 ) -> Result<Json<Vec<DailySummaryItem>>, (StatusCode, String)> {
     let bad_request = || {
         (
             StatusCode::BAD_REQUEST,
-            "参数 from/to 必填，格式为 YYYY-MM-DD".to_string(),
+            t!("err_daily_summary_params_required", locale = lang.as_str()).to_string(),
         )
     };
     let (Some(from), Some(to)) = (query.from, query.to) else {
@@ -254,12 +255,12 @@ async fn daily_summary(
 }
 
 /// 图表周期解析：仅支持 weekly / monthly / yearly（weekly 按周一起始）
-fn parse_chart_period(s: &str) -> Result<FinancePeriod, String> {
+fn parse_chart_period(s: &str, lang: &str) -> Result<FinancePeriod, String> {
     match s.to_lowercase().as_str() {
         "weekly" => Ok(FinancePeriod::WeeklyFromMonday),
         "monthly" => Ok(FinancePeriod::Monthly),
         "yearly" => Ok(FinancePeriod::Yearly),
-        _ => Err(format!("不支持的周期类型: {s}")),
+        _ => Err(t!("err_unsupported_chart_period", locale = lang, period = s).to_string()),
     }
 }
 
@@ -296,12 +297,13 @@ struct NetWorthTrendPointDto {
 /// 获取资产趋势（全量历史，按周/月/年分桶）
 async fn net_worth_trend(
     State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
     Query(query): Query<NetWorthTrendQuery>,
 ) -> Result<Json<NetWorthTrendResponse>, (StatusCode, String)> {
     let bad_request = |msg: String| (StatusCode::BAD_REQUEST, msg);
 
     let period = match query.period {
-        Some(p) => parse_chart_period(&p).map_err(bad_request)?,
+        Some(p) => parse_chart_period(&p, &lang).map_err(bad_request)?,
         None => FinancePeriod::Monthly,
     };
     let commodity_id = CommodityId(query.commodity.unwrap_or(1));

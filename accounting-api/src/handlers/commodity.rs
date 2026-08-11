@@ -12,12 +12,15 @@ async fn list_commodities(
     Lang(lang): Lang,
 ) -> Result<Json<Vec<CommodityDto>>, String> {
     let db = state.db();
-    let commodities = db.commodity_list().await.map_err(|e| e.to_string())?;
+    let commodities = db
+        .commodity_list()
+        .await
+        .map_err(|e| crate::handlers::map_db_error(&e))?;
     let ids: Vec<CommodityId> = commodities.iter().map(|c| c.id).collect();
     let names = db
         .commodity_display_names(&ids, &lang)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::handlers::map_db_error(&e))?;
     let dtos: Vec<CommodityDto> = commodities
         .iter()
         .map(|c| CommodityDto {

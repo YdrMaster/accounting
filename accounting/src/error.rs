@@ -23,6 +23,10 @@ pub enum AccountingError {
     DbAlreadyExists,
     /// 其他未知错误
     Unknown(String),
+    /// 预算校验错误（结构化携带，边界按变体本地化，不再经字符串穿透）
+    Budget(crate::budget::BudgetError),
+    /// 攒钱计划校验错误（结构化携带，边界按变体本地化，不再经字符串穿透）
+    SavingPlan(crate::saving_plan::SavingPlanError),
 }
 
 impl std::fmt::Display for AccountingError {
@@ -58,6 +62,8 @@ impl std::fmt::Display for AccountingError {
             Self::Unknown(msg) => {
                 write!(f, "{}", t!("unknown_error", msg = msg))
             }
+            Self::Budget(b) => write!(f, "{}", b.localized()),
+            Self::SavingPlan(s) => write!(f, "{}", s.localized()),
         }
     }
 }

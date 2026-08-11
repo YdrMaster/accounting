@@ -75,7 +75,7 @@ impl BudgetService {
         let account_types = super::load_account_types(&self.db).await?;
         let commodity_ids = super::load_commodity_ids(&self.db).await?;
         validate_budget(name, limits, &accounts, &account_types, &commodity_ids)
-            .map_err(|e| AccountingError::InvalidTransaction(e.to_string()))?;
+            .map_err(AccountingError::Budget)?;
 
         if !commodity_ids.contains(&commodity_id) {
             return Err(AccountingError::CommodityNotFound(commodity_id.to_string()));
@@ -107,16 +107,16 @@ impl BudgetService {
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         if existing.is_none() {
-            return Err(AccountingError::InvalidTransaction(
-                BudgetError::BudgetNotFound(budget_id).to_string(),
-            ));
+            return Err(AccountingError::Budget(BudgetError::BudgetNotFound(
+                budget_id,
+            )));
         }
 
         let accounts = super::load_accounts(&self.db).await?;
         let account_types = super::load_account_types(&self.db).await?;
         let commodity_ids = super::load_commodity_ids(&self.db).await?;
         validate_budget(name, limits, &accounts, &account_types, &commodity_ids)
-            .map_err(|e| AccountingError::InvalidTransaction(e.to_string()))?;
+            .map_err(AccountingError::Budget)?;
 
         self.db
             .budget_update(
@@ -166,11 +166,9 @@ impl BudgetService {
             .budget_get(budget_id)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| {
-                AccountingError::InvalidTransaction(
-                    BudgetError::BudgetNotFound(budget_id).to_string(),
-                )
-            })?;
+            .ok_or(AccountingError::Budget(BudgetError::BudgetNotFound(
+                budget_id,
+            )))?;
 
         let limits = self
             .db
@@ -452,10 +450,10 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains(&BudgetError::AccountNotExpense(assets_id).to_string())
-        );
+        assert!(matches!(
+            err,
+            AccountingError::Budget(BudgetError::AccountNotExpense(_))
+        ));
         assert!(service.list_budgets().await.unwrap().is_empty());
     }
 

@@ -176,7 +176,10 @@ async fn login_failures_are_indistinguishable() {
     let (s2, _, b2) = login(&app, "nobody", "wrong-pw").await;
     assert_eq!(s1, StatusCode::UNAUTHORIZED);
     assert_eq!(s2, StatusCode::UNAUTHORIZED);
-    assert_eq!(b1, serde_json::json!({"error": "用户名或密码错误"}));
+    assert_eq!(
+        b1,
+        serde_json::json!({"error": "Invalid username or password", "code": "bad_credentials"})
+    );
     assert_eq!(b1, b2, "用户不存在与密码错误的响应必须完全一致");
 }
 
@@ -527,7 +530,7 @@ async fn rate_limit_triggers_429_with_retry_after() {
         headers.get("retry-after").is_some(),
         "429 必须带 Retry-After"
     );
-    assert_eq!(body["error"], "尝试过于频繁，请稍后再试");
+    assert_eq!(body["error"], "Too many attempts, please try again later");
 
     // 换用户名不受该键的频控影响
     let (status, _, _) = login(&app, "someone-else", "bad-pw").await;

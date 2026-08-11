@@ -5,8 +5,8 @@ use crate::dto::{
 };
 use crate::handlers::{Lang, member::AppState};
 use accounting::id::{AccountId, ChannelId, MemberId};
-use accounting_service::import::AdaptError;
-use accounting_service::import_service::ImportService;
+use accounting_service::import::{AdaptError, RowErrorDetail};
+use accounting_service::import_service::{ImportError, ImportService};
 use axum::{
     Json, Router,
     body::Bytes,
@@ -201,15 +201,36 @@ async fn import_bill(
         .import(&body, &source, MemberId(member_id))
         .await
         .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                t!(
-                    "import_failed",
+            let msg = match e {
+                ImportError::UnsupportedSource { source } => t!(
+                    "import_unsupported_source",
                     locale = lang.as_str(),
-                    error = e.to_string()
+                    source = source
                 )
                 .to_string(),
-            )
+                ImportError::ChannelNotFound { source } => t!(
+                    "import_channel_not_found",
+                    locale = lang.as_str(),
+                    source = source
+                )
+                .to_string(),
+                ImportError::CnyCommodityNotFound => {
+                    t!("import_cny_commodity_not_found", locale = lang.as_str()).to_string()
+                }
+                ImportError::Parse { source } => t!(
+                    "import_parse_failed",
+                    locale = lang.as_str(),
+                    source = source
+                )
+                .to_string(),
+                ImportError::Database { source } => t!(
+                    "import_database_error",
+                    locale = lang.as_str(),
+                    source = source
+                )
+                .to_string(),
+            };
+            (StatusCode::BAD_REQUEST, msg)
         })?;
 
     // 适配器对非账单文件是宽容的（逐行跳过，不报错）：imported=0 且 skipped=0
@@ -225,13 +246,43 @@ async fn import_bill(
         .errors
         .iter()
         .map(|e| match e {
-            AdaptError::Row { row, detail } => ImportRowErrorDto {
-                row: *row,
-                detail: detail.to_string(),
-            },
-            AdaptError::Encoding { .. } => ImportRowErrorDto {
+            AdaptError::Row { row, detail } => {
+                let detail = match detail {
+                    RowErrorDetail::MissingColumn { index, name } => t!(
+                        "adapt_missing_column",
+                        locale = lang.as_str(),
+                        index = index,
+                        name = name
+                    )
+                    .to_string(),
+                    RowErrorDetail::AmountParse { value, source } => t!(
+                        "adapt_amount_parse_failed",
+                        locale = lang.as_str(),
+                        value = value,
+                        source = source
+                    )
+                    .to_string(),
+                    RowErrorDetail::DateParse { value } => t!(
+                        "adapt_date_parse_failed",
+                        locale = lang.as_str(),
+                        value = value
+                    )
+                    .to_string(),
+                    RowErrorDetail::ClosedTransaction => {
+                        t!("adapt_transaction_closed", locale = lang.as_str()).to_string()
+                    }
+                    RowErrorDetail::Other { error } => error.to_string(),
+                };
+                ImportRowErrorDto { row: *row, detail }
+            }
+            AdaptError::Encoding { source } => ImportRowErrorDto {
                 row: 0,
-                detail: e.to_string(),
+                detail: t!(
+                    "adapt_encoding_error",
+                    locale = lang.as_str(),
+                    source = source
+                )
+                .to_string(),
             },
         })
         .collect();

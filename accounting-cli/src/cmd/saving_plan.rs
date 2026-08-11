@@ -1,4 +1,4 @@
-use crate::cmd::budget::{parse_deadline, parse_period};
+use crate::cmd::budget::{parse_deadline, parse_period, period_label};
 use crate::cmd::resolver::{
     account_display_maps, resolve_account, resolve_commodity, resolve_saving_plan,
 };
@@ -185,15 +185,21 @@ async fn list(db: &SqliteDatabase, lang: &str) -> Result<(), AccountingError> {
         .collect();
 
     println!(
-        "{:<5} {:<20} {:<20} {:<12} {:>12} {:<10} Satisfaction",
-        "ID", "Name", "Period", "Deadline", "Target", "Commodity"
+        "{:<5} {:<20} {:<20} {:<12} {:>12} {:<10} {}",
+        t!("saving_plan_col_id"),
+        t!("saving_plan_col_name"),
+        t!("saving_plan_col_period"),
+        t!("saving_plan_col_deadline"),
+        t!("saving_plan_col_target"),
+        t!("saving_plan_col_commodity"),
+        t!("saving_plan_col_satisfaction"),
     );
     for p in &plans {
         println!(
             "{:<5} {:<20} {:<20} {:<12} {:>12} {:<10} {}",
             p.id.0,
             names.get(&p.id).cloned().unwrap_or_default(),
-            p.period.map(|x| x.to_string()).unwrap_or_default(),
+            p.period.map(period_label).unwrap_or_default(),
             p.deadline.map(|d| d.to_string()).unwrap_or_default(),
             p.target_amount,
             symbols.get(&p.commodity_id).cloned().unwrap_or_default(),
@@ -293,11 +299,7 @@ async fn show(
                     .map(|d| d.to_string())
                     .unwrap_or_default(),
                 end = status.period_end.map(|d| d.to_string()).unwrap_or_default(),
-                period = status
-                    .plan
-                    .period
-                    .map(|p| p.to_string())
-                    .unwrap_or_default()
+                period = status.plan.period.map(period_label).unwrap_or_default()
             )
         );
     }

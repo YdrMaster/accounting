@@ -594,10 +594,7 @@ pub async fn account_ensure_rename_allowed(
         && account.parent_id.is_none()
         && account.is_system
     {
-        return Err(DbError::Database(format!(
-            "cannot rename system root account {}",
-            id.0
-        )));
+        return Err(DbError::SystemRootRenameProtected(id));
     }
     Ok(())
 }

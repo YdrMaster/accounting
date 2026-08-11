@@ -3,6 +3,7 @@ use crate::cmd::{AccountRow, BalanceRow};
 use crate::output::{OutputFormat, print, print_line, print_vec};
 use accounting::account_type::AccountType;
 use accounting_sql::SqliteDatabase;
+use accounting_sql::error::DbError;
 use clap::{Args, Subcommand};
 use rust_i18n::t;
 use std::str::FromStr;
@@ -189,8 +190,8 @@ impl AccountCmd {
                     .await
                     .map_err(|e| {
                         let msg = e.to_string();
-                        // 系统根账户改名保护：映射为本地化词条（参照 budget_not_found 惯例）
-                        if msg.contains("system root account") {
+                        // 系统根账户改名保护：按错误变体映射本地化词条（不依赖本地化字面量）
+                        if matches!(e, DbError::SystemRootRenameProtected(_)) {
                             accounting::error::AccountingError::InvalidTransaction(format!(
                                 "{}",
                                 t!("cannot_rename_system_root_account")

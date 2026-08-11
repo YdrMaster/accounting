@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ApiError, apiErrorMessage } from '../api/client'
+import { ApiError, apiErrorCode, apiErrorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 
 const { t } = useI18n()
 const auth = useAuthStore()
-
-/** 后端 MSG_BAD_TOTP 文案：login/totp 返回该 401 表示动态码错误，其余 401 视为 pending 过期 */
-const SERVER_BAD_CODE = '验证码错误'
 
 const username = ref('')
 const password = ref('')
@@ -48,7 +45,7 @@ async function submitCode() {
   try {
     await auth.loginTotp(username.value.trim(), pendingToken.value, code.value.trim())
   } catch (e) {
-    if (e instanceof ApiError && e.status === 401 && apiErrorMessage(e) !== SERVER_BAD_CODE) {
+    if (e instanceof ApiError && e.status === 401 && apiErrorCode(e) !== 'bad_totp') {
       // pending 已过期/作废：退回密码输入界面重新登录
       pendingToken.value = null
       code.value = ''

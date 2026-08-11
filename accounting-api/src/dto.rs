@@ -1,5 +1,6 @@
 //! 请求/响应 DTO
 
+use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 
 /// 通用错误响应。
@@ -430,7 +431,10 @@ pub struct SetMappingRequest {
 }
 
 /// 解析周期字符串为 FinancePeriod。
-pub fn parse_period(s: &str) -> Result<accounting::finance_period::FinancePeriod, String> {
+pub fn parse_period(
+    s: &str,
+    lang: &str,
+) -> Result<accounting::finance_period::FinancePeriod, String> {
     use accounting::finance_period::FinancePeriod;
     match s.to_lowercase().as_str() {
         "daily" => Ok(FinancePeriod::Daily),
@@ -438,7 +442,7 @@ pub fn parse_period(s: &str) -> Result<accounting::finance_period::FinancePeriod
         "weekly-mon" => Ok(FinancePeriod::WeeklyFromMonday),
         "monthly" => Ok(FinancePeriod::Monthly),
         "yearly" => Ok(FinancePeriod::Yearly),
-        _ => Err(format!("无效周期类型: {s}")),
+        _ => Err(t!("err_unknown_period_type", locale = lang, period = s).to_string()),
     }
 }
 
@@ -457,9 +461,10 @@ pub fn to_period_string(period: accounting::finance_period::FinancePeriod) -> &'
 /// 解析可选周期字符串（None 或空字符串 → None，表示一次性）。
 pub fn parse_period_opt(
     s: Option<&str>,
+    lang: &str,
 ) -> Result<Option<accounting::finance_period::FinancePeriod>, String> {
     match s {
-        Some(s) if !s.is_empty() => parse_period(s).map(Some),
+        Some(s) if !s.is_empty() => parse_period(s, lang).map(Some),
         _ => Ok(None),
     }
 }
@@ -472,11 +477,11 @@ pub fn period_to_string(
 }
 
 /// 解析可选截止日期字符串（None 或空字符串 → None）。
-pub fn parse_deadline(s: Option<&str>) -> Result<Option<chrono::NaiveDate>, String> {
+pub fn parse_deadline(s: Option<&str>, lang: &str) -> Result<Option<chrono::NaiveDate>, String> {
     match s {
         Some(s) if !s.is_empty() => chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
             .map(Some)
-            .map_err(|e| format!("无效日期: {e}")),
+            .map_err(|e| t!("err_invalid_date", locale = lang, error = e).to_string()),
         _ => Ok(None),
     }
 }

@@ -78,6 +78,18 @@ impl FinancePeriod {
     pub fn as_i64(&self) -> i64 {
         *self as i64
     }
+
+    /// 稳定的语言无关机器键，用于配置文件往返等不随界面语言变化的场景。
+    /// 与 `Display`（用户可见标签的来源之一）解耦；界面标签经 `t!` 边界渲染。
+    pub fn config_key(&self) -> &'static str {
+        match self {
+            Self::Daily => "daily",
+            Self::WeeklyFromSunday => "weekly_sun",
+            Self::WeeklyFromMonday => "weekly_mon",
+            Self::Monthly => "monthly",
+            Self::Yearly => "yearly",
+        }
+    }
 }
 
 impl std::fmt::Display for FinancePeriod {

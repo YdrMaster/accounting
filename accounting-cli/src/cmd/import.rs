@@ -66,7 +66,7 @@ fn format_adapt_error(err: &AdaptError) -> String {
                 RowErrorDetail::ClosedTransaction => {
                     rust_i18n::t!("adapt_transaction_closed").to_string()
                 }
-                RowErrorDetail::Other { message } => message.clone(),
+                RowErrorDetail::Other { error } => error.to_string(),
             };
             rust_i18n::t!("import_skipped_row", row = row, detail = detail_str).to_string()
         }

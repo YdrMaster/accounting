@@ -7,6 +7,7 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::CookieJar;
+use rust_i18n::t;
 
 /// session cookie 名
 pub const SESSION_COOKIE: &str = "session";
@@ -26,11 +27,18 @@ pub struct CurrentUser {
     pub session_token_hash: String,
 }
 
-/// 401 响应体形状与主项目 ErrorResponse 一致：`{"error": "..."}`。
-pub(crate) fn unauthorized(message: &str) -> Response {
+/// 401 响应体：`{"error": "<本地化文案>", "code": "<稳定码>"}`。
+/// 客户端按 `code` 分支，不解析本地化文案。文案由进程 locale 经 `t!` 渲染。
+pub(crate) fn unauthorized(code: &str) -> Response {
+    let message = match code {
+        "bad_credentials" => t!("bad_credentials").to_string(),
+        "bad_totp" => t!("bad_totp").to_string(),
+        "unauthenticated" => t!("unauthenticated").to_string(),
+        other => other.to_string(),
+    };
     (
         StatusCode::UNAUTHORIZED,
-        axum::Json(serde_json::json!({ "error": message })),
+        axum::Json(serde_json::json!({ "error": message, "code": code })),
     )
         .into_response()
 }
@@ -46,7 +54,7 @@ pub async fn require_auth(
     next: Next,
 ) -> Response {
     let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) else {
-        return unauthorized("未登录或会话已过期");
+        return unauthorized("unauthenticated");
     };
     match authenticate(&state, &token).await {
         Ok(user) => {
@@ -64,7 +72,7 @@ async fn authenticate(
 ) -> std::result::Result<CurrentUser, Response> {
     let token_hash = session::hash_token(token);
     let db = state.db();
-    let fail = || unauthorized("未登录或会话已过期");
+    let fail = || unauthorized("unauthenticated");
 
     let sess = db
         .find_session_by_token_hash(&token_hash)
@@ -103,7 +111,7 @@ pub(crate) fn internal(err: impl std::fmt::Display) -> Response {
     tracing::error!("auth 内部错误: {err}");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        axum::Json(serde_json::json!({ "error": "服务器内部错误" })),
+        axum::Json(serde_json::json!({ "error": t!("internal_error").to_string() })),
     )
         .into_response()
 }

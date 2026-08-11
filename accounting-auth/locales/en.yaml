@@ -1,0 +1,7 @@
+_version: 1
+bad_credentials: "Invalid username or password"
+bad_totp: "Invalid verification code"
+rate_limited: "Too many attempts, please try again later"
+unauthenticated: "Not logged in or session expired"
+totp_setup_required: "Please call /api/auth/totp/setup first"
+internal_error: "Internal server error"

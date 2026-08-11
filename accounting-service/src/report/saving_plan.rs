@@ -109,7 +109,7 @@ impl SavingPlanService {
             commodity_id,
             &commodity_ids,
         )
-        .map_err(|e| AccountingError::InvalidTransaction(e.to_string()))?;
+        .map_err(AccountingError::SavingPlan)?;
 
         self.db
             .saving_plan_create(
@@ -146,9 +146,9 @@ impl SavingPlanService {
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         if existing.is_none() {
-            return Err(AccountingError::InvalidTransaction(
-                SavingPlanError::PlanNotFound(plan_id).to_string(),
-            ));
+            return Err(AccountingError::SavingPlan(SavingPlanError::PlanNotFound(
+                plan_id,
+            )));
         }
 
         let accounts = super::load_accounts(&self.db).await?;
@@ -163,7 +163,7 @@ impl SavingPlanService {
             commodity_id,
             &commodity_ids,
         )
-        .map_err(|e| AccountingError::InvalidTransaction(e.to_string()))?;
+        .map_err(AccountingError::SavingPlan)?;
 
         self.db
             .saving_plan_update(
@@ -206,11 +206,9 @@ impl SavingPlanService {
             .saving_plan_get(plan_id)
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| {
-                AccountingError::InvalidTransaction(
-                    SavingPlanError::PlanNotFound(plan_id).to_string(),
-                )
-            })?;
+            .ok_or(AccountingError::SavingPlan(SavingPlanError::PlanNotFound(
+                plan_id,
+            )))?;
 
         let account_ids = self
             .db
@@ -239,11 +237,9 @@ impl SavingPlanService {
             .await?
             .into_iter()
             .find(|s| s.plan.id == plan_id)
-            .ok_or_else(|| {
-                AccountingError::InvalidTransaction(
-                    SavingPlanError::PlanNotFound(plan_id).to_string(),
-                )
-            })
+            .ok_or(AccountingError::SavingPlan(SavingPlanError::PlanNotFound(
+                plan_id,
+            )))
     }
 
     /// 列出所有攒钱计划的状态
@@ -705,10 +701,10 @@ mod tests {
             .create_saving_plan("测试", None, None, CommodityId(1), dec("100"), &[], "zh")
             .await
             .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains(&SavingPlanError::EmptyAccounts.to_string())
-        );
+        assert!(matches!(
+            err,
+            AccountingError::SavingPlan(SavingPlanError::EmptyAccounts)
+        ));
     }
 
     #[tokio::test]
@@ -727,10 +723,10 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains(&SavingPlanError::AccountNotAsset(food).to_string())
-        );
+        assert!(matches!(
+            err,
+            AccountingError::SavingPlan(SavingPlanError::AccountNotAsset(id)) if id == food
+        ));
         assert!(service.list_saving_plans().await.unwrap().is_empty());
     }
 
@@ -793,10 +789,10 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains(&SavingPlanError::PlanNotFound(SavingPlanId(999)).to_string())
-        );
+        assert!(matches!(
+            err,
+            AccountingError::SavingPlan(SavingPlanError::PlanNotFound(id)) if id == SavingPlanId(999)
+        ));
     }
 
     #[tokio::test]
@@ -817,10 +813,10 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains(&SavingPlanError::AccountNotAsset(salary).to_string())
-        );
+        assert!(matches!(
+            err,
+            AccountingError::SavingPlan(SavingPlanError::AccountNotAsset(id)) if id == salary
+        ));
     }
 
     #[tokio::test]
@@ -897,10 +893,10 @@ mod tests {
             .get_saving_plan_detail(SavingPlanId(999))
             .await
             .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains(&SavingPlanError::PlanNotFound(SavingPlanId(999)).to_string())
-        );
+        assert!(matches!(
+            err,
+            AccountingError::SavingPlan(SavingPlanError::PlanNotFound(id)) if id == SavingPlanId(999)
+        ));
     }
 
     // === 状态计算 ===
@@ -1161,10 +1157,10 @@ mod tests {
             .get_saving_plan_status(SavingPlanId(999), d(2026, 6, 26))
             .await
             .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains(&SavingPlanError::PlanNotFound(SavingPlanId(999)).to_string())
-        );
+        assert!(matches!(
+            err,
+            AccountingError::SavingPlan(SavingPlanError::PlanNotFound(id)) if id == SavingPlanId(999)
+        ));
     }
 
     // === 全局资金分配 ===

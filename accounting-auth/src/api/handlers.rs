@@ -10,16 +10,10 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
+use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use time::Duration;
-
-/// 登录失败统一文案（防用户名枚举，见归档 `add-user-auth` design.md 安全决策）
-const MSG_BAD_CREDENTIALS: &str = "用户名或密码错误";
-/// TOTP 第二步失败文案
-const MSG_BAD_TOTP: &str = "验证码错误";
-/// 频控文案
-const MSG_RATE_LIMITED: &str = "尝试过于频繁，请稍后再试";
 
 // ─── 请求/响应 DTO ───
 
@@ -109,10 +103,10 @@ pub async fn login(
     let Some(user) = user else {
         // 用户不存在：垫一次 argon2 校验保持耗时一致，返回与密码错误相同的 401
         password::dummy_verify(&req.password);
-        return unauthorized(MSG_BAD_CREDENTIALS);
+        return unauthorized("bad_credentials");
     };
     if !password::verify_password(&user.password_hash, &req.password) {
-        return unauthorized(MSG_BAD_CREDENTIALS);
+        return unauthorized("bad_credentials");
     }
 
     let now = chrono::Utc::now().timestamp();
@@ -174,11 +168,11 @@ pub async fn login_totp(
     };
     let now = chrono::Utc::now().timestamp();
     let Some(sess) = sess.filter(|s| s.pending && !session::is_expired(s.expires_at, now)) else {
-        return unauthorized(MSG_BAD_CREDENTIALS);
+        return unauthorized("bad_credentials");
     };
     let user = match db.find_user_by_id(sess.user_id).await {
         Ok(Some(u)) => u,
-        Ok(None) => return unauthorized(MSG_BAD_CREDENTIALS),
+        Ok(None) => return unauthorized("bad_credentials"),
         Err(e) => return internal(e),
     };
 
@@ -229,7 +223,7 @@ pub async fn login_totp(
             Ok(_) => {}
             Err(e) => return internal(e),
         }
-        return unauthorized(MSG_BAD_TOTP);
+        return unauthorized("bad_totp");
     }
 
     // 转正：pending → 正式 session，7 天滑动过期
@@ -304,19 +298,19 @@ pub async fn totp_enable(
     let db = state.db();
     let fresh = match db.find_user_by_id(user.id).await {
         Ok(Some(u)) => u,
-        Ok(None) => return unauthorized("未登录或会话已过期"),
+        Ok(None) => return unauthorized("unauthenticated"),
         Err(e) => return internal(e),
     };
     let Some(secret) = fresh.totp_secret.as_deref() else {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "请先调用 /api/auth/totp/setup" })),
+            Json(serde_json::json!({ "error": t!("totp_setup_required").to_string(), "code": "totp_setup_required" })),
         )
             .into_response();
     };
     let now = chrono::Utc::now().timestamp();
     let Some(step) = totp::verify_code(secret, &req.code, now, None) else {
-        return unauthorized(MSG_BAD_TOTP);
+        return unauthorized("bad_totp");
     };
 
     let codes = recovery::generate_codes();
@@ -379,7 +373,7 @@ fn check_rate(state: &AuthState, key: &str) -> Option<Response> {
             (
                 StatusCode::TOO_MANY_REQUESTS,
                 [("retry-after", retry_after.to_string())],
-                Json(serde_json::json!({ "error": MSG_RATE_LIMITED })),
+                Json(serde_json::json!({ "error": t!("rate_limited").to_string(), "code": "rate_limited" })),
             )
                 .into_response(),
         ),

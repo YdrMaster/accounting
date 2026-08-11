@@ -8,6 +8,7 @@ use crate::dto::{
 use crate::handlers::{Lang, member::AppState};
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, CommodityId, SavingPlanId};
+use accounting::saving_plan::SavingPlanError;
 use accounting_service::report::saving_plan::SavingPlanService;
 use axum::{
     Json, Router,
@@ -16,6 +17,7 @@ use axum::{
     routing::get,
 };
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use serde::Serialize;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -51,8 +53,11 @@ impl axum::response::IntoResponse for SavingPlanResponse {
 
 fn map_error(e: AccountingError) -> SavingPlanResponse {
     let msg = e.to_string();
-    // 仅「攒钱计划不存在」映射 404；账户/币种不存在等校验失败均为 400
-    if msg.contains("攒钱计划不存在") {
+    // 状态码按错误变体判定，不依赖本地化字面量
+    if matches!(
+        e,
+        AccountingError::SavingPlan(SavingPlanError::PlanNotFound(_))
+    ) {
         SavingPlanResponse::NotFound(msg)
     } else {
         SavingPlanResponse::BadRequest(msg)
@@ -106,10 +111,12 @@ fn parse_request(
     deadline: Option<&str>,
     target_amount: &str,
     account_ids: &[i64],
+    lang: &str,
 ) -> Result<ParsedPlanRequest, String> {
-    let period = parse_period_opt(period)?;
-    let deadline = parse_deadline(deadline)?;
-    let target = Decimal::from_str(target_amount).map_err(|e| format!("无效金额: {e}"))?;
+    let period = parse_period_opt(period, lang)?;
+    let deadline = parse_deadline(deadline, lang)?;
+    let target = Decimal::from_str(target_amount)
+        .map_err(|e| t!("err_invalid_amount", locale = lang, error = e).to_string())?;
     let ids: Vec<AccountId> = account_ids.iter().map(|&id| AccountId(id)).collect();
     Ok(ParsedPlanRequest {
         period,
@@ -161,6 +168,7 @@ async fn create_saving_plan(
         req.deadline.as_deref(),
         &req.target_amount,
         &req.account_ids,
+        &lang,
     ) {
         Ok(v) => v,
         Err(e) => return SavingPlanResponse::BadRequest(e),
@@ -241,6 +249,7 @@ async fn update_saving_plan(
         req.deadline.as_deref(),
         &req.target_amount,
         &req.account_ids,
+        &lang,
     ) {
         Ok(v) => v,
         Err(e) => return SavingPlanResponse::BadRequest(e),
@@ -331,11 +340,13 @@ fn status_to_dto(
 }
 
 /// 解析状态查询的 date 参数（缺省当天；格式无效返回错误信息）
-fn parse_status_date(query: &SavingPlanStatusQuery) -> Result<chrono::NaiveDate, String> {
+fn parse_status_date(
+    query: &SavingPlanStatusQuery,
+    lang: &str,
+) -> Result<chrono::NaiveDate, String> {
     match query.date {
-        Some(ref d) => {
-            chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|e| format!("无效日期: {e}"))
-        }
+        Some(ref d) => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d")
+            .map_err(|e| t!("err_invalid_date", locale = lang, error = e).to_string()),
         None => Ok(chrono::Local::now().date_naive()),
     }
 }
@@ -347,7 +358,7 @@ async fn get_saving_plan_status(
     Path(id): Path<i64>,
     Query(query): Query<SavingPlanStatusQuery>,
 ) -> SavingPlanResponse {
-    let date = match parse_status_date(&query) {
+    let date = match parse_status_date(&query, &lang) {
         Ok(d) => d,
         Err(e) => return SavingPlanResponse::BadRequest(e),
     };
@@ -382,7 +393,7 @@ async fn list_saving_plan_statuses(
     Lang(lang): Lang,
     Query(query): Query<SavingPlanStatusQuery>,
 ) -> SavingPlanResponse {
-    let date = match parse_status_date(&query) {
+    let date = match parse_status_date(&query, &lang) {
         Ok(d) => d,
         Err(e) => return SavingPlanResponse::BadRequest(e),
     };
@@ -648,7 +659,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(json["error"].as_str().unwrap().contains("不能为空"));
+        assert!(json["error"].as_str().unwrap().contains("cannot be empty"));
     }
 
     #[tokio::test]
@@ -661,7 +672,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(json["error"].as_str().unwrap().contains("账户集合不能为空"));
+        assert!(json["error"].as_str().unwrap().contains("cannot be empty"));
     }
 
     #[tokio::test]
@@ -709,7 +720,12 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(json["error"].as_str().unwrap().contains("无效周期类型"));
+        assert!(
+            json["error"]
+                .as_str()
+                .unwrap()
+                .contains("Unknown period type")
+        );
     }
 
     #[tokio::test]
@@ -725,7 +741,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(json["error"].as_str().unwrap().contains("无效日期"));
+        assert!(json["error"].as_str().unwrap().contains("Invalid date"));
     }
 
     // === 详情 ===
@@ -765,7 +781,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(json["error"].as_str().unwrap().contains("不存在"));
+        assert!(json["error"].as_str().unwrap().contains("not found"));
     }
 
     // === 更新 ===
@@ -825,7 +841,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(json["error"].as_str().unwrap().contains("不存在"));
+        assert!(json["error"].as_str().unwrap().contains("not found"));
     }
 
     #[tokio::test]
@@ -903,7 +919,7 @@ mod tests {
         let (status, json) =
             respond(delete_saving_plan(State(state.clone()), Path(999)).await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(json["error"].as_str().unwrap().contains("不存在"));
+        assert!(json["error"].as_str().unwrap().contains("not found"));
     }
 
     // === 状态 ===
@@ -1110,7 +1126,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(json["error"].as_str().unwrap().contains("不存在"));
+        assert!(json["error"].as_str().unwrap().contains("not found"));
     }
 
     // === 状态：全局分配字段 ===
@@ -1190,7 +1206,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(json["error"].as_str().unwrap().contains("无效日期"));
+        assert!(json["error"].as_str().unwrap().contains("Invalid date"));
     }
 
     // === 批量状态 ===
@@ -1323,7 +1339,7 @@ mod tests {
         let state = setup().await;
         let (status, json) = statuses_json(&state, Some("invalid")).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(json["error"].as_str().unwrap().contains("无效日期"));
+        assert!(json["error"].as_str().unwrap().contains("Invalid date"));
     }
 
     #[tokio::test]

@@ -132,7 +132,9 @@ describe('LoginView', () => {
       display_name: 'Alice',
       totp_enabled: true,
     })
-    mockedLoginTotp.mockRejectedValue(new ApiError(401, '{"error":"验证码错误"}'))
+    mockedLoginTotp.mockRejectedValue(
+      new ApiError(401, '{"error":"验证码错误","code":"bad_totp"}')
+    )
     const wrapper = mountLogin()
 
     await wrapper.find('#login-username').setValue('alice')
@@ -155,7 +157,9 @@ describe('LoginView', () => {
       display_name: 'Alice',
       totp_enabled: true,
     })
-    mockedLoginTotp.mockRejectedValue(new ApiError(401, '{"error":"用户名或密码错误"}'))
+    mockedLoginTotp.mockRejectedValue(
+      new ApiError(401, '{"error":"用户名或密码错误","code":"bad_credentials"}')
+    )
     const wrapper = mountLogin()
 
     await wrapper.find('#login-username').setValue('alice')

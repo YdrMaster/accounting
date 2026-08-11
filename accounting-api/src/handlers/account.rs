@@ -8,6 +8,7 @@ use crate::handlers::{Lang, member::AppState};
 use accounting::account::Account;
 use accounting::account_type::AccountType;
 use accounting::id::{AccountId, MemberId};
+use accounting_sql::error::DbError;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -179,8 +180,8 @@ async fn rename_account(
         .await
         .map_err(|e| {
             let msg = e.to_string();
-            // 系统根账户改名保护：映射为 400 + 本地化词条（参照 budget 的 map_error 惯例）
-            if msg.contains("system root account") {
+            // 系统根账户改名保护：按错误变体映射 400 + 本地化词条（不依赖本地化字面量）
+            if matches!(e, DbError::SystemRootRenameProtected(_)) {
                 bad_request(
                     t!("cannot_rename_system_root_account", locale = lang.as_str()).to_string(),
                 )

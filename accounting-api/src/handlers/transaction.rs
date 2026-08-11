@@ -41,7 +41,7 @@ pub struct TxQuery {
 }
 
 impl TxQuery {
-    fn from_pairs(pairs: Vec<(String, String)>) -> Result<Self, String> {
+    fn from_pairs(pairs: Vec<(String, String)>, lang: &str) -> Result<Self, String> {
         let mut q = Self {
             from: None,
             to: None,
@@ -58,19 +58,24 @@ impl TxQuery {
             match key.as_str() {
                 "from" => q.from = Some(value),
                 "to" => q.to = Some(value),
-                "account" => q.account.push(parse_id(&key, &value)?),
-                "member" => q.member.push(parse_id(&key, &value)?),
-                "channel" => q.channel.push(parse_id(&key, &value)?),
+                "account" => q.account.push(parse_id(&key, &value, lang)?),
+                "member" => q.member.push(parse_id(&key, &value, lang)?),
+                "channel" => q.channel.push(parse_id(&key, &value, lang)?),
                 "tag" => q.tag.push(value),
                 "keyword" => q.keyword = Some(value),
                 "reimbursable" => {
-                    q.reimbursable =
-                        Some(value.parse::<bool>().map_err(|e| {
-                            format!("Invalid reimbursable value '{value}': {e}")
-                        })?)
+                    q.reimbursable = Some(value.parse::<bool>().map_err(|e| {
+                        t!(
+                            "tx_err_invalid_reimbursable",
+                            locale = lang,
+                            value = value,
+                            error = e
+                        )
+                        .to_string()
+                    })?)
                 }
-                "limit" => q.limit = Some(parse_id(&key, &value)?),
-                "offset" => q.offset = Some(parse_id(&key, &value)?),
+                "limit" => q.limit = Some(parse_id(&key, &value, lang)?),
+                "offset" => q.offset = Some(parse_id(&key, &value, lang)?),
                 _ => {}
             }
         }
@@ -78,10 +83,17 @@ impl TxQuery {
     }
 }
 
-fn parse_id(key: &str, value: &str) -> Result<i64, String> {
-    value
-        .parse::<i64>()
-        .map_err(|e| format!("Invalid {key} value '{value}': {e}"))
+fn parse_id(key: &str, value: &str, lang: &str) -> Result<i64, String> {
+    value.parse::<i64>().map_err(|e| {
+        t!(
+            "tx_err_invalid_query_value",
+            locale = lang,
+            key = key,
+            value = value,
+            error = e
+        )
+        .to_string()
+    })
 }
 
 /// 解析日期时间字符串
@@ -169,19 +181,26 @@ async fn list_transactions(
     Lang(lang): Lang,
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<Vec<TransactionDto>>, String> {
-    let query = TxQuery::from_pairs(pairs)?;
+    let query = TxQuery::from_pairs(pairs, &lang)?;
     let db = state.db();
     let mut filter = TransactionFilter::default();
 
     if let Some(from) = query.from {
-        let date = NaiveDate::parse_from_str(&from, "%Y-%m-%d")
-            .map_err(|e| format!("Invalid from date: {e}"))?;
+        let date = NaiveDate::parse_from_str(&from, "%Y-%m-%d").map_err(|e| {
+            t!(
+                "tx_err_invalid_from_date",
+                locale = lang.as_str(),
+                error = e
+            )
+            .to_string()
+        })?;
         filter.start_date = Some(date);
     }
 
     if let Some(to) = query.to {
-        let date = NaiveDate::parse_from_str(&to, "%Y-%m-%d")
-            .map_err(|e| format!("Invalid to date: {e}"))?;
+        let date = NaiveDate::parse_from_str(&to, "%Y-%m-%d").map_err(|e| {
+            t!("tx_err_invalid_to_date", locale = lang.as_str(), error = e).to_string()
+        })?;
         filter.end_date = Some(date);
     }
 
@@ -199,7 +218,12 @@ async fn list_transactions(
         if let Some(tag) = tag {
             filter.tag_ids.push(tag.id);
         } else {
-            return Err(format!("Tag not found: {tag_name}"));
+            return Err(t!(
+                "tx_err_tag_not_found",
+                locale = lang.as_str(),
+                name = tag_name
+            )
+            .to_string());
         }
     }
 
@@ -306,7 +330,7 @@ async fn create_transaction(
     let date_time = parse_date_time(&req.date_time, &lang).map_err(|e| e.to_string())?;
     let member_id = MemberId(req.member_id);
 
-    let postings = build_postings(db, TransactionId(0), req.postings).await?;
+    let postings = build_postings(db, &lang, TransactionId(0), req.postings).await?;
     let tag_ids = resolve_tag_ids(db, req.tags, &lang).await?;
 
     let tx_kind = match req.kind.as_str() {
@@ -323,7 +347,7 @@ async fn create_transaction(
         member_id,
     };
 
-    let channel_path_nodes = build_channel_path_nodes(req.channel_paths)?;
+    let channel_path_nodes = build_channel_path_nodes(req.channel_paths, &lang)?;
 
     let service = TransactionService::new(db.clone());
     let id = service
@@ -337,6 +361,7 @@ async fn create_transaction(
 /// 按请求构建分录列表（账户名命中任意语言的名字）
 async fn build_postings(
     db: &accounting_sql::SqliteDatabase,
+    lang: &str,
     transaction_id: TransactionId,
     requests: Vec<crate::dto::PostingRequest>,
 ) -> Result<Vec<Posting>, String> {
@@ -346,16 +371,30 @@ async fn build_postings(
             .account_get_by_name(&posting_req.account)
             .await
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Account not found: {}", posting_req.account))?;
+            .ok_or_else(|| {
+                t!(
+                    "tx_err_account_not_found",
+                    locale = lang,
+                    name = &posting_req.account
+                )
+                .to_string()
+            })?;
 
         let commodity = db
             .commodity_get_by_symbol(&posting_req.commodity)
             .await
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Commodity not found: {}", posting_req.commodity))?;
+            .ok_or_else(|| {
+                t!(
+                    "tx_err_commodity_not_found",
+                    locale = lang,
+                    name = &posting_req.commodity
+                )
+                .to_string()
+            })?;
 
-        let amount =
-            Decimal::from_str(&posting_req.amount).map_err(|e| format!("Invalid amount: {e}"))?;
+        let amount = Decimal::from_str(&posting_req.amount)
+            .map_err(|e| t!("tx_err_invalid_amount", locale = lang, error = e).to_string())?;
 
         postings.push(Posting {
             id: PostingId(0),
@@ -400,6 +439,7 @@ async fn resolve_tag_ids(
 /// 按请求构建渠道链路节点列表
 fn build_channel_path_nodes(
     nodes: Vec<crate::dto::ChannelPathNodeRequest>,
+    lang: &str,
 ) -> Result<Vec<ChannelPathNode>, String> {
     nodes
         .into_iter()
@@ -407,7 +447,7 @@ fn build_channel_path_nodes(
             let status = n
                 .status
                 .parse()
-                .map_err(|e| format!("Invalid status: {e}"))?;
+                .map_err(|e| t!("tx_err_invalid_status", locale = lang, error = e).to_string())?;
             Ok::<_, String>(ChannelPathNode {
                 position: n.position,
                 channel_id: ChannelId(n.channel_id),
@@ -430,7 +470,7 @@ async fn get_transaction(
         .get(TransactionId(id))
         .await
         .map_err(|e| e.to_string())?
-        .ok_or("Transaction not found")?;
+        .ok_or_else(|| t!("tx_err_not_found", locale = lang.as_str()).to_string())?;
 
     let ctx = load_display_context(db, &lang).await?;
     let tag_map = db
@@ -487,7 +527,7 @@ async fn get_posting(
         .posting_get(PostingId(id))
         .await
         .map_err(|e| e.to_string())?
-        .ok_or("Posting not found")?;
+        .ok_or_else(|| t!("tx_err_posting_not_found", locale = lang.as_str()).to_string())?;
 
     let ctx = load_display_context(db, &lang).await?;
 
@@ -505,7 +545,7 @@ async fn update_transaction(
     let date_time = parse_date_time(&req.date_time, &lang).map_err(|e| e.to_string())?;
     let member_id = MemberId(req.member_id);
 
-    let postings = build_postings(db, TransactionId(id), req.postings).await?;
+    let postings = build_postings(db, &lang, TransactionId(id), req.postings).await?;
     let tag_ids = resolve_tag_ids(db, req.tags, &lang).await?;
 
     let tx_kind = match req.kind.as_str() {
@@ -522,7 +562,7 @@ async fn update_transaction(
         member_id,
     };
 
-    let channel_path_nodes = build_channel_path_nodes(req.channel_paths)?;
+    let channel_path_nodes = build_channel_path_nodes(req.channel_paths, &lang)?;
 
     let service = TransactionService::new(db.clone());
     service

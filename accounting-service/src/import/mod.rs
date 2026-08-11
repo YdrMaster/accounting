@@ -1,3 +1,4 @@
+use accounting::error::AccountingError;
 use accounting::id::{ChannelId, CommodityId, MemberId};
 use accounting::posting_role::PostingRole;
 use accounting::transaction::TransactionKind;
@@ -78,8 +79,9 @@ pub enum RowErrorDetail {
     DateParse { value: String },
     /// 交易已关闭
     ClosedTransaction,
-    /// 上层 service 包装的其他错误（message 已由源 crate 本地化）
-    Other { message: String },
+    /// 上层 service 包装的其他错误（携带结构化 AccountingError，由边界按 locale 渲染，
+    /// 不预字符串化）
+    Other { error: AccountingError },
 }
 
 impl fmt::Display for RowErrorDetail {
@@ -95,7 +97,7 @@ impl fmt::Display for RowErrorDetail {
                 write!(f, "date parse failed for '{value}'")
             }
             Self::ClosedTransaction => write!(f, "transaction closed"),
-            Self::Other { message } => write!(f, "{message}"),
+            Self::Other { error } => write!(f, "{error}"),
         }
     }
 }

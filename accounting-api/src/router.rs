@@ -38,8 +38,7 @@ pub fn create_app(
         // 健康检查与静态文件不拦截
         .route("/api/health", axum::routing::get(|| async { "ok" }))
         .fallback_service(
-            ServeDir::new(static_dir)
-                .fallback(ServeFile::new(format!("{static_dir}/index.html"))),
+            ServeDir::new(static_dir).fallback(ServeFile::new(format!("{static_dir}/index.html"))),
         )
         .layer(CorsLayer::permissive())
         .with_state(state)

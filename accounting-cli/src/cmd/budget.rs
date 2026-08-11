@@ -9,6 +9,17 @@ use rust_decimal::Decimal;
 use rust_i18n::t;
 use std::str::FromStr;
 
+/// 按当前 locale 渲染财务周期的用户可见标签（不复用 `Display`，后者已与配置机器键解耦）。
+pub(crate) fn period_label(p: FinancePeriod) -> String {
+    match p {
+        FinancePeriod::Daily => t!("finance_period_daily").to_string(),
+        FinancePeriod::WeeklyFromSunday => t!("finance_period_weekly_sun").to_string(),
+        FinancePeriod::WeeklyFromMonday => t!("finance_period_weekly_mon").to_string(),
+        FinancePeriod::Monthly => t!("finance_period_monthly").to_string(),
+        FinancePeriod::Yearly => t!("finance_period_yearly").to_string(),
+    }
+}
+
 #[derive(Subcommand)]
 pub enum BudgetCmd {
     /// 创建预算表
@@ -191,13 +202,19 @@ async fn list(db: &SqliteDatabase, lang: &str) -> Result<(), AccountingError> {
     let names = budget_name_map(db, &ids, lang).await?;
     let symbols = super::saving_plan::commodity_symbol_map(db).await?;
 
-    println!("{:<5} {:<20} {:<20} Commodity", "ID", "Name", "Period");
+    println!(
+        "{:<5} {:<20} {:<20} {}",
+        t!("budget_col_id"),
+        t!("budget_col_name"),
+        t!("budget_col_period"),
+        t!("budget_col_commodity")
+    );
     for b in &budgets {
         println!(
             "{:<5} {:<20} {:<20} {}",
             b.id.0,
             names.get(&b.id).cloned().unwrap_or_default(),
-            b.period.map(|p| p.to_string()).unwrap_or_default(),
+            b.period.map(period_label).unwrap_or_default(),
             symbols.get(&b.commodity_id).cloned().unwrap_or_default()
         );
     }
@@ -238,11 +255,7 @@ async fn show(
                     .map(|d| d.to_string())
                     .unwrap_or_default(),
                 end = status.period_end.map(|d| d.to_string()).unwrap_or_default(),
-                period = status
-                    .budget
-                    .period
-                    .map(|p| p.to_string())
-                    .unwrap_or_default()
+                period = status.budget.period.map(period_label).unwrap_or_default()
             )
         );
     }

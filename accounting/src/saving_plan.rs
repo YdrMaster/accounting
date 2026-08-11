@@ -4,6 +4,7 @@ use crate::finance_period::FinancePeriod;
 use crate::id::{AccountId, CommodityId, SavingPlanId};
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -56,21 +57,46 @@ pub enum SavingPlanError {
 
 impl std::fmt::Display for SavingPlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // 稳定的非本地化变体标识，供边界（AccountingError::Display / API handler）按变体
+        // 映射 t! 本地化。此处不产出面向用户文案。
         match self {
-            Self::EmptyName => write!(f, "攒钱计划名称不能为空"),
-            Self::EmptyAccounts => write!(f, "账户集合不能为空"),
-            Self::AccountNotFound(id) => write!(f, "账户不存在: {id}"),
-            Self::DuplicateAccount(id) => write!(f, "账户重复: {id}"),
-            Self::InvalidAmount(amount) => write!(f, "目标金额无效: {amount}"),
-            Self::CommodityNotFound(id) => write!(f, "币种不存在: {id}"),
-            Self::PlanNotFound(id) => write!(f, "攒钱计划不存在: {id}"),
-            Self::AccountNotAsset(id) => write!(f, "账户必须位于资产根账户子树内: {id}"),
-            Self::DatabaseError(msg) => write!(f, "数据库错误: {msg}"),
+            Self::EmptyName => write!(f, "saving_plan_empty_name"),
+            Self::EmptyAccounts => write!(f, "saving_plan_empty_accounts"),
+            Self::AccountNotFound(id) => write!(f, "saving_plan_account_not_found: {id}"),
+            Self::DuplicateAccount(id) => write!(f, "saving_plan_duplicate_account: {id}"),
+            Self::InvalidAmount(amount) => write!(f, "saving_plan_invalid_amount: {amount}"),
+            Self::CommodityNotFound(id) => write!(f, "saving_plan_commodity_not_found: {id}"),
+            Self::PlanNotFound(id) => write!(f, "saving_plan_not_found: {id}"),
+            Self::AccountNotAsset(id) => write!(f, "saving_plan_account_not_asset: {id}"),
+            Self::DatabaseError(msg) => write!(f, "saving_plan_database_error: {msg}"),
         }
     }
 }
 
 impl std::error::Error for SavingPlanError {}
+
+impl SavingPlanError {
+    /// 按当前进程 locale 产出本地化文案。供 `AccountingError::Display`（CLI `error_prefix`
+    /// 链路）使用。API 边界若需 per-request locale，应直接按变体 `t!(..., locale=lang)`，
+    /// 不经此方法。
+    pub fn localized(&self) -> String {
+        match self {
+            Self::EmptyName => t!("saving_plan_empty_name").to_string(),
+            Self::EmptyAccounts => t!("saving_plan_empty_accounts").to_string(),
+            Self::AccountNotFound(id) => t!("saving_plan_account_not_found", id = id).to_string(),
+            Self::DuplicateAccount(id) => t!("saving_plan_duplicate_account", id = id).to_string(),
+            Self::InvalidAmount(amount) => {
+                t!("saving_plan_invalid_amount", amount = amount).to_string()
+            }
+            Self::CommodityNotFound(id) => {
+                t!("saving_plan_commodity_not_found", id = id).to_string()
+            }
+            Self::PlanNotFound(id) => t!("saving_plan_not_found", id = id).to_string(),
+            Self::AccountNotAsset(id) => t!("saving_plan_account_not_asset", id = id).to_string(),
+            Self::DatabaseError(msg) => t!("database_error", msg = msg).to_string(),
+        }
+    }
+}
 
 /// 验证攒钱计划和账户集合
 ///

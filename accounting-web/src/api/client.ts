@@ -57,6 +57,21 @@ export function apiErrorMessage(e: unknown): string {
   return raw
 }
 
+/** 从 apiFetch 抛出的错误中提取服务端 `{"code": "..."}` 稳定码（无 code 返回空串）。
+ * 客户端按 code 做逻辑分支，不解析本地化文案。 */
+export function apiErrorCode(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e)
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof (parsed as { code?: unknown }).code === 'string') {
+      return (parsed as { code: string }).code
+    }
+  } catch {
+    // 非 JSON 响应
+  }
+  return ''
+}
+
 import type {
   AccountDto,
   BalanceSheetDto,

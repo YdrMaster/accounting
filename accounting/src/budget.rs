@@ -3,6 +3,7 @@ use crate::finance_period::FinancePeriod;
 use crate::id::{AccountId, BudgetId, CommodityId};
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
+use rust_i18n::t;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -55,21 +56,42 @@ pub enum BudgetError {
 
 impl std::fmt::Display for BudgetError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // 稳定的非本地化变体标识，供边界（AccountingError::Display / API handler）按变体
+        // 映射 t! 本地化。此处不产出面向用户文案。
         match self {
-            Self::EmptyName => write!(f, "预算表名称不能为空"),
-            Self::EmptyLimits => write!(f, "限额列表不能为空"),
-            Self::AccountNotFound(id) => write!(f, "账户不存在: {id}"),
-            Self::DuplicateAccount(id) => write!(f, "账户重复: {id}"),
-            Self::InvalidAmount(amount) => write!(f, "限额金额无效: {amount}"),
-            Self::CommodityNotFound(id) => write!(f, "币种不存在: {id}"),
-            Self::BudgetNotFound(id) => write!(f, "预算表不存在: {id}"),
-            Self::AccountNotExpense(id) => write!(f, "限额账户必须位于支出根账户子树内: {id}"),
-            Self::DatabaseError(msg) => write!(f, "数据库错误: {msg}"),
+            Self::EmptyName => write!(f, "budget_empty_name"),
+            Self::EmptyLimits => write!(f, "budget_empty_limits"),
+            Self::AccountNotFound(id) => write!(f, "budget_account_not_found: {id}"),
+            Self::DuplicateAccount(id) => write!(f, "budget_duplicate_account: {id}"),
+            Self::InvalidAmount(amount) => write!(f, "budget_invalid_amount: {amount}"),
+            Self::CommodityNotFound(id) => write!(f, "budget_commodity_not_found: {id}"),
+            Self::BudgetNotFound(id) => write!(f, "budget_not_found: {id}"),
+            Self::AccountNotExpense(id) => write!(f, "budget_account_not_expense: {id}"),
+            Self::DatabaseError(msg) => write!(f, "budget_database_error: {msg}"),
         }
     }
 }
 
 impl std::error::Error for BudgetError {}
+
+impl BudgetError {
+    /// 按当前进程 locale 产出本地化文案。供 `AccountingError::Display`（CLI `error_prefix`
+    /// 链路）使用。API 边界若需 per-request locale，应直接按变体 `t!(..., locale=lang)`，
+    /// 不经此方法。
+    pub fn localized(&self) -> String {
+        match self {
+            Self::EmptyName => t!("budget_empty_name").to_string(),
+            Self::EmptyLimits => t!("budget_empty_limits").to_string(),
+            Self::AccountNotFound(id) => t!("budget_account_not_found", id = id).to_string(),
+            Self::DuplicateAccount(id) => t!("budget_duplicate_account", id = id).to_string(),
+            Self::InvalidAmount(amount) => t!("budget_invalid_amount", amount = amount).to_string(),
+            Self::CommodityNotFound(id) => t!("budget_commodity_not_found", id = id).to_string(),
+            Self::BudgetNotFound(id) => t!("budget_not_found", id = id).to_string(),
+            Self::AccountNotExpense(id) => t!("budget_account_not_expense", id = id).to_string(),
+            Self::DatabaseError(msg) => t!("database_error", msg = msg).to_string(),
+        }
+    }
+}
 
 /// 验证预算表和限额列表
 ///
@@ -202,6 +224,39 @@ mod tests {
             BudgetError::DatabaseError("conn failed".to_string())
                 .to_string()
                 .contains("conn failed")
+        );
+    }
+
+    #[test]
+    fn test_budget_error_localized_by_locale() {
+        use std::sync::Mutex;
+        static LOCALE_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCALE_LOCK.lock().unwrap();
+        rust_i18n::set_locale("en");
+        assert!(
+            BudgetError::EmptyName.localized().contains("Budget name"),
+            "en: {}",
+            BudgetError::EmptyName.localized()
+        );
+        assert!(
+            BudgetError::BudgetNotFound(BudgetId(2))
+                .localized()
+                .contains("Budget not found"),
+            "en: {}",
+            BudgetError::BudgetNotFound(BudgetId(2)).localized()
+        );
+        rust_i18n::set_locale("zh-CN");
+        assert!(
+            BudgetError::EmptyName.localized().contains("预算表名称"),
+            "zh: {}",
+            BudgetError::EmptyName.localized()
+        );
+        assert!(
+            BudgetError::BudgetNotFound(BudgetId(2))
+                .localized()
+                .contains("预算表不存在"),
+            "zh: {}",
+            BudgetError::BudgetNotFound(BudgetId(2)).localized()
         );
     }
 
