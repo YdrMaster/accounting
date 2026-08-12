@@ -205,6 +205,39 @@ pub async fn tag_names_by_transactions(
     Ok(map)
 }
 
+/// 批量取交易-标签 ID 关联（不解析名字），用于系统标签等按 ID 的判定。
+pub async fn tag_ids_by_transactions(
+    conn: &mut SqliteConnection,
+    transaction_ids: &[TransactionId],
+) -> Result<HashMap<TransactionId, Vec<TagId>>, DbError> {
+    if transaction_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut query = sqlx::QueryBuilder::new(
+        "SELECT tt.transaction_id, tt.tag_id FROM transaction_tags tt WHERE tt.transaction_id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for id in transaction_ids {
+        separated.push_bind(id.0);
+    }
+    query.push(") ORDER BY tt.transaction_id, tt.tag_id");
+
+    let rows: Vec<(i64, i64)> = query
+        .build_query_as()
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+
+    let mut map: HashMap<TransactionId, Vec<TagId>> = HashMap::new();
+    for (tx_id, tag_id) in rows {
+        map.entry(TransactionId(tx_id))
+            .or_default()
+            .push(TagId(tag_id));
+    }
+    Ok(map)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

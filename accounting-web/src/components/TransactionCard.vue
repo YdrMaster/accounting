@@ -2,9 +2,11 @@
 import Decimal from 'decimal.js'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useCommodityStore } from '../stores/commodity'
 import type { TransactionDto } from '../types/api'
 
 const { t } = useI18n()
+const commodityStore = useCommodityStore()
 
 const props = defineProps<{
   tx: TransactionDto
@@ -33,27 +35,34 @@ function computeAmount(): Decimal {
 
 const amount = computed(() => computeAmount())
 
-function isTransfer(): boolean {
-  return !props.tx.postings.some(p => p.account_type === 'income' || p.account_type === 'expense')
-}
+/** 资金流方向摘要：非正值（≤0）分录在前、正值在后，同侧顿号连接，不依赖账户类型 */
+const summary = computed(() => {
+  const negative: string[] = []
+  const positive: string[] = []
+  for (const p of props.tx.postings) {
+    const amt = new Decimal(p.amount)
+    if (amt.lte(0)) negative.push(shortAccountName(p.account))
+    else positive.push(shortAccountName(p.account))
+  }
+  const left = negative.join('、')
+  const right = positive.join('、')
+  if (!left) return right
+  if (!right) return left
+  return `${left} → ${right}`
+})
 
-function isPureImport(): boolean {
-  return (
-    props.tx.postings.length > 0 && props.tx.postings.every(p => p.account.includes(':Import:'))
-  )
-}
+/** 按出现次数降序排列的币种名列表 */
+const commodities = computed(() => {
+  const counts = new Map<string, number>()
+  for (const p of props.tx.postings) {
+    counts.set(p.commodity, (counts.get(p.commodity) ?? 0) + 1)
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)
+})
 
-function getIncomeExpenseAccounts(): string[] {
-  return props.tx.postings
-    .filter(p => p.account_type === 'income' || p.account_type === 'expense')
-    .map(p => shortAccountName(p.account))
-}
-
-function getAssetAccounts(): string[] {
-  return props.tx.postings
-    .filter(p => p.account_type === 'asset')
-    .map(p => shortAccountName(p.account))
-}
+const multiCurrency = computed(() => commodities.value.length > 1)
+const primaryCommodity = computed(() => commodities.value[0] ?? '')
+const secondaryCommodity = computed(() => commodities.value[1] ?? '')
 
 function shortAccountName(path: string): string {
   const parts = path.split(':')
@@ -69,9 +78,38 @@ function formatAmount(amt: Decimal): string {
   return `${sign}${formatted}.${decPart}`
 }
 
+const COMMODITY_SYMBOLS: Record<string, string> = {
+  CNY: '¥',
+  USD: '$',
+  EUR: '€',
+  GBP: '£',
+  JPY: '¥',
+  HKD: 'HK$',
+}
+
+/** 多币种时金额前缀：优先商品符号，未知回退主币种代码 */
+function commodityPrefix(code: string): string {
+  const dto = commodityStore.commodities.find(c => c.symbol === code || c.name === code)
+  const dtoCode = dto?.symbol ?? code
+  return COMMODITY_SYMBOLS[dtoCode] ?? dtoCode
+}
+
+/** 折叠态金额：单币种无前缀；多币种带主币种前缀 */
+const displayAmount = computed(() => {
+  const prefix = multiCurrency.value ? commodityPrefix(primaryCommodity.value) : ''
+  const sign = amount.value.gt(0) ? '+' : ''
+  const body = formatAmount(amount.value)
+  const refund = isRefund()
+  return { prefix, sign, body, refund }
+})
+
 function isRefund(): boolean {
   return props.tx.kind === 'refund'
 }
+
+const hasDescription = computed(() => (props.tx.description ?? '').trim().length > 0)
+
+const refundPrefix = computed(() => (isRefund() ? t('txCard.refundPrefix') : ''))
 
 let touchStartX = 0
 let touchStartY = 0
@@ -103,38 +141,48 @@ function onDblClick() {
 <template>
   <div
     class="tx-card"
+    :class="{ pending: tx.pending }"
     @click="toggleExpand"
     @dblclick="onDblClick"
     @touchstart="onTouchStart"
     @touchend="onTouchEnd"
   >
-    <div class="tx-top">
-      <span v-if="isTransfer() && !isPureImport()" class="transfer-label">{{
-        t('txCard.transfer')
-      }}</span>
-      <span v-else-if="!isPureImport()" class="ie-accounts">{{
-        getIncomeExpenseAccounts().join(' ')
-      }}</span>
-      <span v-if="tx.member_name" class="tx-member">{{ tx.member_name }}</span>
-      <div v-if="tx.tags.length" class="tags">
+    <!-- 描述非空：两行锚定 -->
+    <template v-if="hasDescription">
+      <div class="row-main">
+        <span class="title" :class="{ refund: refundPrefix }"
+          >{{ refundPrefix }}{{ tx.description }}</span
+        >
+        <span
+          class="amount"
+          :class="{ refund: displayAmount.refund, 'amount-positive': amount.gt(0) }"
+          >{{ displayAmount.prefix }}{{ displayAmount.sign }}{{ displayAmount.body }}</span
+        >
+      </div>
+      <div class="row-sub">
+        <span v-if="tx.member_name" class="member">{{ tx.member_name }}</span>
+        <span class="summary">{{ summary }}</span>
+        <span v-if="multiCurrency && secondaryCommodity" class="currency">{{
+          secondaryCommodity
+        }}</span>
         <span v-for="tag in tx.tags" :key="tag" class="tag">{{ tag }}</span>
+        <span class="expand-indicator">{{ expanded ? '▲' : '▼' }}</span>
       </div>
-      <span class="expand-indicator">{{ expanded ? '▲' : '▼' }}</span>
-    </div>
-    <div class="tx-middle">
-      <span class="tx-name" :class="{ refund: isRefund() }">
-        {{ isRefund() ? t('txCard.refundPrefix') : '' }}{{ tx.description || '' }}
-      </span>
-      <div
-        v-if="!isPureImport()"
-        class="tx-amount"
-        :class="{ refund: isRefund(), positive: amount.gt(0) }"
+    </template>
+    <!-- 描述为空：单行合并，摘要充当主标题 -->
+    <div v-else class="row-main merged">
+      <span v-if="tx.member_name" class="member">{{ tx.member_name }}</span>
+      <span class="title" :class="{ refund: refundPrefix }">{{ refundPrefix }}{{ summary }}</span>
+      <span v-if="multiCurrency && secondaryCommodity" class="currency">{{
+        secondaryCommodity
+      }}</span>
+      <span v-for="tag in tx.tags" :key="tag" class="tag">{{ tag }}</span>
+      <span
+        class="amount"
+        :class="{ refund: displayAmount.refund, 'amount-positive': amount.gt(0) }"
+        >{{ displayAmount.prefix }}{{ displayAmount.sign }}{{ displayAmount.body }}</span
       >
-        <span v-if="amount.gt(0)">+</span>¥{{ formatAmount(amount) }}
-      </div>
-    </div>
-    <div v-if="!isPureImport()" class="tx-bottom">
-      <span class="asset-accounts">{{ getAssetAccounts().join(' ') }}</span>
+      <span class="expand-indicator">{{ expanded ? '▲' : '▼' }}</span>
     </div>
     <Transition name="expand">
       <div v-if="expanded" class="tx-entries">
@@ -174,36 +222,83 @@ function onDblClick() {
   border-bottom: none;
 }
 
-.tx-top {
+/* 待分类：琥珀左→右渐变，容器级标识，文字保持原色 */
+.tx-card.pending {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0) 65%);
+}
+
+.row-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.row-main.merged {
+  gap: 0.5rem;
+}
+
+.row-sub {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
-.ie-accounts {
+.title {
+  flex: 1;
+  min-width: 0;
   color: var(--text-heading);
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 单行合并时主标题退缩回内容宽度，避免把金额/标签挤向右缘 */
+.row-main.merged .title {
+  flex: 0 1 auto;
+}
+
+.title.refund {
+  color: var(--text-muted);
+}
+
+.amount {
+  color: var(--color-expense);
   font-weight: 500;
+  font-size: 0.9375rem;
+  white-space: nowrap;
+  text-align: right;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
-.transfer-label {
+.amount.refund {
+  color: var(--text-muted);
+}
+
+.amount-positive {
+  color: var(--color-income);
+}
+
+.member {
   color: var(--text-muted);
   font-size: 0.75rem;
-  background: var(--border);
-  padding: 0.125rem 0.5rem;
-  border-radius: 0.25rem;
+  flex-shrink: 0;
 }
 
-.tx-member {
+.summary {
   color: var(--text-muted);
   font-size: 0.75rem;
+  flex-shrink: 0;
 }
 
-.tags {
-  display: flex;
-  gap: 0.25rem;
-  flex-wrap: wrap;
+.currency {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  flex-shrink: 0;
 }
 
 .tag {
@@ -213,60 +308,17 @@ function onDblClick() {
   border-radius: 0.25rem;
   padding: 0 0.375rem;
   line-height: 1.4;
-}
-
-.tx-middle {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.tx-name {
-  flex: 1;
-  color: var(--text-heading);
-  font-size: 0.875rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.tx-name.refund {
-  color: var(--text-muted);
-}
-
-.tx-amount {
-  color: var(--color-expense);
-  font-weight: 500;
-  font-size: 0.9375rem;
-  white-space: nowrap;
-  text-align: right;
-}
-
-.tx-amount.positive {
-  color: var(--color-income);
-}
-
-.tx-amount.refund {
-  color: var(--text-muted);
-}
-
-.tx-bottom {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.asset-accounts {
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  text-align: right;
+  flex-shrink: 0;
 }
 
 .expand-indicator {
-  margin-left: auto;
   color: var(--text-muted);
   font-size: 0.75rem;
   flex-shrink: 0;
+}
+
+.row-sub .expand-indicator {
+  margin-left: auto;
 }
 
 .tx-entries {

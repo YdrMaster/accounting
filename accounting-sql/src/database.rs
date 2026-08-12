@@ -690,6 +690,18 @@ impl SqliteDatabase {
         crate::repo::tag::tag_names_by_transactions(&mut conn, transaction_ids, lang).await
     }
 
+    /// 批量取交易-标签 ID 关联，用于系统标签（如 pending）按 ID 判定。
+    pub async fn tag_ids_by_transactions(
+        &self,
+        transaction_ids: &[accounting::id::TransactionId],
+    ) -> Result<
+        std::collections::HashMap<accounting::id::TransactionId, Vec<accounting::id::TagId>>,
+        DbError,
+    > {
+        let mut conn = self.acquire().await?;
+        crate::repo::tag::tag_ids_by_transactions(&mut conn, transaction_ids).await
+    }
+
     // === Attachment ===
 
     pub async fn attachment_create(

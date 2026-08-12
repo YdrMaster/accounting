@@ -5,7 +5,7 @@ use crate::handlers::{Lang, member::AppState};
 use accounting::channel_path::ChannelPathNode;
 use accounting::datetime_utils;
 use accounting::error::AccountingError;
-use accounting::id::{AccountId, ChannelId, MemberId, PostingId, TransactionId};
+use accounting::id::{AccountId, ChannelId, MemberId, PostingId, TagId, TransactionId};
 use accounting::posting::Posting;
 use accounting::transaction::Transaction;
 use accounting::transaction_filter::TransactionFilter;
@@ -247,6 +247,11 @@ async fn list_transactions(
         .tag_names_by_transactions(&tx_ids, &lang)
         .await
         .map_err(|e| e.to_string())?;
+    let tag_ids_map = db
+        .tag_ids_by_transactions(&tx_ids)
+        .await
+        .map_err(|e| e.to_string())?;
+    let pending_id = pending_tag_id(db).await?;
 
     let dtos: Vec<TransactionDto> = transactions
         .into_iter()
@@ -268,6 +273,7 @@ async fn list_transactions(
                 .cloned()
                 .unwrap_or_default(),
             tags: tag_map.get(&tx.id).cloned().unwrap_or_default(),
+            pending: tx_has_pending(tag_ids_map.get(&tx.id), pending_id),
             channel_paths: channel_paths
                 .into_iter()
                 .map(|n| ChannelPathNodeDto {
@@ -316,6 +322,23 @@ fn posting_to_dto(p: Posting, ctx: &DisplayContext) -> PostingDto {
         is_reimbursable: p.is_reimbursable,
         linked_posting_id: p.linked_posting_id.map(|id| id.0),
         reversal_total: p.reversal_total.to_string(),
+    }
+}
+
+/// 解析系统待处理（pending）标签 ID；系统标签不存在时返回 None（此时各交易恒非 pending）。
+async fn pending_tag_id(db: &accounting_sql::SqliteDatabase) -> Result<Option<TagId>, String> {
+    Ok(db
+        .tag_get_by_name("pending")
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|t| t.id))
+}
+
+/// 交易是否已附加系统待处理标签（按标签 ID 判定，规避显示名随界面语言漂移）。
+fn tx_has_pending(tag_ids: Option<&Vec<TagId>>, pending_id: Option<TagId>) -> bool {
+    match (tag_ids, pending_id) {
+        (Some(ids), Some(pid)) => ids.contains(&pid),
+        _ => false,
     }
 }
 
@@ -477,6 +500,11 @@ async fn get_transaction(
         .tag_names_by_transactions(&[tx.id], &lang)
         .await
         .map_err(|e| e.to_string())?;
+    let tag_ids_map = db
+        .tag_ids_by_transactions(&[tx.id])
+        .await
+        .map_err(|e| e.to_string())?;
+    let pending_id = pending_tag_id(db).await?;
 
     let posting_dtos: Vec<PostingDto> = postings
         .into_iter()
@@ -499,6 +527,7 @@ async fn get_transaction(
             .cloned()
             .unwrap_or_default(),
         tags: tag_map.get(&tx.id).cloned().unwrap_or_default(),
+        pending: tx_has_pending(tag_ids_map.get(&tx.id), pending_id),
         channel_paths: channel_paths
             .into_iter()
             .map(|n| ChannelPathNodeDto {
@@ -668,4 +697,160 @@ pub fn router() -> Router<Arc<AppState>> {
             "/api/channel-paths/{id}/reconcile",
             put(reconcile_channel_path),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use accounting::id::CommodityId;
+    use accounting::transaction::TransactionKind;
+    use accounting_sql::SqliteDatabase;
+    use chrono::NaiveDateTime;
+    use rust_decimal::prelude::FromStr;
+
+    async fn setup() -> Arc<AppState> {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize().await.unwrap();
+        Arc::new(AppState { db })
+    }
+
+    async fn account_id(state: &Arc<AppState>, name: &str) -> i64 {
+        state
+            .db()
+            .account_get_by_name(name)
+            .await
+            .unwrap()
+            .unwrap()
+            .id
+            .0
+    }
+
+    /// 创建一笔 35.00 的普通支出（Fees → Cash），可附加指定标签。
+    async fn create_expense(state: &Arc<AppState>, tag_ids: Vec<TagId>) -> i64 {
+        let service = TransactionService::new(state.db().clone());
+        let member_id = state
+            .db()
+            .member_get_or_create_by_name("测试用户", "zh-CN")
+            .await
+            .unwrap();
+        let fees = AccountId(account_id(state, "Expenses:Fees").await);
+        let cash = AccountId(account_id(state, "Assets:Cash").await);
+        let cny = CommodityId(
+            state
+                .db()
+                .commodity_list()
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|c| c.symbol == "CNY")
+                .expect("seed 应包含 CNY 商品")
+                .id
+                .0,
+        );
+        let tx = Transaction {
+            id: TransactionId(0),
+            date_time: NaiveDateTime::parse_from_str("2026-01-01T12:00:00", "%Y-%m-%dT%H:%M:%S")
+                .unwrap(),
+            description: "午餐".to_string(),
+            kind: TransactionKind::Normal,
+            member_id,
+        };
+        let postings = vec![
+            Posting {
+                id: PostingId(0),
+                transaction_id: TransactionId(0),
+                account_id: fees,
+                commodity_id: cny,
+                amount: Decimal::from_str("35.00").unwrap(),
+                cost: None,
+                cost_commodity_id: None,
+                is_reimbursable: false,
+                linked_posting_id: None,
+                reversal_total: Decimal::ZERO,
+            },
+            Posting {
+                id: PostingId(0),
+                transaction_id: TransactionId(0),
+                account_id: cash,
+                commodity_id: cny,
+                amount: Decimal::from_str("-35.00").unwrap(),
+                cost: None,
+                cost_commodity_id: None,
+                is_reimbursable: false,
+                linked_posting_id: None,
+                reversal_total: Decimal::ZERO,
+            },
+        ];
+        service
+            .submit(tx, postings, tag_ids, vec![])
+            .await
+            .unwrap()
+            .0
+    }
+
+    #[tokio::test]
+    async fn list_transactions_marks_system_pending_tag() {
+        let state = setup().await;
+        let pending_tag_id = state
+            .db()
+            .tag_get_by_name("pending")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+
+        let normal_id = create_expense(&state, vec![]).await;
+        let pending_id = create_expense(&state, vec![pending_tag_id]).await;
+
+        let Json(dtos) = list_transactions(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Query(Vec::<(String, String)>::new()),
+        )
+        .await
+        .unwrap();
+
+        let normal = dtos.iter().find(|d| d.id == normal_id).unwrap();
+        let pending = dtos.iter().find(|d| d.id == pending_id).unwrap();
+        assert!(!normal.pending, "无 pending 标签的交易应为 pending=false");
+        assert!(
+            pending.pending,
+            "带系统 pending 标签的交易应为 pending=true"
+        );
+        assert_eq!(normal.tags.len(), 0);
+        assert!(pending.tags.contains(&"pending".to_string()));
+    }
+
+    #[tokio::test]
+    async fn get_transaction_marks_system_pending_tag() {
+        let state = setup().await;
+        let pending_tag_id = state
+            .db()
+            .tag_get_by_name("pending")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+
+        let normal_id = create_expense(&state, vec![]).await;
+        let pending_id = create_expense(&state, vec![pending_tag_id]).await;
+
+        let Json(normal) = get_transaction(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(normal_id),
+        )
+        .await
+        .unwrap();
+        let Json(pending) = get_transaction(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Path(pending_id),
+        )
+        .await
+        .unwrap();
+
+        assert!(!normal.pending);
+        assert!(pending.pending);
+    }
 }

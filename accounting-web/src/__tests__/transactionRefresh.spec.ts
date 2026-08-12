@@ -34,6 +34,7 @@ function makeTx(id: number, date: string): TransactionDto {
     member_id: 1,
     member_name: 'm',
     tags: [],
+    pending: false,
     channel_paths: [],
     postings: [],
   }

@@ -11,11 +11,7 @@ import {
 } from '../api/client'
 import { useAccountStore } from '../stores/account'
 import { useBudgetStore } from '../stores/budget'
-import {
-  dataVersion,
-  notifyAccountsChanged,
-  notifyTransactionsChanged,
-} from '../stores/refresh'
+import { dataVersion, notifyAccountsChanged, notifyTransactionsChanged } from '../stores/refresh'
 import { useReportStore } from '../stores/report'
 import { useSavingPlanStore } from '../stores/savingPlan'
 import { useTransactionStore } from '../stores/transaction'
@@ -55,6 +51,7 @@ function makeTx(id: number, date: string): TransactionDto {
     member_id: 1,
     member_name: 'm',
     tags: [],
+    pending: false,
     channel_paths: [],
     postings: [],
   }

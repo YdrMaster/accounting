@@ -125,6 +125,8 @@ pub struct TransactionDto {
     pub member_name: String,
     /// 标签名称列表。
     pub tags: Vec<String>,
+    /// 是否已附加系统待处理（pending）标签。
+    pub pending: bool,
     /// 渠道链路节点列表。
     pub channel_paths: Vec<ChannelPathNodeDto>,
     /// 分录列表。

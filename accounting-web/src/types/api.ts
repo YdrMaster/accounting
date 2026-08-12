@@ -26,6 +26,7 @@ export interface TransactionDto {
   member_id: number
   member_name: string
   tags: string[]
+  pending: boolean
   channel_paths: ChannelPathNodeDto[]
   postings: PostingDto[]
 }

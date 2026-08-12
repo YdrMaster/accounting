@@ -2,39 +2,9 @@
 
 ## Purpose
 
-交易分录展开显示功能——定义账单列表页中交易卡片的展示与交互规则。支持检测纯导入账单并简化其显示内容，点击卡片可展开/折叠完整分录列表（带平滑动画），并提供双击、左滑编辑与右滑删除等手势入口，改善账单浏览与操作体验。
+交易分录展开显示功能——定义账单列表页中交易卡片的展开与交互规则。点击卡片可展开/折叠完整分录列表（带平滑动画），并提供双击、左滑编辑与右滑删除等手势入口，改善账单浏览与操作体验。卡片折叠态的展示口径见 `transaction-list-ui`（含待分类交易标识）。
 
 ## Requirements
-
-### Requirement: 纯导入账单检测
-系统 SHALL 提供 `isPureImport(tx)` 检测函数，当账单的所有分录的账户路径都包含 `:Import:` 段时返回 true。
-
-#### Scenario: 纯导入账单
-- **WHEN** 账单的所有分录账户路径都包含 `:Import:`
-- **THEN** `isPureImport(tx)` 返回 true
-
-#### Scenario: 正常账单
-- **WHEN** 账单至少有一个分录的账户路径不包含 `:Import:`
-- **THEN** `isPureImport(tx)` 返回 false
-
-### Requirement: 纯导入账单显示
-对于纯导入账单，UI SHALL 隐藏收支账户名称、金额显示和资产账户名称，仅保留备注（description）、成员（member_name）和标签（tags）。
-
-#### Scenario: 纯导入账单不显示金额
-- **WHEN** 账单被判定为纯导入账单
-- **THEN** 不显示 tx-amount 区域（金额显示为 ¥0.00 的部分）
-
-#### Scenario: 纯导入账单不显示收支账户
-- **WHEN** 账单被判定为纯导入账单
-- **THEN** 不显示 tx-top 中的收支账户名称（ie-accounts）
-
-#### Scenario: 纯导入账单不显示资产账户
-- **WHEN** 账单被判定为纯导入账单
-- **THEN** 不显示 tx-bottom 中的资产账户名称（asset-accounts）
-
-#### Scenario: 纯导入账单保留基本信息
-- **WHEN** 账单被判定为纯导入账单
-- **THEN** 仍然显示 description、member_name 和 tags
 
 ### Requirement: 分录展开显示
 所有账单 SHALL 支持点击展开查看完整分录列表，并支持通过双击或滑动手势触发编辑和删除操作。分录列表直接展示分录条目，不显示"分录："标题行。
