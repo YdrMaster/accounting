@@ -117,164 +117,188 @@ impl TxCmd {
         lang: &str,
     ) -> Result<(), AccountingError> {
         match self {
-            Self::Add(args) => {
-                // 解析参数并提交新交易
-                let (tx, postings, tag_ids, channel_path_nodes) = parse_tx_args(args, &db).await?;
-                let service = accounting_service::transaction_service::TransactionService::new(db);
-                let id = service
-                    .submit(tx, postings, tag_ids, channel_path_nodes)
-                    .await?;
-                print_line(&format!("{}", t!("tx_created", id = id.0)), format);
-            }
-            Self::List(args) => {
-                // 构建过滤条件并查询交易列表
-                let limit = args.limit;
-                let offset = args.offset;
-                let filter = build_filter(&args, &db).await?;
-                let service =
-                    accounting_service::transaction_service::TransactionService::new(db.clone());
-                let results = service.list(filter, limit, offset).await?;
-                let channel_names = channel_name_map(&db, lang).await?;
-                let rows: Vec<TransactionRow> = results
-                    .iter()
-                    .map(|(t, _, channel_paths)| {
-                        let mut row: TransactionRow = t.into();
-                        row.channel_paths = channel_paths
-                            .iter()
-                            .map(|n| ChannelPathRow {
-                                position: n.position,
-                                channel: channel_names
-                                    .get(&n.channel_id)
-                                    .cloned()
-                                    .unwrap_or_else(|| n.channel_id.0.to_string()),
-                                status: n.status.as_str().to_string(),
-                            })
-                            .collect();
-                        row
-                    })
-                    .collect();
-                print_vec(&rows, format);
-            }
-            Self::Show(args) => {
-                // 查询单笔交易详情并打印交易与分录及链路
-                let service =
-                    accounting_service::transaction_service::TransactionService::new(db.clone());
-                let result = service.get(TransactionId(args.id)).await?;
-                match result {
-                    Some((tx, postings, channel_paths)) => {
-                        let channel_names = channel_name_map(&db, lang).await?;
-                        let mut tx_row: TransactionRow = (&tx).into();
-                        tx_row.channel_paths = channel_paths
-                            .iter()
-                            .map(|n| ChannelPathRow {
-                                position: n.position,
-                                channel: channel_names
-                                    .get(&n.channel_id)
-                                    .cloned()
-                                    .unwrap_or_else(|| n.channel_id.0.to_string()),
-                                status: n.status.as_str().to_string(),
-                            })
-                            .collect();
-                        output_print(&tx_row, format);
-                        if !channel_paths.is_empty() {
-                            print_vec(
-                                &channel_paths
-                                    .iter()
-                                    .map(|n| ChannelPathRow {
-                                        position: n.position,
-                                        channel: channel_names
-                                            .get(&n.channel_id)
-                                            .cloned()
-                                            .unwrap_or_else(|| n.channel_id.0.to_string()),
-                                        status: n.status.as_str().to_string(),
-                                    })
-                                    .collect::<Vec<_>>(),
-                                format,
-                            );
-                        }
-                        if !postings.is_empty() {
-                            let posting_rows: Vec<PostingRow> =
-                                postings.iter().map(|p| p.into()).collect();
-                            print_vec(&posting_rows, format);
-                        }
-                    }
-                    None => print_line(&format!("{}", t!("tx_not_found", id = args.id)), format),
-                }
-            }
-            Self::Delete(args) => {
-                // 删除指定交易
-                let service = accounting_service::transaction_service::TransactionService::new(db);
-                service.delete(TransactionId(args.id)).await?;
-                print_line(&format!("{}", t!("tx_deleted", id = args.id)), format);
-            }
-            Self::Update(args) => {
-                // 解析更新参数并执行全量替换
-                let id = args.id;
-                let (mut tx, postings, tag_ids, channel_path_nodes) =
-                    parse_tx_args_for_update(&args, &db).await?;
-                tx.id = TransactionId(id);
-                let service = accounting_service::transaction_service::TransactionService::new(db);
-                service
-                    .update(tx, postings, tag_ids, channel_path_nodes)
-                    .await?;
-                print_line(&format!("{}", t!("tx_updated", id = id)), format);
-            }
-            Self::Reconcile(args) => {
-                // 对账标记：默认设为 verified，--unset 时回到 default
-                let status = if args.unset {
-                    ChannelPathStatus::Default
-                } else {
-                    ChannelPathStatus::Verified
-                };
-                let (channel_name, _) = parse_channel_status(&args.channel);
-                let channel_id = resolve_channel(&db, channel_name).await?;
-                let tx_id = TransactionId(args.tx_id);
+            Self::Add(args) => run_add(db, args, format).await,
+            Self::List(args) => run_list(&db, args, format, lang).await,
+            Self::Show(args) => run_show(&db, args, format, lang).await,
+            Self::Delete(args) => run_delete(db, args, format).await,
+            Self::Update(args) => run_update(db, args, format).await,
+            Self::Reconcile(args) => run_reconcile(&db, args, format).await,
+        }
+    }
+}
 
-                // 确认交易存在
-                let service =
-                    accounting_service::transaction_service::TransactionService::new(db.clone());
-                if service.get(tx_id).await?.is_none() {
-                    return Err(AccountingError::InvalidTransaction(format!(
-                        "{}",
-                        t!("tx_not_found", id = args.tx_id)
-                    )));
-                }
+async fn run_add(
+    db: SqliteDatabase,
+    args: TxAddArgs,
+    format: OutputFormat,
+) -> Result<(), AccountingError> {
+    // 解析参数并提交新交易
+    let (tx, postings, tag_ids, channel_path_nodes) = parse_tx_args(args, &db).await?;
+    let service = accounting_service::transaction_service::TransactionService::new(db);
+    let id = service
+        .submit(tx, postings, tag_ids, channel_path_nodes)
+        .await?;
+    print_line(&format!("{}", t!("tx_created", id = id.0)), format);
+    Ok(())
+}
 
-                let updated = service
-                    .update_channel_status_by_tx_and_channel(tx_id, channel_id, status)
-                    .await?;
-                if updated == 0 {
-                    print_line(
-                        &format!(
-                            "{}",
-                            t!(
-                                "reconcile_no_channel",
-                                tx_id = args.tx_id,
-                                channel = channel_name
-                            )
-                        ),
-                        format,
-                    );
-                } else {
-                    let msg = if args.unset {
-                        t!(
-                            "reconcile_unset",
-                            tx_id = args.tx_id,
-                            channel = channel_name
-                        )
-                    } else {
-                        t!(
-                            "reconcile_marked",
-                            tx_id = args.tx_id,
-                            channel = channel_name
-                        )
-                    };
-                    print_line(msg.as_ref(), format);
-                }
+async fn run_list(
+    db: &SqliteDatabase,
+    args: TxListArgs,
+    format: OutputFormat,
+    lang: &str,
+) -> Result<(), AccountingError> {
+    // 构建过滤条件并查询交易列表
+    let limit = args.limit;
+    let offset = args.offset;
+    let filter = build_filter(&args, db).await?;
+    let service = accounting_service::transaction_service::TransactionService::new(db.clone());
+    let results = service.list(filter, limit, offset).await?;
+    let channel_names = channel_name_map(db, lang).await?;
+    let rows: Vec<TransactionRow> = results
+        .iter()
+        .map(|(t, _, channel_paths)| {
+            let mut row: TransactionRow = t.into();
+            row.channel_paths = channel_path_rows(channel_paths, &channel_names);
+            row
+        })
+        .collect();
+    print_vec(&rows, format);
+    Ok(())
+}
+
+async fn run_show(
+    db: &SqliteDatabase,
+    args: TxShowArgs,
+    format: OutputFormat,
+    lang: &str,
+) -> Result<(), AccountingError> {
+    // 查询单笔交易详情并打印交易与分录及链路
+    let service = accounting_service::transaction_service::TransactionService::new(db.clone());
+    let result = service.get(TransactionId(args.id)).await?;
+    match result {
+        Some((tx, postings, channel_paths)) => {
+            let channel_names = channel_name_map(db, lang).await?;
+            let mut tx_row: TransactionRow = (&tx).into();
+            tx_row.channel_paths = channel_path_rows(&channel_paths, &channel_names);
+            output_print(&tx_row, format);
+            if !channel_paths.is_empty() {
+                print_vec(&channel_path_rows(&channel_paths, &channel_names), format);
+            }
+            if !postings.is_empty() {
+                let posting_rows: Vec<PostingRow> = postings.iter().map(|p| p.into()).collect();
+                print_vec(&posting_rows, format);
             }
         }
-        Ok(())
+        None => print_line(&format!("{}", t!("tx_not_found", id = args.id)), format),
     }
+    Ok(())
+}
+
+async fn run_delete(
+    db: SqliteDatabase,
+    args: TxDeleteArgs,
+    format: OutputFormat,
+) -> Result<(), AccountingError> {
+    // 删除指定交易
+    let service = accounting_service::transaction_service::TransactionService::new(db);
+    service.delete(TransactionId(args.id)).await?;
+    print_line(&format!("{}", t!("tx_deleted", id = args.id)), format);
+    Ok(())
+}
+
+async fn run_update(
+    db: SqliteDatabase,
+    args: TxUpdateArgs,
+    format: OutputFormat,
+) -> Result<(), AccountingError> {
+    // 解析更新参数并执行全量替换
+    let id = args.id;
+    let (mut tx, postings, tag_ids, channel_path_nodes) =
+        parse_tx_args_for_update(&args, &db).await?;
+    tx.id = TransactionId(id);
+    let service = accounting_service::transaction_service::TransactionService::new(db);
+    service
+        .update(tx, postings, tag_ids, channel_path_nodes)
+        .await?;
+    print_line(&format!("{}", t!("tx_updated", id = id)), format);
+    Ok(())
+}
+
+async fn run_reconcile(
+    db: &SqliteDatabase,
+    args: TxReconcileArgs,
+    format: OutputFormat,
+) -> Result<(), AccountingError> {
+    // 对账标记：默认设为 verified，--unset 时回到 default
+    let status = if args.unset {
+        ChannelPathStatus::Default
+    } else {
+        ChannelPathStatus::Verified
+    };
+    let (channel_name, _) = parse_channel_status(&args.channel);
+    let channel_id = resolve_channel(db, channel_name).await?;
+    let tx_id = TransactionId(args.tx_id);
+
+    // 确认交易存在
+    let service = accounting_service::transaction_service::TransactionService::new(db.clone());
+    if service.get(tx_id).await?.is_none() {
+        return Err(AccountingError::InvalidTransaction(format!(
+            "{}",
+            t!("tx_not_found", id = args.tx_id)
+        )));
+    }
+
+    let updated = service
+        .update_channel_status_by_tx_and_channel(tx_id, channel_id, status)
+        .await?;
+    if updated == 0 {
+        print_line(
+            &format!(
+                "{}",
+                t!(
+                    "reconcile_no_channel",
+                    tx_id = args.tx_id,
+                    channel = channel_name
+                )
+            ),
+            format,
+        );
+    } else {
+        let msg = if args.unset {
+            t!(
+                "reconcile_unset",
+                tx_id = args.tx_id,
+                channel = channel_name
+            )
+        } else {
+            t!(
+                "reconcile_marked",
+                tx_id = args.tx_id,
+                channel = channel_name
+            )
+        };
+        print_line(msg.as_ref(), format);
+    }
+    Ok(())
+}
+
+/// 链路节点转显示行：渠道名取批量解析结果，未知名回退原始 ID
+fn channel_path_rows(
+    nodes: &[ChannelPathNode],
+    channel_names: &HashMap<ChannelId, String>,
+) -> Vec<ChannelPathRow> {
+    nodes
+        .iter()
+        .map(|n| ChannelPathRow {
+            position: n.position,
+            channel: channel_names
+                .get(&n.channel_id)
+                .cloned()
+                .unwrap_or_else(|| n.channel_id.0.to_string()),
+            status: n.status.as_str().to_string(),
+        })
+        .collect()
 }
 
 /// 链路节点行（CLI 显示用）

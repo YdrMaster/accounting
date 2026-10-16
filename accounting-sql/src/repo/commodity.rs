@@ -5,6 +5,19 @@ use crate::names::COMMODITY_NAMES;
 use accounting::commodity::Commodity;
 use accounting::id::CommodityId;
 
+/// 查询单个商品的精度（商品必须存在，缺失时由 sqlx 报 RowNotFound）
+pub(crate) async fn commodity_precision(
+    conn: &mut SqliteConnection,
+    commodity_id: CommodityId,
+) -> Result<u8, DbError> {
+    let precision: i64 = sqlx::query_scalar("SELECT precision FROM commodities WHERE id = ?1")
+        .bind(commodity_id.0)
+        .fetch_one(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(precision as u8)
+}
+
 #[derive(FromRow)]
 struct CommodityRow {
     id: i64,

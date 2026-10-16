@@ -5,7 +5,11 @@ use crate::dto::{
     SavingPlanStatusDto, UpdateSavingPlanRequest, parse_deadline, parse_period_opt,
     period_to_string,
 };
-use crate::handlers::{Lang, member::AppState};
+use crate::handlers::{
+    Lang,
+    common::{ApiError, StatusDateQuery, parse_status_date},
+    member::AppState,
+};
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, CommodityId, SavingPlanId};
 use accounting::saving_plan::SavingPlanError;
@@ -22,21 +26,15 @@ use serde::Serialize;
 use std::str::FromStr;
 use std::sync::Arc;
 
-/// API 错误响应
-#[derive(Serialize)]
-struct ApiError {
-    error: String,
-}
-
 /// 攒钱计划 API 响应（支持不同 HTTP 状态码）
-enum SavingPlanResponse {
-    Created(Json<SavingPlanDto>),
-    Ok(Json<serde_json::Value>),
+enum SavingPlanResponse<T: Serialize> {
+    Created(Json<T>),
+    Ok(Json<T>),
     NotFound(String),
     BadRequest(String),
 }
 
-impl axum::response::IntoResponse for SavingPlanResponse {
+impl<T: Serialize> axum::response::IntoResponse for SavingPlanResponse<T> {
     fn into_response(self) -> axum::response::Response {
         match self {
             Self::Created(json) => (StatusCode::CREATED, json).into_response(),
@@ -51,7 +49,7 @@ impl axum::response::IntoResponse for SavingPlanResponse {
     }
 }
 
-fn map_error(e: AccountingError) -> SavingPlanResponse {
+fn map_error<T: Serialize>(e: AccountingError) -> SavingPlanResponse<T> {
     let msg = e.to_string();
     // 状态码按错误变体判定，不依赖本地化字面量
     if matches!(
@@ -78,12 +76,6 @@ fn plan_to_dto(
         target_amount: p.target_amount.to_string(),
         account_ids,
     }
-}
-
-/// 攒钱计划状态查询参数
-#[derive(serde::Deserialize)]
-pub struct SavingPlanStatusQuery {
-    pub date: Option<String>,
 }
 
 /// 批量解析攒钱计划显示名
@@ -130,7 +122,7 @@ fn parse_request(
 async fn list_saving_plans(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
-) -> SavingPlanResponse {
+) -> SavingPlanResponse<Vec<SavingPlanDto>> {
     let service = SavingPlanService::new(state.db.clone());
     match service.list_saving_plans().await {
         Ok(plans) => {
@@ -151,7 +143,7 @@ async fn list_saving_plans(
                     accounts.iter().map(|a| a.account_id.0).collect(),
                 ));
             }
-            SavingPlanResponse::Ok(Json(serde_json::to_value(dtos).unwrap()))
+            SavingPlanResponse::Ok(Json(dtos))
         }
         Err(e) => map_error(e),
     }
@@ -162,7 +154,7 @@ async fn create_saving_plan(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Json(req): Json<CreateSavingPlanRequest>,
-) -> SavingPlanResponse {
+) -> SavingPlanResponse<SavingPlanDto> {
     let parsed = match parse_request(
         req.period.as_deref(),
         req.deadline.as_deref(),
@@ -214,7 +206,7 @@ async fn get_saving_plan_detail(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Path(id): Path<i64>,
-) -> SavingPlanResponse {
+) -> SavingPlanResponse<SavingPlanDetailDto> {
     let service = SavingPlanService::new(state.db.clone());
     match service.get_saving_plan_detail(SavingPlanId(id)).await {
         Ok(detail) => {
@@ -231,7 +223,7 @@ async fn get_saving_plan_detail(
                 ),
                 account_ids,
             };
-            SavingPlanResponse::Ok(Json(serde_json::to_value(dto).unwrap()))
+            SavingPlanResponse::Ok(Json(dto))
         }
         Err(e) => map_error(e),
     }
@@ -243,7 +235,7 @@ async fn update_saving_plan(
     Lang(lang): Lang,
     Path(id): Path<i64>,
     Json(req): Json<UpdateSavingPlanRequest>,
-) -> SavingPlanResponse {
+) -> SavingPlanResponse<SavingPlanDto> {
     let parsed = match parse_request(
         req.period.as_deref(),
         req.deadline.as_deref(),
@@ -285,7 +277,7 @@ async fn update_saving_plan(
                 target_amount: target.to_string(),
                 account_ids: account_ids.iter().map(|a| a.0).collect(),
             };
-            SavingPlanResponse::Ok(Json(serde_json::to_value(dto).unwrap()))
+            SavingPlanResponse::Ok(Json(dto))
         }
         Err(e) => map_error(e),
     }
@@ -295,7 +287,7 @@ async fn update_saving_plan(
 async fn delete_saving_plan(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> SavingPlanResponse {
+) -> SavingPlanResponse<serde_json::Value> {
     let service = SavingPlanService::new(state.db.clone());
     // 先确认存在，保持与详情/更新一致的 404 语义
     match service.get_saving_plan_detail(SavingPlanId(id)).await {
@@ -339,26 +331,14 @@ fn status_to_dto(
     }
 }
 
-/// 解析状态查询的 date 参数（缺省当天；格式无效返回错误信息）
-fn parse_status_date(
-    query: &SavingPlanStatusQuery,
-    lang: &str,
-) -> Result<chrono::NaiveDate, String> {
-    match query.date {
-        Some(ref d) => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d")
-            .map_err(|e| t!("err_invalid_date", locale = lang, error = e).to_string()),
-        None => Ok(chrono::Local::now().date_naive()),
-    }
-}
-
 /// 查询攒钱计划状态
 async fn get_saving_plan_status(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Path(id): Path<i64>,
-    Query(query): Query<SavingPlanStatusQuery>,
-) -> SavingPlanResponse {
-    let date = match parse_status_date(&query, &lang) {
+    Query(query): Query<StatusDateQuery>,
+) -> SavingPlanResponse<SavingPlanStatusDto> {
+    let date = match parse_status_date(query.date.as_deref(), &lang) {
         Ok(d) => d,
         Err(e) => return SavingPlanResponse::BadRequest(e),
     };
@@ -379,7 +359,7 @@ async fn get_saving_plan_status(
                 names.get(&status.plan.id).cloned().unwrap_or_default(),
                 account_ids,
             );
-            SavingPlanResponse::Ok(Json(serde_json::to_value(dto).unwrap()))
+            SavingPlanResponse::Ok(Json(dto))
         }
         Err(e) => map_error(e),
     }
@@ -391,9 +371,9 @@ async fn get_saving_plan_status(
 async fn list_saving_plan_statuses(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
-    Query(query): Query<SavingPlanStatusQuery>,
-) -> SavingPlanResponse {
-    let date = match parse_status_date(&query, &lang) {
+    Query(query): Query<StatusDateQuery>,
+) -> SavingPlanResponse<Vec<SavingPlanStatusDto>> {
+    let date = match parse_status_date(query.date.as_deref(), &lang) {
         Ok(d) => d,
         Err(e) => return SavingPlanResponse::BadRequest(e),
     };
@@ -418,7 +398,7 @@ async fn list_saving_plan_statuses(
                     account_ids,
                 ));
             }
-            SavingPlanResponse::Ok(Json(serde_json::to_value(dtos).unwrap()))
+            SavingPlanResponse::Ok(Json(dtos))
         }
         Err(e) => map_error(e),
     }
@@ -445,6 +425,7 @@ pub fn router() -> Router<Arc<AppState>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handlers::common::StatusDateQuery;
     use accounting::account::Account;
     use accounting::id::{PostingId, TransactionId};
     use accounting::posting::Posting;
@@ -498,7 +479,7 @@ mod tests {
             .0
     }
 
-    async fn respond(resp: SavingPlanResponse) -> (StatusCode, serde_json::Value) {
+    async fn respond<T: Serialize>(resp: SavingPlanResponse<T>) -> (StatusCode, serde_json::Value) {
         let r = resp.into_response();
         let status = r.status();
         let bytes = axum::body::to_bytes(r.into_body(), usize::MAX)
@@ -582,7 +563,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(SavingPlanStatusQuery {
+                Query(StatusDateQuery {
                     date: Some(date.to_string()),
                 }),
             )
@@ -937,7 +918,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(SavingPlanStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("2026-06-26".to_string()),
                 }),
             )
@@ -966,7 +947,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(SavingPlanStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("2026-06-26".to_string()),
                 }),
             )
@@ -994,7 +975,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(SavingPlanStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("2026-09-30".to_string()),
                 }),
             )
@@ -1010,7 +991,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(SavingPlanStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("2026-06-26".to_string()),
                 }),
             )
@@ -1035,7 +1016,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(SavingPlanStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("2026-10-15".to_string()),
                 }),
             )
@@ -1069,7 +1050,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(SavingPlanStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("2026-06-26".to_string()),
                 }),
             )
@@ -1100,7 +1081,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(SavingPlanStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("2026-06-26".to_string()),
                 }),
             )
@@ -1120,7 +1101,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(999),
-                Query(SavingPlanStatusQuery { date: None }),
+                Query(StatusDateQuery { date: None }),
             )
             .await,
         )
@@ -1198,7 +1179,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(SavingPlanStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("invalid".to_string()),
                 }),
             )
@@ -1220,7 +1201,7 @@ mod tests {
             list_saving_plan_statuses(
                 State(state.clone()),
                 Lang("en".to_string()),
-                Query(SavingPlanStatusQuery {
+                Query(StatusDateQuery {
                     date: date.map(|s| s.to_string()),
                 }),
             )

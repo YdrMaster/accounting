@@ -166,7 +166,12 @@ async fn create(
 
 async fn list(db: &SqliteDatabase, lang: &str) -> Result<(), AccountingError> {
     let service = accounting_service::report::saving_plan::SavingPlanService::new(db.clone());
-    let plans = service.list_saving_plans().await?;
+    // 一次取回计划与账户关联：展示用计划列表与状态计算共用，避免内部重拉同一数据
+    let plans_with_accounts = db
+        .saving_plan_list_all_with_accounts()
+        .await
+        .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+    let plans: Vec<_> = plans_with_accounts.iter().map(|(p, _)| p.clone()).collect();
 
     if plans.is_empty() {
         println!("{}", t!("saving_plan_empty"));
@@ -178,7 +183,9 @@ async fn list(db: &SqliteDatabase, lang: &str) -> Result<(), AccountingError> {
     let symbols = commodity_symbol_map(db).await?;
     // 满足率：一次批量全局分配计算（与 show 口径一致），避免逐计划调用 status
     let today = chrono::Local::now().date_naive();
-    let statuses = service.list_saving_plan_statuses(today).await?;
+    let statuses = service
+        .list_saving_plan_statuses_for(plans_with_accounts, today)
+        .await?;
     let satisfactions: std::collections::HashMap<SavingPlanId, String> = statuses
         .iter()
         .map(|s| (s.plan.id, s.satisfaction.normalize().to_string()))

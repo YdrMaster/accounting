@@ -4,6 +4,7 @@ pub mod account;
 pub mod budget;
 pub mod channel;
 pub mod commodity;
+pub mod common;
 pub mod mapping;
 pub mod member;
 pub mod report;

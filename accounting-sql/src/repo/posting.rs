@@ -13,14 +13,16 @@ use accounting::id::{
 use accounting::posting::Posting;
 use accounting::transaction_filter::TransactionFilter;
 
+use super::commodity::commodity_precision;
+
 pub async fn posting_insert(
     conn: &mut SqliteConnection,
     posting: &Posting,
 ) -> Result<PostingId, DbError> {
-    let precision = get_precision(conn, posting.commodity_id).await?;
+    let precision = commodity_precision(conn, posting.commodity_id).await?;
     let amount_i64 = to_db_amount(posting.amount, precision);
     let cost_precision = match posting.cost_commodity_id {
-        Some(id) => get_precision(conn, id).await?,
+        Some(id) => commodity_precision(conn, id).await?,
         None => precision,
     };
     let cost_i64 = posting.cost.map(|c| to_db_amount(c, cost_precision));
@@ -105,12 +107,13 @@ pub async fn posting_has_postings(
     conn: &mut SqliteConnection,
     account_id: AccountId,
 ) -> Result<bool, DbError> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM postings WHERE account_id = ?1")
-        .bind(account_id.0)
-        .fetch_one(conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
-    Ok(count > 0)
+    let row: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM postings WHERE account_id = ?1 LIMIT 1")
+            .bind(account_id.0)
+            .fetch_optional(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(row.is_some())
 }
 
 pub async fn posting_sum_by_account(
@@ -182,28 +185,29 @@ pub async fn posting_sum_with_ancestors(
         .collect())
 }
 
-pub async fn posting_sum_by_tag(
+/// 分组求和公共实现：tag/member/channel 三个入口仅 SELECT 首列、附加 JOIN、
+/// 基础 WHERE 与成员/渠道过滤开关不同，聚合与命名口径必须逐字一致
+/// （JOIN 顺序影响行数扇出，改动即行为变化）。
+/// 返回 (分组 id, 商品, 根账户显示名, 金额)。
+async fn posting_sum_grouped(
     conn: &mut SqliteConnection,
     filter: &TransactionFilter,
     lang: &str,
-) -> Result<Vec<(TagId, CommodityId, String, Decimal)>, DbError> {
+    select_head: &str,
+    group_first_col: &str,
+    skip_member_channel: bool,
+) -> Result<Vec<(i64, CommodityId, String, Decimal)>, DbError> {
     let precisions = load_precisions(conn).await?;
 
     // 按根账户 id 聚合，名字在聚合后按回退链批量解析，
     // 请求语言无显示名时回退 en → zh-CN → 插入序而非整条消失
-    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
-        "SELECT tt.tag_id, p.commodity_id, aa.ancestor_id, SUM(p.amount) as total
-         FROM postings p
-         JOIN accounts a ON p.account_id = a.id
-         JOIN account_ancestors aa ON a.id = aa.account_id AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
-         JOIN transactions t ON p.transaction_id = t.id
-         JOIN transaction_tags tt ON tt.transaction_id = t.id
-         WHERE 1=1 ",
-    );
+    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(select_head);
 
-    apply_posting_filter(&mut builder, filter, false);
+    apply_posting_filter(&mut builder, filter, skip_member_channel);
 
-    builder.push(" GROUP BY tt.tag_id, p.commodity_id, aa.ancestor_id");
+    builder.push(" GROUP BY ");
+    builder.push(group_first_col);
+    builder.push(", p.commodity_id, aa.ancestor_id");
 
     let rows: Vec<(i64, i64, i64, i64)> = builder
         .build_query_as()
@@ -215,13 +219,13 @@ pub async fn posting_sum_by_tag(
 
     Ok(rows
         .into_iter()
-        .map(|(tag_id, commodity_id, root_id, amount)| {
+        .map(|(id, commodity_id, root_id, amount)| {
             let precision = precisions
                 .get(&CommodityId(commodity_id))
                 .copied()
                 .unwrap_or(2);
             (
-                TagId(tag_id),
+                id,
                 CommodityId(commodity_id),
                 root_names
                     .get(&root_id)
@@ -230,6 +234,32 @@ pub async fn posting_sum_by_tag(
                 from_db_amount(amount, precision),
             )
         })
+        .collect())
+}
+
+pub async fn posting_sum_by_tag(
+    conn: &mut SqliteConnection,
+    filter: &TransactionFilter,
+    lang: &str,
+) -> Result<Vec<(TagId, CommodityId, String, Decimal)>, DbError> {
+    let rows = posting_sum_grouped(
+        conn,
+        filter,
+        lang,
+        "SELECT tt.tag_id, p.commodity_id, aa.ancestor_id, SUM(p.amount) as total
+         FROM postings p
+         JOIN accounts a ON p.account_id = a.id
+         JOIN account_ancestors aa ON a.id = aa.account_id AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
+         JOIN transactions t ON p.transaction_id = t.id
+         JOIN transaction_tags tt ON tt.transaction_id = t.id
+         WHERE 1=1 ",
+        "tt.tag_id",
+        false,
+    )
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, commodity, name, amount)| (TagId(id), commodity, name, amount))
         .collect())
 }
 
@@ -238,47 +268,23 @@ pub async fn posting_sum_by_member(
     filter: &TransactionFilter,
     lang: &str,
 ) -> Result<Vec<(MemberId, CommodityId, String, Decimal)>, DbError> {
-    let precisions = load_precisions(conn).await?;
-
-    // 按根账户 id 聚合，名字在聚合后按回退链批量解析
-    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+    let rows = posting_sum_grouped(
+        conn,
+        filter,
+        lang,
         "SELECT t.member_id, p.commodity_id, aa.ancestor_id, SUM(p.amount) as total
          FROM postings p
          JOIN accounts a ON p.account_id = a.id
          JOIN account_ancestors aa ON a.id = aa.account_id AND aa.depth = (SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id)
          JOIN transactions t ON p.transaction_id = t.id
          WHERE t.member_id IS NOT NULL ",
-    );
-
-    apply_posting_filter(&mut builder, filter, true);
-
-    builder.push(" GROUP BY t.member_id, p.commodity_id, aa.ancestor_id");
-
-    let rows: Vec<(i64, i64, i64, i64)> = builder
-        .build_query_as()
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
-
-    let root_names = resolve_root_names(conn, &rows, lang).await?;
-
+        "t.member_id",
+        true,
+    )
+    .await?;
     Ok(rows
         .into_iter()
-        .map(|(member_id, commodity_id, root_id, amount)| {
-            let precision = precisions
-                .get(&CommodityId(commodity_id))
-                .copied()
-                .unwrap_or(2);
-            (
-                MemberId(member_id),
-                CommodityId(commodity_id),
-                root_names
-                    .get(&root_id)
-                    .cloned()
-                    .unwrap_or_else(|| "?".to_string()),
-                from_db_amount(amount, precision),
-            )
-        })
+        .map(|(id, commodity, name, amount)| (MemberId(id), commodity, name, amount))
         .collect())
 }
 
@@ -287,10 +293,10 @@ pub async fn posting_sum_by_channel(
     filter: &TransactionFilter,
     lang: &str,
 ) -> Result<Vec<(ChannelId, CommodityId, String, Decimal)>, DbError> {
-    let precisions = load_precisions(conn).await?;
-
-    // 按根账户 id 聚合，名字在聚合后按回退链批量解析
-    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+    let rows = posting_sum_grouped(
+        conn,
+        filter,
+        lang,
         "SELECT cp.channel_id, p.commodity_id, aa.ancestor_id, SUM(p.amount) as total
          FROM postings p
          JOIN accounts a ON p.account_id = a.id
@@ -298,37 +304,13 @@ pub async fn posting_sum_by_channel(
          JOIN transactions t ON p.transaction_id = t.id
          JOIN channel_paths cp ON cp.transaction_id = t.id
          WHERE 1=1 ",
-    );
-
-    apply_posting_filter(&mut builder, filter, true);
-
-    builder.push(" GROUP BY cp.channel_id, p.commodity_id, aa.ancestor_id");
-
-    let rows: Vec<(i64, i64, i64, i64)> = builder
-        .build_query_as()
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
-
-    let root_names = resolve_root_names(conn, &rows, lang).await?;
-
+        "cp.channel_id",
+        true,
+    )
+    .await?;
     Ok(rows
         .into_iter()
-        .map(|(channel_id, commodity_id, root_id, amount)| {
-            let precision = precisions
-                .get(&CommodityId(commodity_id))
-                .copied()
-                .unwrap_or(2);
-            (
-                ChannelId(channel_id),
-                CommodityId(commodity_id),
-                root_names
-                    .get(&root_id)
-                    .cloned()
-                    .unwrap_or_else(|| "?".to_string()),
-                from_db_amount(amount, precision),
-            )
-        })
+        .map(|(id, commodity, name, amount)| (ChannelId(id), commodity, name, amount))
         .collect())
 }
 
@@ -563,7 +545,7 @@ pub async fn sum_by_account_with_descendants(
         return Ok(vec![]);
     }
 
-    let precision = get_precision(conn, commodity_id).await?;
+    let precision = commodity_precision(conn, commodity_id).await?;
 
     let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
         "SELECT anc.ancestor_id, SUM(p.amount) as total
@@ -623,7 +605,7 @@ pub async fn account_balance_by_ids(
         return Ok(Decimal::ZERO);
     }
 
-    let precision = get_precision(conn, commodity_id).await?;
+    let precision = commodity_precision(conn, commodity_id).await?;
 
     let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
         "SELECT COALESCE(SUM(p.amount), 0)
@@ -667,7 +649,7 @@ pub async fn account_balances_by_ids(
         return Ok(vec![]);
     }
 
-    let precision = get_precision(conn, commodity_id).await?;
+    let precision = commodity_precision(conn, commodity_id).await?;
 
     let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
         "SELECT anc.ancestor_id, SUM(p.amount) as total
@@ -761,7 +743,7 @@ async fn posting_sum_in_window(
         return Ok(vec![]);
     }
 
-    let precision = get_precision(conn, commodity_id).await?;
+    let precision = commodity_precision(conn, commodity_id).await?;
 
     let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
         "SELECT p.account_id, SUM(p.amount) as total
@@ -852,7 +834,7 @@ pub async fn posting_daily_delta_by_account(
     conn: &mut SqliteConnection,
     commodity_id: CommodityId,
 ) -> Result<Vec<(AccountId, chrono::NaiveDate, Decimal)>, DbError> {
-    let precision = get_precision(conn, commodity_id).await?;
+    let precision = commodity_precision(conn, commodity_id).await?;
 
     let rows: Vec<(i64, String, i64)> = sqlx::query_as(
         "SELECT p.account_id, date(t.date_time) AS day, SUM(p.amount)
@@ -896,18 +878,6 @@ async fn load_precisions(conn: &mut SqliteConnection) -> Result<HashMap<Commodit
         .collect())
 }
 
-async fn get_precision(
-    conn: &mut SqliteConnection,
-    commodity_id: CommodityId,
-) -> Result<u8, DbError> {
-    let precision: i32 = sqlx::query_scalar("SELECT precision FROM commodities WHERE id = ?1")
-        .bind(commodity_id.0)
-        .fetch_one(conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
-    Ok(precision as u8)
-}
-
 #[derive(sqlx::FromRow)]
 struct PostingRawRow {
     id: i64,
@@ -924,9 +894,9 @@ struct PostingRawRow {
 
 impl PostingRawRow {
     async fn into_posting(self, conn: &mut SqliteConnection) -> Result<Posting, DbError> {
-        let precision = get_precision(conn, CommodityId(self.commodity_id)).await?;
+        let precision = commodity_precision(conn, CommodityId(self.commodity_id)).await?;
         let cost_precision = match self.cost_commodity_id {
-            Some(cid) => get_precision(conn, CommodityId(cid)).await?,
+            Some(cid) => commodity_precision(conn, CommodityId(cid)).await?,
             None => precision,
         };
         Ok(self.build(precision, cost_precision))

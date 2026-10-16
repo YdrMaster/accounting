@@ -3,7 +3,9 @@
 use accounting::error::AccountingError;
 use accounting::finance_period::FinancePeriod;
 use accounting::id::{AccountId, CommodityId, SavingPlanId};
-use accounting::saving_plan::{SavingPlan, SavingPlanError, validate_saving_plan};
+use accounting::saving_plan::{
+    SavingPlan, SavingPlanAccount, SavingPlanError, validate_saving_plan,
+};
 use accounting_sql::SqliteDatabase;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
@@ -233,7 +235,12 @@ impl SavingPlanService {
         plan_id: SavingPlanId,
         date: NaiveDate,
     ) -> Result<SavingPlanStatus, AccountingError> {
-        self.compute_allocations(date)
+        let plans = self
+            .db
+            .saving_plan_list_all_with_accounts()
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        self.compute_allocations(plans, date)
             .await?
             .into_iter()
             .find(|s| s.plan.id == plan_id)
@@ -251,7 +258,21 @@ impl SavingPlanService {
         &self,
         date: NaiveDate,
     ) -> Result<Vec<SavingPlanStatus>, AccountingError> {
-        self.compute_allocations(date).await
+        let plans = self
+            .db
+            .saving_plan_list_all_with_accounts()
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        self.list_saving_plan_statuses_for(plans, date).await
+    }
+
+    /// 复用调用方已取回的计划与账户关联计算状态，避免内部重复查询同一数据
+    pub async fn list_saving_plan_statuses_for(
+        &self,
+        plans: Vec<(SavingPlan, Vec<SavingPlanAccount>)>,
+        date: NaiveDate,
+    ) -> Result<Vec<SavingPlanStatus>, AccountingError> {
+        self.compute_allocations(plans, date).await
     }
 
     /// 一次全局分配遍历，返回所有计划的状态（内部计算入口）
@@ -261,14 +282,9 @@ impl SavingPlanService {
     /// 永久/过期计划不参与，按无竞争退化口径计算分配字段。
     async fn compute_allocations(
         &self,
+        plans: Vec<(SavingPlan, Vec<SavingPlanAccount>)>,
         date: NaiveDate,
     ) -> Result<Vec<SavingPlanStatus>, AccountingError> {
-        let plans = self
-            .db
-            .saving_plan_list_all_with_accounts()
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
-
         // 基础信息：过期判定、周期区间、检查点、独立口径余额
         let mut works = Vec::with_capacity(plans.len());
         for (plan, accounts) in plans {

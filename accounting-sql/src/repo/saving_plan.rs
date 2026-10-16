@@ -9,15 +9,7 @@ use sqlx::{Connection, FromRow, SqliteConnection};
 use crate::error::DbError;
 use crate::names::SAVING_PLAN_NAMES;
 
-/// deadline 以 TEXT 'YYYY-MM-DD' 存储
-fn format_deadline(deadline: Option<NaiveDate>) -> Option<String> {
-    deadline.map(|d| d.format("%Y-%m-%d").to_string())
-}
-
-fn parse_deadline(raw: &str) -> Result<NaiveDate, DbError> {
-    NaiveDate::parse_from_str(raw, "%Y-%m-%d")
-        .map_err(|e| DbError::Database(format!("Invalid deadline value: {raw} ({e})")))
-}
+use super::{commodity::commodity_precision, format_deadline, parse_deadline};
 
 #[derive(FromRow)]
 struct SavingPlanRow {
@@ -48,18 +40,6 @@ impl SavingPlanRow {
     }
 }
 
-async fn get_precision(
-    conn: &mut SqliteConnection,
-    commodity_id: CommodityId,
-) -> Result<u8, DbError> {
-    let precision: i64 = sqlx::query_scalar("SELECT precision FROM commodities WHERE id = ?1")
-        .bind(commodity_id.0)
-        .fetch_one(conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
-    Ok(precision as u8)
-}
-
 #[allow(clippy::too_many_arguments)]
 pub async fn saving_plan_create(
     conn: &mut SqliteConnection,
@@ -77,7 +57,7 @@ pub async fn saving_plan_create(
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
 
-    let precision = get_precision(&mut tx, commodity_id).await?;
+    let precision = commodity_precision(&mut tx, commodity_id).await?;
 
     // 名字全局唯一（不区分大小写），校验通过才创建
     SAVING_PLAN_NAMES
@@ -130,7 +110,7 @@ pub async fn saving_plan_get(
     .map_err(|e| DbError::Database(e.to_string()))?;
     match row {
         Some(r) => {
-            let precision = get_precision(conn, CommodityId(r.commodity_id)).await?;
+            let precision = commodity_precision(conn, CommodityId(r.commodity_id)).await?;
             Ok(Some(r.into_saving_plan(precision)?))
         }
         None => Ok(None),
@@ -146,7 +126,7 @@ pub async fn saving_plan_list(conn: &mut SqliteConnection) -> Result<Vec<SavingP
     .map_err(|e| DbError::Database(e.to_string()))?;
     let mut result = Vec::with_capacity(rows.len());
     for row in rows {
-        let precision = get_precision(&mut *conn, CommodityId(row.commodity_id)).await?;
+        let precision = commodity_precision(&mut *conn, CommodityId(row.commodity_id)).await?;
         result.push(row.into_saving_plan(precision)?);
     }
     Ok(result)
@@ -168,7 +148,7 @@ pub async fn saving_plan_get_by_name(
     .map_err(|e| DbError::Database(e.to_string()))?;
     match row {
         Some(r) => {
-            let precision = get_precision(conn, CommodityId(r.commodity_id)).await?;
+            let precision = commodity_precision(conn, CommodityId(r.commodity_id)).await?;
             Ok(Some(r.into_saving_plan(precision)?))
         }
         None => Ok(None),
@@ -193,7 +173,7 @@ pub async fn saving_plan_update(
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
 
-    let precision = get_precision(&mut tx, commodity_id).await?;
+    let precision = commodity_precision(&mut tx, commodity_id).await?;
 
     // Update plan header
     let result = sqlx::query(

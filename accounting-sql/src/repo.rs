@@ -23,6 +23,7 @@ pub mod tag;
 /// Transaction Repository
 pub mod transaction;
 
+use chrono::NaiveDate;
 use sqlx::SqliteConnection;
 
 use crate::error::DbError;
@@ -54,4 +55,14 @@ pub async fn set_setting(
     .await
     .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(())
+}
+
+/// deadline 以 TEXT 'YYYY-MM-DD' 存储
+pub(crate) fn format_deadline(deadline: Option<NaiveDate>) -> Option<String> {
+    deadline.map(|d| d.format("%Y-%m-%d").to_string())
+}
+
+pub(crate) fn parse_deadline(raw: &str) -> Result<NaiveDate, DbError> {
+    NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+        .map_err(|e| DbError::Database(format!("Invalid deadline value: {raw} ({e})")))
 }

@@ -101,11 +101,11 @@ impl SqliteDatabase {
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
         // 检查是否已初始化（commodities 表有数据说明已 seed）
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM commodities")
-            .fetch_one(&mut *conn)
+        let seeded: Option<i64> = sqlx::query_scalar("SELECT 1 FROM commodities LIMIT 1")
+            .fetch_optional(&mut *conn)
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
-        if count == 0 {
+        if seeded.is_none() {
             crate::schema::insert_seed_data(&mut conn).await?;
         }
         Ok(())
@@ -118,11 +118,11 @@ impl SqliteDatabase {
             .acquire()
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM commodities")
-            .fetch_one(&mut *conn)
+        let seeded: Option<i64> = sqlx::query_scalar("SELECT 1 FROM commodities LIMIT 1")
+            .fetch_optional(&mut *conn)
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
-        Ok(count > 0)
+        Ok(seeded.is_some())
     }
 
     // === 显示名解析（回退链：所选语言 → en → zh-CN → 插入序） ===

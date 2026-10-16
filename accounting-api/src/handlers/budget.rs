@@ -5,7 +5,11 @@ use crate::dto::{
     BudgetStatusDto, CreateBudgetRequest, UpdateBudgetRequest, parse_deadline, parse_period_opt,
     period_to_string,
 };
-use crate::handlers::{Lang, member::AppState};
+use crate::handlers::{
+    Lang,
+    common::{ApiError, StatusDateQuery, parse_status_date},
+    member::AppState,
+};
 use accounting::budget::BudgetError;
 use accounting::error::AccountingError;
 use accounting::id::{AccountId, BudgetId, CommodityId};
@@ -21,21 +25,15 @@ use rust_i18n::t;
 use serde::Serialize;
 use std::sync::Arc;
 
-/// API 错误响应
-#[derive(Serialize)]
-struct ApiError {
-    error: String,
-}
-
 /// 预算 API 响应（支持不同 HTTP 状态码）
-enum BudgetResponse {
-    Created(Json<BudgetDto>),
-    Ok(Json<serde_json::Value>),
+enum BudgetResponse<T: Serialize> {
+    Created(Json<T>),
+    Ok(Json<T>),
     NotFound(String),
     BadRequest(String),
 }
 
-impl axum::response::IntoResponse for BudgetResponse {
+impl<T: Serialize> axum::response::IntoResponse for BudgetResponse<T> {
     fn into_response(self) -> axum::response::Response {
         match self {
             Self::Created(json) => (StatusCode::CREATED, json).into_response(),
@@ -50,7 +48,7 @@ impl axum::response::IntoResponse for BudgetResponse {
     }
 }
 
-fn map_error(e: AccountingError) -> BudgetResponse {
+fn map_error<T: Serialize>(e: AccountingError) -> BudgetResponse<T> {
     let msg = e.to_string();
     // 状态码按错误变体判定，不依赖本地化字面量
     if matches!(e, AccountingError::Budget(BudgetError::BudgetNotFound(_))) {
@@ -86,38 +84,35 @@ fn parse_limits(
 
 use std::str::FromStr;
 
-/// 预算列表查询参数
-#[derive(serde::Deserialize)]
-pub struct BudgetStatusQuery {
-    pub date: Option<String>,
-}
-
 /// 批量解析预算显示名
 async fn budget_names(
     db: &accounting_sql::SqliteDatabase,
     ids: &[BudgetId],
     lang: &str,
-) -> Result<std::collections::HashMap<BudgetId, String>, BudgetResponse> {
+) -> Result<std::collections::HashMap<BudgetId, String>, String> {
     db.budget_display_names(ids, lang)
         .await
-        .map_err(|e| BudgetResponse::BadRequest(e.to_string()))
+        .map_err(|e| e.to_string())
 }
 
 /// 列出所有预算表
-async fn list_budgets(State(state): State<Arc<AppState>>, Lang(lang): Lang) -> BudgetResponse {
+async fn list_budgets(
+    State(state): State<Arc<AppState>>,
+    Lang(lang): Lang,
+) -> BudgetResponse<Vec<BudgetDto>> {
     let service = BudgetService::new(state.db.clone());
     match service.list_budgets().await {
         Ok(budgets) => {
             let ids: Vec<BudgetId> = budgets.iter().map(|b| b.id).collect();
             let names = match budget_names(&state.db, &ids, &lang).await {
                 Ok(n) => n,
-                Err(r) => return r,
+                Err(e) => return BudgetResponse::BadRequest(e),
             };
             let dtos: Vec<BudgetDto> = budgets
                 .iter()
                 .map(|b| budget_to_dto(b, names.get(&b.id).cloned().unwrap_or_default()))
                 .collect();
-            BudgetResponse::Ok(Json(serde_json::to_value(dtos).unwrap()))
+            BudgetResponse::Ok(Json(dtos))
         }
         Err(e) => map_error(e),
     }
@@ -128,7 +123,7 @@ async fn create_budget(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Json(req): Json<CreateBudgetRequest>,
-) -> BudgetResponse {
+) -> BudgetResponse<BudgetDto> {
     let period = match parse_period_opt(req.period.as_deref(), &lang) {
         Ok(p) => p,
         Err(e) => return BudgetResponse::BadRequest(e),
@@ -173,13 +168,13 @@ async fn get_budget_detail(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Path(id): Path<i64>,
-) -> BudgetResponse {
+) -> BudgetResponse<BudgetDetailDto> {
     let service = BudgetService::new(state.db.clone());
     match service.get_budget_detail(BudgetId(id)).await {
         Ok(detail) => {
             let names = match budget_names(&state.db, &[detail.budget.id], &lang).await {
                 Ok(n) => n,
-                Err(r) => return r,
+                Err(e) => return BudgetResponse::BadRequest(e),
             };
             let dto = BudgetDetailDto {
                 budget: budget_to_dto(
@@ -195,7 +190,7 @@ async fn get_budget_detail(
                     })
                     .collect(),
             };
-            BudgetResponse::Ok(Json(serde_json::to_value(dto).unwrap()))
+            BudgetResponse::Ok(Json(dto))
         }
         Err(e) => map_error(e),
     }
@@ -207,7 +202,7 @@ async fn update_budget(
     Lang(lang): Lang,
     Path(id): Path<i64>,
     Json(req): Json<UpdateBudgetRequest>,
-) -> BudgetResponse {
+) -> BudgetResponse<BudgetDto> {
     let period = match parse_period_opt(req.period.as_deref(), &lang) {
         Ok(p) => p,
         Err(e) => return BudgetResponse::BadRequest(e),
@@ -242,14 +237,17 @@ async fn update_budget(
                 deadline: deadline.map(|d| d.to_string()),
                 commodity_id: req.commodity_id,
             };
-            BudgetResponse::Ok(Json(serde_json::to_value(dto).unwrap()))
+            BudgetResponse::Ok(Json(dto))
         }
         Err(e) => map_error(e),
     }
 }
 
 /// 删除预算表
-async fn delete_budget(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> BudgetResponse {
+async fn delete_budget(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> BudgetResponse<serde_json::Value> {
     let service = BudgetService::new(state.db.clone());
     // 先确认存在，保持与详情/更新一致的 404 语义
     match service.get_budget_detail(BudgetId(id)).await {
@@ -286,29 +284,16 @@ fn budget_status_to_dto(
     }
 }
 
-/// 解析状态查询的 date 参数（缺省当天；格式无效返回 400）
-fn parse_status_date(
-    query: &BudgetStatusQuery,
-    lang: &str,
-) -> Result<chrono::NaiveDate, BudgetResponse> {
-    match query.date {
-        Some(ref d) => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|e| {
-            BudgetResponse::BadRequest(t!("err_invalid_date", locale = lang, error = e).to_string())
-        }),
-        None => Ok(chrono::Local::now().date_naive()),
-    }
-}
-
 /// 查询预算执行情况
 async fn get_budget_status(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Path(id): Path<i64>,
-    Query(query): Query<BudgetStatusQuery>,
-) -> BudgetResponse {
-    let date = match parse_status_date(&query, &lang) {
+    Query(query): Query<StatusDateQuery>,
+) -> BudgetResponse<BudgetStatusDto> {
+    let date = match parse_status_date(query.date.as_deref(), &lang) {
         Ok(d) => d,
-        Err(r) => return r,
+        Err(e) => return BudgetResponse::BadRequest(e),
     };
 
     let service = BudgetService::new(state.db.clone());
@@ -316,13 +301,13 @@ async fn get_budget_status(
         Ok(status) => {
             let names = match budget_names(&state.db, &[status.budget.id], &lang).await {
                 Ok(n) => n,
-                Err(r) => return r,
+                Err(e) => return BudgetResponse::BadRequest(e),
             };
             let dto = budget_status_to_dto(
                 &status,
                 names.get(&status.budget.id).cloned().unwrap_or_default(),
             );
-            BudgetResponse::Ok(Json(serde_json::to_value(dto).unwrap()))
+            BudgetResponse::Ok(Json(dto))
         }
         Err(e) => map_error(e),
     }
@@ -332,11 +317,11 @@ async fn get_budget_status(
 async fn list_budget_statuses(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
-    Query(query): Query<BudgetStatusQuery>,
-) -> BudgetResponse {
-    let date = match parse_status_date(&query, &lang) {
+    Query(query): Query<StatusDateQuery>,
+) -> BudgetResponse<Vec<BudgetStatusDto>> {
+    let date = match parse_status_date(query.date.as_deref(), &lang) {
         Ok(d) => d,
-        Err(r) => return r,
+        Err(e) => return BudgetResponse::BadRequest(e),
     };
 
     let service = BudgetService::new(state.db.clone());
@@ -345,7 +330,7 @@ async fn list_budget_statuses(
             let ids: Vec<BudgetId> = statuses.iter().map(|s| s.budget.id).collect();
             let names = match budget_names(&state.db, &ids, &lang).await {
                 Ok(n) => n,
-                Err(r) => return r,
+                Err(e) => return BudgetResponse::BadRequest(e),
             };
             let dtos: Vec<BudgetStatusDto> = statuses
                 .iter()
@@ -353,7 +338,7 @@ async fn list_budget_statuses(
                     budget_status_to_dto(s, names.get(&s.budget.id).cloned().unwrap_or_default())
                 })
                 .collect();
-            BudgetResponse::Ok(Json(serde_json::to_value(dtos).unwrap()))
+            BudgetResponse::Ok(Json(dtos))
         }
         Err(e) => map_error(e),
     }
@@ -377,6 +362,7 @@ pub fn router() -> Router<Arc<AppState>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handlers::common::StatusDateQuery;
     use accounting_sql::SqliteDatabase;
     use axum::response::IntoResponse;
 
@@ -417,7 +403,7 @@ mod tests {
             .0
     }
 
-    async fn respond(resp: BudgetResponse) -> (StatusCode, serde_json::Value) {
+    async fn respond<T: Serialize>(resp: BudgetResponse<T>) -> (StatusCode, serde_json::Value) {
         let r = resp.into_response();
         let status = r.status();
         let bytes = axum::body::to_bytes(r.into_body(), usize::MAX)
@@ -568,7 +554,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(BudgetStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("2026-06-15".to_string()),
                 }),
             )
@@ -606,7 +592,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(BudgetStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("2026-06-15".to_string()),
                 }),
             )
@@ -643,7 +629,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(BudgetStatusQuery {
+                Query(StatusDateQuery {
                     date: Some("2026-10-15".to_string()),
                 }),
             )
@@ -665,7 +651,7 @@ mod tests {
             list_budget_statuses(
                 State(state.clone()),
                 Lang("en".to_string()),
-                Query(BudgetStatusQuery {
+                Query(StatusDateQuery {
                     date: date.map(|s| s.to_string()),
                 }),
             )
@@ -681,7 +667,7 @@ mod tests {
                 State(state.clone()),
                 Lang("en".to_string()),
                 Path(id),
-                Query(BudgetStatusQuery {
+                Query(StatusDateQuery {
                     date: Some(date.to_string()),
                 }),
             )

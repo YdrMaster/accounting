@@ -9,6 +9,8 @@ use sqlx::{Connection, FromRow, SqliteConnection};
 use crate::error::DbError;
 use crate::names::BUDGET_NAMES;
 
+use super::{commodity::commodity_precision, format_deadline, parse_deadline};
+
 #[derive(FromRow)]
 struct BudgetRow {
     id: i64,
@@ -29,20 +31,10 @@ impl BudgetRow {
         Ok(Budget {
             id: BudgetId(self.id),
             period,
-            deadline: self.deadline.map(parse_deadline).transpose()?,
+            deadline: self.deadline.map(|d| parse_deadline(&d)).transpose()?,
             commodity_id: CommodityId(self.commodity_id),
         })
     }
-}
-
-/// deadline 以 TEXT 'YYYY-MM-DD' 存储
-fn format_deadline(deadline: Option<NaiveDate>) -> Option<String> {
-    deadline.map(|d| d.format("%Y-%m-%d").to_string())
-}
-
-fn parse_deadline(raw: String) -> Result<NaiveDate, DbError> {
-    NaiveDate::parse_from_str(&raw, "%Y-%m-%d")
-        .map_err(|e| DbError::Database(format!("Invalid deadline value: {raw} ({e})")))
 }
 
 #[derive(FromRow)]
@@ -68,11 +60,7 @@ pub async fn budget_create(
         .map_err(|e| DbError::Database(e.to_string()))?;
 
     // Get commodity precision for amount conversion
-    let precision: i64 = sqlx::query_scalar("SELECT precision FROM commodities WHERE id = ?1")
-        .bind(commodity_id.0)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
+    let precision = commodity_precision(&mut tx, commodity_id).await?;
 
     // 名字全局唯一（不区分大小写），校验通过才创建
     BUDGET_NAMES
@@ -95,7 +83,7 @@ pub async fn budget_create(
         .await?;
 
     for (account_id, amount) in limits {
-        let db_amount = amount::to_db_amount(*amount, precision as u8);
+        let db_amount = amount::to_db_amount(*amount, precision);
         sqlx::query(
             "INSERT INTO budget_limits (budget_id, account_id, amount) VALUES (?1, ?2, ?3)",
         )
@@ -175,11 +163,7 @@ pub async fn budget_update(
         .map_err(|e| DbError::Database(e.to_string()))?;
 
     // Get commodity precision for amount conversion
-    let precision: i64 = sqlx::query_scalar("SELECT precision FROM commodities WHERE id = ?1")
-        .bind(commodity_id.0)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
+    let precision = commodity_precision(&mut tx, commodity_id).await?;
 
     // Update budget header
     let result = sqlx::query(
@@ -213,7 +197,7 @@ pub async fn budget_update(
         .map_err(|e| DbError::Database(e.to_string()))?;
 
     for (account_id, amount) in limits {
-        let db_amount = amount::to_db_amount(*amount, precision as u8);
+        let db_amount = amount::to_db_amount(*amount, precision);
         sqlx::query(
             "INSERT INTO budget_limits (budget_id, account_id, amount) VALUES (?1, ?2, ?3)",
         )

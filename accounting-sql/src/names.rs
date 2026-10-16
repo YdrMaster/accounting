@@ -175,33 +175,34 @@ impl EntityNames {
         exclude_entity_id: Option<i64>,
         name: &str,
     ) -> Result<(), DbError> {
-        let count: i64 = if self.parent_scoped {
+        let conflict: Option<i64> = if self.parent_scoped {
             let sql = format!(
-                "SELECT COUNT(*) FROM {} n JOIN accounts a ON a.id = n.{}
-                 WHERE a.parent_id IS ?1 AND n.name = ?2 AND n.{} IS NOT ?3",
+                "SELECT 1 FROM {} n JOIN accounts a ON a.id = n.{}
+                 WHERE a.parent_id IS ?1 AND n.name = ?2 AND n.{} IS NOT ?3
+                 LIMIT 1",
                 self.table, self.entity_col, self.entity_col
             );
             sqlx::query_scalar(safe_sql(sql))
                 .bind(parent_id)
                 .bind(name)
                 .bind(exclude_entity_id)
-                .fetch_one(conn)
+                .fetch_optional(conn)
                 .await
                 .map_err(|e| DbError::Database(e.to_string()))?
         } else {
             let sql = format!(
-                "SELECT COUNT(*) FROM {} WHERE name = ?1 AND {} IS NOT ?2",
+                "SELECT 1 FROM {} WHERE name = ?1 AND {} IS NOT ?2 LIMIT 1",
                 self.table, self.entity_col
             );
             sqlx::query_scalar(safe_sql(sql))
                 .bind(name)
                 .bind(exclude_entity_id)
-                .fetch_one(conn)
+                .fetch_optional(conn)
                 .await
                 .map_err(|e| DbError::Database(e.to_string()))?
         };
 
-        if count > 0 {
+        if conflict.is_some() {
             return Err(DbError::Database(format!("名字 \"{name}\" 已存在")));
         }
         Ok(())

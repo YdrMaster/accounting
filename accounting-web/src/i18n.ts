@@ -44,4 +44,8 @@ export function getCurrentLocale(): AppLocale {
 export function setLocale(locale: AppLocale): void {
   i18n.global.locale.value = locale
   localStorage.setItem(LANG_STORAGE_KEY, locale)
+  document.documentElement.lang = locale
 }
+
+// 初始加载时同步 <html lang> 与界面语言
+document.documentElement.lang = getInitialLocale()

@@ -10,16 +10,6 @@ pub async fn initialize_schema(conn: &mut SqliteConnection) -> Result<(), DbErro
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
     }
-    create_unique_indexes(conn).await?;
-    Ok(())
-}
-
-/// 为自然键创建唯一索引。
-///
-/// 名字的唯一性由 names 表的 UNIQUE(entity_id, lang, name) 约束保证，
-/// 此处仅保留对 account_ancestors 等辅助表的索引。
-async fn create_unique_indexes(_conn: &mut SqliteConnection) -> Result<(), DbError> {
-    // No additional unique indexes needed - names tables have their own UNIQUE constraints
     Ok(())
 }
 

@@ -8,7 +8,7 @@ use accounting::validation::validate_kind_consistency;
 use accounting::validation::validate_reversal_cap;
 use accounting::validation::validate_reversal_direction;
 use accounting::validation::validate_transaction;
-use accounting_sql::SqliteDatabase;
+use accounting_sql::{SqliteDatabase, SqliteTransaction};
 use rust_decimal::Decimal;
 use rust_i18n::t;
 
@@ -52,52 +52,7 @@ impl TransactionService {
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 验证退款/报销分录的关联合法性
-        for posting in &postings {
-            if posting.linked_posting_id.is_none() {
-                continue;
-            }
-
-            let linked_id = posting.linked_posting_id.ok_or_else(|| {
-                AccountingError::InvalidTransaction(t!("refund_must_link").to_string())
-            })?;
-
-            let linked_posting = tx
-                .posting_get(linked_id)
-                .await
-                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
-                .ok_or_else(|| {
-                    AccountingError::InvalidTransaction(format!(
-                        "{}",
-                        t!("linked_posting_not_found", id = linked_id.0)
-                    ))
-                })?;
-
-            if linked_posting.linked_posting_id.is_some() {
-                return Err(AccountingError::InvalidTransaction(
-                    t!("can_only_reverse_normal_posting").to_string(),
-                ));
-            }
-
-            if linked_posting.account_id != posting.account_id {
-                return Err(AccountingError::InvalidTransaction(
-                    t!("refund_must_same_account").to_string(),
-                ));
-            }
-
-            if (posting.amount > Decimal::ZERO && linked_posting.amount > Decimal::ZERO)
-                || (posting.amount < Decimal::ZERO && linked_posting.amount < Decimal::ZERO)
-            {
-                return Err(AccountingError::InvalidTransaction(
-                    t!("refund_direction_must_opposite").to_string(),
-                ));
-            }
-
-            validate_reversal_cap(
-                posting.amount,
-                linked_posting.amount,
-                linked_posting.reversal_total,
-            )?;
-        }
+        validate_linked_postings(&mut tx, &postings).await?;
 
         for posting in &mut postings {
             posting.transaction_id = tx_id;
@@ -151,52 +106,7 @@ impl TransactionService {
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
 
         // 验证退款/报销分录的关联合法性
-        for posting in &postings {
-            if posting.linked_posting_id.is_none() {
-                continue;
-            }
-
-            let linked_id = posting.linked_posting_id.ok_or_else(|| {
-                AccountingError::InvalidTransaction(t!("refund_must_link").to_string())
-            })?;
-
-            let linked_posting = tx
-                .posting_get(linked_id)
-                .await
-                .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
-                .ok_or_else(|| {
-                    AccountingError::InvalidTransaction(format!(
-                        "{}",
-                        t!("linked_posting_not_found", id = linked_id.0)
-                    ))
-                })?;
-
-            if linked_posting.linked_posting_id.is_some() {
-                return Err(AccountingError::InvalidTransaction(
-                    t!("can_only_reverse_normal_posting").to_string(),
-                ));
-            }
-
-            if linked_posting.account_id != posting.account_id {
-                return Err(AccountingError::InvalidTransaction(
-                    t!("refund_must_same_account").to_string(),
-                ));
-            }
-
-            if (posting.amount > Decimal::ZERO && linked_posting.amount > Decimal::ZERO)
-                || (posting.amount < Decimal::ZERO && linked_posting.amount < Decimal::ZERO)
-            {
-                return Err(AccountingError::InvalidTransaction(
-                    t!("refund_direction_must_opposite").to_string(),
-                ));
-            }
-
-            validate_reversal_cap(
-                posting.amount,
-                linked_posting.amount,
-                linked_posting.reversal_total,
-            )?;
-        }
+        validate_linked_postings(&mut tx, &postings).await?;
 
         // 插入新分录
         for posting in &mut postings {
@@ -342,6 +252,60 @@ impl TransactionService {
         }
         Ok(updated)
     }
+}
+
+/// 验证退款/报销分录的关联合法性（create/update 共用，均在事务内执行）
+async fn validate_linked_postings(
+    tx: &mut SqliteTransaction<'_>,
+    postings: &[Posting],
+) -> Result<(), AccountingError> {
+    for posting in postings {
+        if posting.linked_posting_id.is_none() {
+            continue;
+        }
+
+        let linked_id = posting.linked_posting_id.ok_or_else(|| {
+            AccountingError::InvalidTransaction(t!("refund_must_link").to_string())
+        })?;
+
+        let linked_posting = tx
+            .posting_get(linked_id)
+            .await
+            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?
+            .ok_or_else(|| {
+                AccountingError::InvalidTransaction(format!(
+                    "{}",
+                    t!("linked_posting_not_found", id = linked_id.0)
+                ))
+            })?;
+
+        if linked_posting.linked_posting_id.is_some() {
+            return Err(AccountingError::InvalidTransaction(
+                t!("can_only_reverse_normal_posting").to_string(),
+            ));
+        }
+
+        if linked_posting.account_id != posting.account_id {
+            return Err(AccountingError::InvalidTransaction(
+                t!("refund_must_same_account").to_string(),
+            ));
+        }
+
+        if (posting.amount > Decimal::ZERO && linked_posting.amount > Decimal::ZERO)
+            || (posting.amount < Decimal::ZERO && linked_posting.amount < Decimal::ZERO)
+        {
+            return Err(AccountingError::InvalidTransaction(
+                t!("refund_direction_must_opposite").to_string(),
+            ));
+        }
+
+        validate_reversal_cap(
+            posting.amount,
+            linked_posting.amount,
+            linked_posting.reversal_total,
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
