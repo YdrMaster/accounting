@@ -1,5 +1,5 @@
 use chrono::NaiveDate;
-use sqlx::SqliteConnection;
+use sqlx::{Connection, SqliteConnection};
 use std::collections::HashMap;
 
 use crate::error::DbError;
@@ -163,16 +163,8 @@ pub async fn account_reopen(conn: &mut SqliteConnection, id: AccountId) -> Resul
 }
 
 pub async fn account_delete(conn: &mut SqliteConnection, id: AccountId) -> Result<(), DbError> {
-    sqlx::query("DELETE FROM account_owners WHERE account_id = ?1")
-        .bind(id.0)
-        .execute(&mut *conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
-    sqlx::query("DELETE FROM account_ancestors WHERE account_id = ?1")
-        .bind(id.0)
-        .execute(&mut *conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
+    // account_owners / account_ancestors 靠 ON DELETE CASCADE 级联删除，
+    // 单语句天然原子，无需显式事务
     sqlx::query("DELETE FROM accounts WHERE id = ?1")
         .bind(id.0)
         .execute(conn)
@@ -485,7 +477,8 @@ pub async fn account_created_at_map(
     Ok(map)
 }
 
-pub async fn account_set_owners(
+/// 事务内使用：整体替换账户 owners（DELETE + 多值 INSERT）
+pub(crate) async fn account_set_owners_inner(
     conn: &mut SqliteConnection,
     account_id: AccountId,
     member_ids: &[MemberId],
@@ -495,14 +488,36 @@ pub async fn account_set_owners(
         .execute(&mut *conn)
         .await
         .map_err(|e| DbError::Database(e.to_string()))?;
-    for member_id in member_ids {
-        sqlx::query("INSERT INTO account_owners (account_id, member_id) VALUES (?1, ?2)")
-            .bind(account_id.0)
-            .bind(member_id.0)
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| DbError::Database(e.to_string()))?;
+    if member_ids.is_empty() {
+        return Ok(());
     }
+    let mut builder =
+        sqlx::QueryBuilder::new("INSERT INTO account_owners (account_id, member_id) ");
+    builder.push_values(member_ids, |mut b, member_id| {
+        b.push_bind(account_id.0).push_bind(member_id.0);
+    });
+    builder
+        .build()
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(())
+}
+
+/// autocommit 入口：owners 整体替换要么全成要么全不动（事务内请走 `account_set_owners_inner`）
+pub async fn account_set_owners(
+    conn: &mut SqliteConnection,
+    account_id: AccountId,
+    member_ids: &[MemberId],
+) -> Result<(), DbError> {
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    account_set_owners_inner(&mut tx, account_id, member_ids).await?;
+    tx.commit()
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
     Ok(())
 }
 
@@ -646,6 +661,32 @@ mod tests {
         crate::schema::initialize_schema(&mut conn).await.unwrap();
         crate::schema::insert_seed_data(&mut conn).await.unwrap();
         conn
+    }
+
+    #[tokio::test]
+    async fn test_set_owners_rollback_on_failure() {
+        let mut conn = setup().await;
+        let account = Account {
+            id: AccountId(0),
+            parent_id: None,
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        let id = account_create(&mut conn, &account).await.unwrap();
+        let m1 = crate::repo::member::member_get_or_create_by_name(&mut conn, "甲", "zh-CN")
+            .await
+            .unwrap();
+        let m2 = crate::repo::member::member_get_or_create_by_name(&mut conn, "乙", "zh-CN")
+            .await
+            .unwrap();
+        account_set_owners(&mut conn, id, &[m1]).await.unwrap();
+        assert_eq!(account_get_owners(&mut conn, id).await.unwrap(), vec![m1]);
+
+        // 重复成员触发 (account_id, member_id) 主键冲突 → 整体回滚，原 owners 保留
+        assert!(account_set_owners(&mut conn, id, &[m2, m2]).await.is_err());
+        assert_eq!(account_get_owners(&mut conn, id).await.unwrap(), vec![m1]);
     }
 
     #[tokio::test]

@@ -77,34 +77,31 @@ async fn authenticate(
     let db = state.db();
     let fail = || Box::new(unauthorized("unauthenticated"));
 
-    let sess = db
-        .find_session_by_token_hash(&token_hash)
+    let row = db
+        .find_session_with_user_by_token_hash(&token_hash)
         .await
         .map_err(|e| Box::new(internal(e)))?
         .ok_or_else(fail)?;
     let now = chrono::Utc::now().timestamp();
-    if session::is_expired(sess.expires_at, now) {
+    if session::is_expired(row.expires_at, now) {
         return Err(fail());
     }
     // pending（等待 TOTP）会话不得通过业务认证
-    if sess.pending {
+    if row.pending {
         return Err(fail());
     }
-    let user = db
-        .find_user_by_id(sess.user_id)
-        .await
-        .map_err(|e| Box::new(internal(e)))?
-        .ok_or_else(fail)?;
-    // 滑动续期
-    db.touch_session(sess.id, now + session::SESSION_TTL_SECS)
-        .await
-        .map_err(|e| Box::new(internal(e)))?;
+    // 滑动续期节流：剩余不足半程才续期，写放大从每请求 1 次降为约每半程 1 次
+    if row.expires_at - now < session::SESSION_TTL_SECS / 2 {
+        db.touch_session(row.session_id, now + session::SESSION_TTL_SECS)
+            .await
+            .map_err(|e| Box::new(internal(e)))?;
+    }
 
     Ok(CurrentUser {
-        id: user.id,
-        username: user.username,
-        display_name: user.display_name,
-        totp_enabled: user.totp_enabled,
+        id: row.user_id,
+        username: row.username,
+        display_name: row.display_name,
+        totp_enabled: row.totp_enabled,
         session_token_hash: token_hash,
     })
 }

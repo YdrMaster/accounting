@@ -6,7 +6,7 @@ use accounting::id::*;
 use accounting::name::lang;
 use accounting::posting::Posting;
 use accounting::transaction::{Transaction, TransactionKind};
-use accounting_sql::SqliteDatabase;
+use accounting_sql::{SqliteDatabase, SqliteTransaction};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::path::Path;
@@ -28,6 +28,12 @@ pub async fn import(
 ) -> Result<ImportResult, BeancountError> {
     let data = parser::parse(input)?;
 
+    // 单事务：任一写库失败整体回滚，不残留部分数据
+    let mut dbtx = db
+        .transaction()
+        .await
+        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
+
     let mut result = ImportResult {
         transactions: 0,
         skipped: 0,
@@ -48,7 +54,7 @@ pub async fn import(
     for c in &data.commodities {
         // beancount 文件中的名字语言不可知：自动创建的名字一律标注为 und；
         // 已有实体按名字表命中（任意语言名字命中即中，repo 已支持）
-        let new_id = db
+        let new_id = dbtx
             .commodity_upsert_by_symbol(&c.symbol, &c.symbol, c.precision, lang::UND)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
@@ -59,12 +65,12 @@ pub async fn import(
     for a in &data.accounts {
         let (actual_path, _account_type) = resolve_account_path(&a.path, &a.account_type);
 
-        let new_id = db
+        let new_id = dbtx
             .account_get_or_create_by_path(&actual_path, lang::UND)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
 
-        db.account_update_by_path(&actual_path, a.closed_at, a.billing_day, a.repayment_day)
+        dbtx.account_update_by_path(&actual_path, a.closed_at, a.billing_day, a.repayment_day)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
 
@@ -73,7 +79,7 @@ pub async fn import(
     }
 
     for m in &data.members {
-        let new_id = db
+        let new_id = dbtx
             .member_get_or_create_by_name(&m.name, lang::UND)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
@@ -82,7 +88,7 @@ pub async fn import(
     }
 
     for ch in &data.channels {
-        let new_id = db
+        let new_id = dbtx
             .channel_upsert_by_name(&ch.name, ch.description.as_deref(), None, lang::UND)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
@@ -92,7 +98,7 @@ pub async fn import(
 
     for tx in &data.transactions {
         if tx.internal_id > 0 {
-            let existing = db
+            let existing = dbtx
                 .transaction_get(TransactionId(tx.internal_id))
                 .await
                 .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
@@ -144,9 +150,9 @@ pub async fn import(
             member_id,
         };
 
-        let tag_ids = resolve_tags(db, &tx.tags).await?;
+        let tag_ids = resolve_tags(&mut dbtx, &tx.tags).await?;
 
-        let new_tx_id = db
+        let new_tx_id = dbtx
             .transaction_insert(&transaction, &tag_ids)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
@@ -154,16 +160,18 @@ pub async fn import(
         transaction_id_map.insert(tx.internal_id, new_tx_id);
 
         for p in &tx.postings {
-            let account_id = resolve_account_id(&p.account, &account_id_map, db).await?;
-            let commodity_id = resolve_commodity_id(&p.commodity, &commodity_id_map, db).await?;
+            let account_id = resolve_account_id(&p.account, &account_id_map, &mut dbtx).await?;
+            let commodity_id =
+                resolve_commodity_id(&p.commodity, &commodity_id_map, &mut dbtx).await?;
 
-            let (cost, cost_commodity_id) =
-                if let (Some(cost), Some(cost_comm)) = (p.cost, &p.cost_commodity) {
-                    let cc_id = resolve_commodity_id(cost_comm, &commodity_id_map, db).await?;
-                    (Some(cost), Some(cc_id))
-                } else {
-                    (None, None)
-                };
+            let (cost, cost_commodity_id) = if let (Some(cost), Some(cost_comm)) =
+                (p.cost, &p.cost_commodity)
+            {
+                let cc_id = resolve_commodity_id(cost_comm, &commodity_id_map, &mut dbtx).await?;
+                (Some(cost), Some(cc_id))
+            } else {
+                (None, None)
+            };
 
             let posting = Posting {
                 id: PostingId(0),
@@ -178,7 +186,7 @@ pub async fn import(
                 reversal_total: Decimal::ZERO,
             };
 
-            let new_posting_id = db
+            let new_posting_id = dbtx
                 .posting_insert(&posting)
                 .await
                 .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
@@ -205,7 +213,7 @@ pub async fn import(
                 })
                 .collect();
 
-            db.channel_path_create_batch(new_tx_id, &nodes)
+            dbtx.channel_path_create_batch(new_tx_id, &nodes)
                 .await
                 .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
         }
@@ -263,10 +271,16 @@ pub async fn import(
                 filename: filename_without_id,
                 data: data_bytes,
             };
-            let _ = db.attachment_create(&attachment).await;
+            dbtx.attachment_create(&attachment)
+                .await
+                .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
             result.attachments += 1;
         }
     }
+
+    dbtx.commit()
+        .await
+        .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
 
     Ok(result)
 }
@@ -278,9 +292,9 @@ fn resolve_account_path(path: &str, account_type: &str) -> (String, String) {
 async fn resolve_account_id(
     path: &str,
     _id_map: &HashMap<i64, AccountId>,
-    db: &SqliteDatabase,
+    tx: &mut SqliteTransaction<'_>,
 ) -> Result<AccountId, BeancountError> {
-    let account = db
+    let account = tx
         .account_get_by_name(path)
         .await
         .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
@@ -289,7 +303,7 @@ async fn resolve_account_id(
         return Ok(a.id);
     }
 
-    let id = db
+    let id = tx
         .account_get_or_create_by_path(path, lang::UND)
         .await
         .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
@@ -299,9 +313,9 @@ async fn resolve_account_id(
 async fn resolve_commodity_id(
     symbol: &str,
     _id_map: &HashMap<i64, CommodityId>,
-    db: &SqliteDatabase,
+    tx: &mut SqliteTransaction<'_>,
 ) -> Result<CommodityId, BeancountError> {
-    let commodity = db
+    let commodity = tx
         .commodity_get_by_symbol(symbol)
         .await
         .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
@@ -310,7 +324,7 @@ async fn resolve_commodity_id(
         return Ok(c.id);
     }
 
-    let id = db
+    let id = tx
         .commodity_upsert_by_symbol(symbol, symbol, 2, lang::UND)
         .await
         .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;
@@ -318,12 +332,12 @@ async fn resolve_commodity_id(
 }
 
 async fn resolve_tags(
-    db: &SqliteDatabase,
+    tx: &mut SqliteTransaction<'_>,
     tag_names: &[String],
 ) -> Result<Vec<TagId>, BeancountError> {
     let mut tag_ids = Vec::new();
     for name in tag_names {
-        let tag = db
+        let tag = tx
             .tag_upsert_by_name(name, None, lang::UND)
             .await
             .map_err(|e| BeancountError::DatabaseError(e.to_string()))?;

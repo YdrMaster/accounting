@@ -53,8 +53,11 @@ impl SqliteDatabase {
             .map_err(|e| DbError::Database(e.to_string()))?
             .create_if_missing(true)
             .foreign_keys(true)
-            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+            .busy_timeout(std::time::Duration::from_secs(5));
         let pool = SqlitePoolOptions::new()
+            .max_connections(4)
             .connect_with(options)
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
@@ -67,11 +70,14 @@ impl SqliteDatabase {
     }
 
     /// 打开内存数据库并自动初始化 schema
+    ///
+    /// `:memory:` 每连接是独立库，池必须限单连接。
     pub async fn open_in_memory() -> Result<Self, DbError> {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
             .map_err(|e| DbError::Database(e.to_string()))?
             .foreign_keys(true);
         let pool = SqlitePoolOptions::new()
+            .max_connections(1)
             .connect_with(options)
             .await
             .map_err(|e| DbError::Database(e.to_string()))?;
@@ -279,6 +285,14 @@ mod tests {
             ]
         );
 
+        // 空输入（放在开事务前：单连接池下事务挂起期间不能再用 db 门面）
+        assert!(
+            db.account_root_names_by_ids(&[], "en")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
         // 事务包装路径
         let mut tx = db.transaction().await.unwrap();
         let zh = tx
@@ -288,14 +302,6 @@ mod tests {
         assert_eq!(
             zh,
             vec![(fees_id, "支出".to_string()), (bank_id, "资产".to_string()),]
-        );
-
-        // 空输入
-        assert!(
-            db.account_root_names_by_ids(&[], "en")
-                .await
-                .unwrap()
-                .is_empty()
         );
     }
 

@@ -536,3 +536,39 @@ async fn rate_limit_triggers_429_with_retry_after() {
     let (status, _, _) = login(&app, "someone-else", "bad-pw").await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn valid_session_above_half_ttl_is_not_renewed() {
+    let state = default_state().await;
+    create_user(&state, "judy", "pw123").await;
+    let app = test_app(state.clone()).await;
+
+    // 手工建一个「剩余略多于半程」的正式 session：不应被节流续期改写
+    let token = accounting_auth::service::session::generate_token();
+    let hash = accounting_auth::service::session::hash_token(&token);
+    let now = chrono::Utc::now().timestamp();
+    let ttl = accounting_auth::service::session::SESSION_TTL_SECS;
+    let user = state.db().find_user_by_name("judy").await.unwrap().unwrap();
+    let original_expiry = now + ttl - 3600; // 剩余 = TTL - 1h > TTL/2
+    state
+        .db()
+        .create_session(&hash, user.id, false, original_expiry)
+        .await
+        .unwrap();
+
+    let cookie = format!("session={token}");
+    let (status, _) = get(&app, "/api/biz/ping", Some(&cookie)).await;
+    assert_eq!(status, StatusCode::OK, "放行语义不受节流影响");
+
+    let sess = state
+        .db()
+        .find_session_by_token_hash(&hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        (sess.expires_at - original_expiry).abs() < 5,
+        "剩余充足时不应续期：expires_at={} 应≈{original_expiry}",
+        sess.expires_at
+    );
+}

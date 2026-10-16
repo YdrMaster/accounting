@@ -3,6 +3,25 @@
 use super::{Db, users::now_unix};
 use crate::error::Result;
 
+/// 认证中间件的联合行：会话关键字段 + 所属用户的展示字段。
+#[derive(Debug, sqlx::FromRow)]
+pub struct SessionWithUser {
+    /// 会话 ID。
+    pub session_id: i64,
+    /// 过期时间（Unix 秒）。
+    pub expires_at: i64,
+    /// 是否为等待 TOTP 第二步的 pending 会话。
+    pub pending: bool,
+    /// 所属用户 ID。
+    pub user_id: i64,
+    /// 用户名。
+    pub username: String,
+    /// 显示名。
+    pub display_name: String,
+    /// TOTP 是否已启用。
+    pub totp_enabled: bool,
+}
+
 /// 会话记录。DB 只存 token 的 SHA-256 哈希，不存原文。
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Session {
@@ -44,6 +63,23 @@ impl Db {
         .execute(&self.pool)
         .await?;
         Ok(r.last_insert_rowid())
+    }
+
+    /// 按 token 哈希一次取回会话与所属用户（认证中间件热路径，替代两次往返）。
+    pub async fn find_session_with_user_by_token_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<SessionWithUser>> {
+        let row = sqlx::query_as::<_, SessionWithUser>(
+            "SELECT s.id AS session_id, s.expires_at, s.pending,
+                    u.id AS user_id, u.username, u.display_name, u.totp_enabled
+             FROM sessions s JOIN users u ON u.id = s.user_id
+             WHERE s.token_hash = ?",
+        )
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
     }
 
     /// 按 token 哈希查找会话。

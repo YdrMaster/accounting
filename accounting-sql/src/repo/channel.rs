@@ -87,7 +87,7 @@ pub async fn channel_resolve_by_name(
     }
 
     let row: Option<ChannelRow> = sqlx::query_as(
-        "SELECT c.id, c.description, c.account_id, c.is_system FROM channels c JOIN channel_names cn ON cn.channel_id = c.id WHERE LOWER(cn.name) = LOWER(?1)",
+        "SELECT c.id, c.description, c.account_id, c.is_system FROM channels c JOIN channel_names cn ON cn.channel_id = c.id WHERE cn.name = ?1",
     )
     .bind(name)
     .fetch_optional(conn)

@@ -304,8 +304,6 @@ facade! { tx: account {
 
     account_find_root_name(account_id: accounting::id::AccountId,lang: &str) -> String;
 
-    account_set_owners(account_id: accounting::id::AccountId,member_ids: &[accounting::id::MemberId]) -> ();
-
     account_get_owners(account_id: accounting::id::AccountId) -> Vec<accounting::id::MemberId>;
 
     account_delete(id: accounting::id::AccountId) -> ();
@@ -576,4 +574,8 @@ facade! { tx: repo_root {
 
 facade! { db: posting {
     sum_by_account_with_descendants(account_ids: &[accounting::id::AccountId],start_date: chrono::NaiveDate,end_date: chrono::NaiveDate,exclude_tag_ids: &[accounting::id::TagId],commodity_id: accounting::id::CommodityId) -> Vec<(accounting::id::AccountId,rust_decimal::Decimal)>;
+}}
+
+facade! { tx: account {
+    account_set_owners(account_id: accounting::id::AccountId,member_ids: &[accounting::id::MemberId]) -> () as account_set_owners_inner;
 }}

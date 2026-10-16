@@ -417,3 +417,67 @@ mod tests {
         assert_eq!(import_result2.skipped, 1);
     }
 }
+
+#[cfg(test)]
+mod atomicity_tests {
+    use accounting_beancount::import::import;
+    use accounting_sql::SqliteDatabase;
+
+    async fn setup_target_db() -> SqliteDatabase {
+        let db = SqliteDatabase::open_in_memory().await.unwrap();
+        db.initialize().await.unwrap();
+        db
+    }
+
+    /// 执行期失败（交易缺 member metadata，发生在实体已写入之后）→ 整体回滚零残留
+    #[tokio::test]
+    async fn test_import_rolls_back_on_midway_failure() {
+        let target_db = setup_target_db().await;
+
+        // 实体指令合法（commodity/account/member 均可写入），
+        // 随后的交易缺 member metadata → 写库循环中途 ParseError
+        let beancount_text = r#"
+option "operating_currency" "CNY"
+
+2026-01-01 commodity CNY
+  name: "人民币"
+
+2026-01-01 open Assets:Import:测试
+  account_type: "Asset"
+
+2026-01-01 custom "member" 张三
+
+2026-01-15 * "中途失败交易"
+  Assets:Import:测试   -100 CNY
+  Expenses:Import:测试   100 CNY
+"#;
+
+        let result = import(&target_db, beancount_text, std::path::Path::new(".")).await;
+        assert!(result.is_err(), "缺 member 的交易应使导入失败");
+
+        // 零残留：实体指令的写入随事务回滚
+        assert!(
+            target_db
+                .account_get_by_name("Assets:Import:测试")
+                .await
+                .unwrap()
+                .is_none(),
+            "回滚后不应残留导入的账户"
+        );
+        assert!(
+            target_db
+                .member_get_by_name("张三")
+                .await
+                .unwrap()
+                .is_none(),
+            "回滚后不应残留导入的成员"
+        );
+        assert!(
+            target_db
+                .transaction_count(&Default::default())
+                .await
+                .unwrap()
+                == 0
+        );
+    }
+}

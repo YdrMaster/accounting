@@ -490,6 +490,13 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_commodity_names_commodity ON commodity_names(commodity_id);",
     "CREATE INDEX IF NOT EXISTS idx_member_names_member ON member_names(member_id);",
     "CREATE INDEX IF NOT EXISTS idx_budget_names_budget ON budget_names(budget_id);",
+    // 按名查询走索引（name 列均为 COLLATE NOCASE，等值比较无需 LOWER）
+    "CREATE INDEX IF NOT EXISTS idx_account_names_name ON account_names(name);",
+    "CREATE INDEX IF NOT EXISTS idx_tag_names_name ON tag_names(name);",
+    "CREATE INDEX IF NOT EXISTS idx_channel_names_name ON channel_names(name);",
+    "CREATE INDEX IF NOT EXISTS idx_commodity_names_name ON commodity_names(name);",
+    "CREATE INDEX IF NOT EXISTS idx_member_names_name ON member_names(name);",
+    "CREATE INDEX IF NOT EXISTS idx_budget_names_name ON budget_names(name);",
     // 每个 (entity, lang) 至多一条显示名
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_account_names_display ON account_names(account_id, lang) WHERE is_display = 1;",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_tag_names_display ON tag_names(tag_id, lang) WHERE is_display = 1;",
@@ -827,6 +834,8 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         UPDATE saving_plan_names SET updated_at = datetime('now') WHERE id = NEW.id;
     END;
     "#,
+    "CREATE INDEX IF NOT EXISTS idx_saving_plan_names_name ON saving_plan_names(name);",
+    "CREATE INDEX IF NOT EXISTS idx_transactions_member ON transactions(member_id);",
 ];
 
 #[cfg(test)]
