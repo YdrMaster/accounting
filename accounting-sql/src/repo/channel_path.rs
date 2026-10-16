@@ -91,19 +91,6 @@ pub async fn channel_path_find_transactions_by_channel(
     Ok(rows.into_iter().map(TransactionId).collect())
 }
 
-/// 查询引用指定渠道的记录数
-pub async fn channel_path_count_by_channel(
-    conn: &mut SqliteConnection,
-    channel_id: ChannelId,
-) -> Result<i64, DbError> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_paths WHERE channel_id = ?1")
-        .bind(channel_id.0)
-        .fetch_one(conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
-    Ok(count)
-}
-
 /// 更新链路节点的状态
 pub async fn channel_path_update_status(
     conn: &mut SqliteConnection,
@@ -362,23 +349,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_count_by_channel() {
-        let mut conn = setup().await;
-        let ch = insert_channel(&mut conn, "PayPal").await;
-        let tx_id = insert_transaction(&mut conn).await;
-
-        let node = ChannelPathNode {
-            position: 0,
-            channel_id: ch,
-            status: ChannelPathStatus::Default,
-        };
-        channel_path_create(&mut conn, tx_id, &node).await.unwrap();
-
-        let count = channel_path_count_by_channel(&mut conn, ch).await.unwrap();
-        assert_eq!(count, 1);
-    }
-
-    #[tokio::test]
     async fn test_cascade_delete_on_transaction_delete() {
         // When a transaction is deleted, channel_paths should be cascade-deleted
         let mut conn = setup().await;
@@ -423,7 +393,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_channel_delete_rejected_when_referenced() {
-        // Verify that channel_count_transactions_by_id detects channel_path references
+        // Verify that channel_in_use detects channel_path references
         let mut conn = setup().await;
         let ch = insert_channel(&mut conn, "TestPay").await;
         let tx_id = insert_transaction(&mut conn).await;
@@ -435,11 +405,11 @@ mod tests {
         };
         channel_path_create(&mut conn, tx_id, &node).await.unwrap();
 
-        let count = crate::repo::channel::channel_count_transactions_by_id(&mut conn, ch)
+        let in_use = crate::repo::channel::channel_in_use(&mut conn, ch)
             .await
             .unwrap();
         assert!(
-            count > 0,
+            in_use,
             "Channel with channel_paths should report references"
         );
     }

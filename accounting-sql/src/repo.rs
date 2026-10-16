@@ -12,6 +12,8 @@ pub mod channel;
 pub mod channel_path;
 /// Commodity Repository
 pub mod commodity;
+/// 门面清单：db/transaction 双侧委托方法的宏与清单
+pub mod facade;
 /// Member Repository
 pub mod member;
 /// Posting Repository

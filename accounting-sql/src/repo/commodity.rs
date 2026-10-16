@@ -115,8 +115,8 @@ pub async fn commodity_upsert_by_symbol(
     conn: &mut SqliteConnection,
     symbol: &str,
     name: &str,
-    lang: &str,
     precision: u8,
+    lang: &str,
 ) -> Result<CommodityId, DbError> {
     if let Some(existing) = commodity_get_by_symbol(conn, symbol).await? {
         sqlx::query("UPDATE commodities SET precision = ?1 WHERE id = ?2")
@@ -198,7 +198,7 @@ mod tests {
         let mut conn = setup().await;
 
         // 创建时写入名称（语言由调用方传入）
-        let id = commodity_upsert_by_symbol(&mut conn, "USD", "US Dollar", "en", 2)
+        let id = commodity_upsert_by_symbol(&mut conn, "USD", "US Dollar", 2, "en")
             .await
             .unwrap();
         assert_eq!(
@@ -210,7 +210,7 @@ mod tests {
         );
 
         // 已有 symbol 再 upsert：不重复写名字
-        let again = commodity_upsert_by_symbol(&mut conn, "USD", "US Dollar", "en", 4)
+        let again = commodity_upsert_by_symbol(&mut conn, "USD", "US Dollar", 4, "en")
             .await
             .unwrap();
         assert_eq!(again, id);
@@ -224,12 +224,12 @@ mod tests {
 
         // 名称撞系统内置名（任何语言，NOCASE）→ 拒绝
         assert!(
-            commodity_upsert_by_symbol(&mut conn, "EUR", "人民币", "zh-CN", 2)
+            commodity_upsert_by_symbol(&mut conn, "EUR", "人民币", 2, "zh-CN")
                 .await
                 .is_err()
         );
         assert!(
-            commodity_upsert_by_symbol(&mut conn, "EUR", "chinese yuan", "en", 2)
+            commodity_upsert_by_symbol(&mut conn, "EUR", "chinese yuan", 2, "en")
                 .await
                 .is_err()
         );

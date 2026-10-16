@@ -108,9 +108,9 @@ pub async fn channel_list(conn: &mut SqliteConnection) -> Result<Vec<Channel>, D
 pub async fn channel_upsert_by_name(
     conn: &mut SqliteConnection,
     name: &str,
-    lang: &str,
     description: Option<&str>,
     account_id: Option<AccountId>,
+    lang: &str,
 ) -> Result<ChannelId, DbError> {
     validate_channel_name(name)?;
     if let Some(existing) = channel_get_by_name(conn, name).await? {
@@ -151,16 +151,18 @@ pub async fn channel_names_by_id(
     Ok(names)
 }
 
-pub async fn channel_count_transactions_by_id(
+/// 渠道是否被任何交易链路引用（删除守卫用；不计具体数量）
+pub async fn channel_in_use(
     conn: &mut SqliteConnection,
     channel_id: ChannelId,
-) -> Result<i64, DbError> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_paths WHERE channel_id = ?1")
-        .bind(channel_id.0)
-        .fetch_one(conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
-    Ok(count)
+) -> Result<bool, DbError> {
+    let row: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM channel_paths WHERE channel_id = ?1 LIMIT 1")
+            .bind(channel_id.0)
+            .fetch_optional(conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(row.is_some())
 }
 
 pub async fn channel_force_delete_by_id(
@@ -283,10 +285,7 @@ mod tests {
             is_system: false,
         };
         let id = channel_create(&mut conn, &channel).await.unwrap();
-        let count = channel_count_transactions_by_id(&mut conn, id)
-            .await
-            .unwrap();
-        assert_eq!(count, 0);
+        assert!(!channel_in_use(&mut conn, id).await.unwrap());
         channel_force_delete_by_id(&mut conn, id).await.unwrap();
         assert!(channel_get(&mut conn, id).await.unwrap().is_none());
     }
@@ -369,7 +368,7 @@ mod tests {
     #[tokio::test]
     async fn test_channel_name_with_ampersand_rejected() {
         let mut conn = setup().await;
-        let result = channel_upsert_by_name(&mut conn, "A&B", "en", None, None).await;
+        let result = channel_upsert_by_name(&mut conn, "A&B", None, None, "en").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("不能包含"));
     }
@@ -377,7 +376,7 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_channel_name_with_arrow_rejected() {
         let mut conn = setup().await;
-        let result = channel_upsert_by_name(&mut conn, "A->B", "en", None, None).await;
+        let result = channel_upsert_by_name(&mut conn, "A->B", None, None, "en").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("不能包含"));
     }
@@ -387,7 +386,7 @@ mod tests {
         let mut conn = setup().await;
 
         // 创建成功：渠道与名字行一并写入，语言为调用方传入值
-        let id = channel_upsert_by_name(&mut conn, "云闪付", "zh-CN", Some("银联"), None)
+        let id = channel_upsert_by_name(&mut conn, "云闪付", Some("银联"), None, "zh-CN")
             .await
             .unwrap();
         let (lang, is_display): (String, i32) = sqlx::query_as(
@@ -405,7 +404,7 @@ mod tests {
         assert_eq!(found.unwrap().id, id);
 
         // 再次 upsert 同名 → 更新而非新建
-        let again = channel_upsert_by_name(&mut conn, "云闪付", "zh-CN", Some("银联云闪付"), None)
+        let again = channel_upsert_by_name(&mut conn, "云闪付", Some("银联云闪付"), None, "zh-CN")
             .await
             .unwrap();
         assert_eq!(again, id);

@@ -303,11 +303,11 @@ async fn delete_channel(
 ) -> Result<String, String> {
     let db = state.db();
     // 检查渠道是否被 channel_paths 引用
-    let count = db
-        .channel_count_transactions_by_id(ChannelId(id))
+    let in_use = db
+        .channel_in_use(ChannelId(id))
         .await
         .map_err(|e| e.to_string())?;
-    if count > 0 {
+    if in_use {
         return Err(t!("channel_in_use", locale = lang.as_str()).to_string());
     }
     db.channel_force_delete_by_id(ChannelId(id))

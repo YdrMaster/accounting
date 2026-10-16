@@ -44,12 +44,12 @@ impl SavingPlanRow {
 pub async fn saving_plan_create(
     conn: &mut SqliteConnection,
     name: &str,
-    lang: &str,
     period: Option<FinancePeriod>,
     deadline: Option<NaiveDate>,
     commodity_id: CommodityId,
     target_amount: Decimal,
     account_ids: &[AccountId],
+    lang: &str,
 ) -> Result<SavingPlanId, DbError> {
     // 显式事务：header、名字、账户关联要么全部落库要么全部回滚（失败随 drop 回滚）
     let mut tx = conn
@@ -160,12 +160,12 @@ pub async fn saving_plan_update(
     conn: &mut SqliteConnection,
     plan_id: SavingPlanId,
     name: &str,
-    lang: &str,
     period: Option<FinancePeriod>,
     deadline: Option<NaiveDate>,
     commodity_id: CommodityId,
     target_amount: Decimal,
     account_ids: &[AccountId],
+    lang: &str,
 ) -> Result<(), DbError> {
     // 显式事务：header、改名、账户关联替换原子生效（失败随 drop 回滚）
     let mut tx = conn
@@ -228,12 +228,12 @@ pub async fn saving_plan_update(
 pub async fn saving_plan_upsert_by_name(
     conn: &mut SqliteConnection,
     name: &str,
-    lang: &str,
     period: Option<FinancePeriod>,
     deadline: Option<NaiveDate>,
     commodity_id: CommodityId,
     target_amount: Decimal,
     account_ids: &[AccountId],
+    lang: &str,
 ) -> Result<SavingPlanId, DbError> {
     // Find existing plan by name via saving_plan_names table
     let existing_id: Option<i64> = sqlx::query_scalar(
@@ -252,12 +252,12 @@ pub async fn saving_plan_upsert_by_name(
             conn,
             plan_id,
             name,
-            lang,
             period,
             deadline,
             commodity_id,
             target_amount,
             account_ids,
+            lang,
         )
         .await?;
         Ok(plan_id)
@@ -265,12 +265,12 @@ pub async fn saving_plan_upsert_by_name(
         saving_plan_create(
             conn,
             name,
-            lang,
             period,
             deadline,
             commodity_id,
             target_amount,
             account_ids,
+            lang,
         )
         .await
     }
@@ -381,12 +381,12 @@ mod tests {
         let id = saving_plan_create(
             &mut conn,
             "Trip Fund",
-            "en",
             None,
             Some(deadline),
             CommodityId(1),
             Decimal::from_str("5000").unwrap(),
             &[a1, a2],
+            "en",
         )
         .await
         .unwrap();
@@ -408,12 +408,12 @@ mod tests {
         let id2 = saving_plan_create(
             &mut conn,
             "Rent",
-            "en",
             Some(FinancePeriod::Monthly),
             None,
             CommodityId(1),
             Decimal::from_str("1234.56").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
@@ -430,12 +430,12 @@ mod tests {
         saving_plan_create(
             &mut conn,
             "Trip Fund",
-            "en",
             None,
             None,
             CommodityId(1),
             Decimal::from_str("5000").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
@@ -443,12 +443,12 @@ mod tests {
         let result = saving_plan_create(
             &mut conn,
             "trip fund",
-            "en",
             None,
             None,
             CommodityId(1),
             Decimal::from_str("100").unwrap(),
             &[a1],
+            "en",
         )
         .await;
         assert!(result.is_err());
@@ -462,24 +462,24 @@ mod tests {
         saving_plan_create(
             &mut conn,
             "Plan A",
-            "en",
             None,
             None,
             CommodityId(1),
             Decimal::from_str("1000").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
         saving_plan_create(
             &mut conn,
             "Plan B",
-            "en",
             Some(FinancePeriod::Yearly),
             None,
             CommodityId(1),
             Decimal::from_str("2000").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
@@ -497,12 +497,12 @@ mod tests {
         saving_plan_create(
             &mut conn,
             "Emergency",
-            "en",
             None,
             None,
             CommodityId(1),
             Decimal::from_str("10000").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
@@ -529,12 +529,12 @@ mod tests {
         let id = saving_plan_create(
             &mut conn,
             "Old Plan",
-            "en",
             None,
             None,
             CommodityId(1),
             Decimal::from_str("1000").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
@@ -544,12 +544,12 @@ mod tests {
             &mut conn,
             id,
             "New Plan",
-            "en",
             Some(FinancePeriod::Monthly),
             Some(deadline),
             CommodityId(1),
             Decimal::from_str("6000").unwrap(),
             &[a1, a2],
+            "en",
         )
         .await
         .unwrap();
@@ -582,12 +582,12 @@ mod tests {
                 &mut conn,
                 SavingPlanId(999),
                 "X",
-                "en",
                 None,
                 None,
                 CommodityId(1),
                 Decimal::from_str("1").unwrap(),
                 &[a1],
+                "en"
             )
             .await
             .is_err()
@@ -603,24 +603,24 @@ mod tests {
         saving_plan_create(
             &mut conn,
             "Plan A",
-            "en",
             None,
             None,
             CommodityId(1),
             Decimal::from_str("100").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
         let id_b = saving_plan_create(
             &mut conn,
             "Plan B",
-            "en",
             Some(FinancePeriod::Monthly),
             Some(deadline_b),
             CommodityId(1),
             Decimal::from_str("2000").unwrap(),
             &[a1, a2],
+            "en",
         )
         .await
         .unwrap();
@@ -630,12 +630,12 @@ mod tests {
             &mut conn,
             id_b,
             "plan a",
-            "en",
             Some(FinancePeriod::Yearly),
             None,
             CommodityId(1),
             Decimal::from_str("1").unwrap(),
             &[a1],
+            "en",
         )
         .await;
         assert!(result.is_err());
@@ -669,12 +669,12 @@ mod tests {
         let id = saving_plan_upsert_by_name(
             &mut conn,
             "Upsert Plan",
-            "en",
             None,
             None,
             CommodityId(1),
             Decimal::from_str("100").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
@@ -682,12 +682,12 @@ mod tests {
         let id2 = saving_plan_upsert_by_name(
             &mut conn,
             "Upsert Plan",
-            "en",
             Some(FinancePeriod::Daily),
             None,
             CommodityId(1),
             Decimal::from_str("200").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
@@ -710,12 +710,12 @@ mod tests {
         let id = saving_plan_create(
             &mut conn,
             "To Delete",
-            "en",
             None,
             None,
             CommodityId(1),
             Decimal::from_str("1000").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
@@ -757,24 +757,24 @@ mod tests {
         saving_plan_create(
             &mut conn,
             "P1",
-            "en",
             None,
             None,
             CommodityId(1),
             Decimal::from_str("100").unwrap(),
             &[a1],
+            "en",
         )
         .await
         .unwrap();
         saving_plan_create(
             &mut conn,
             "P2",
-            "en",
             None,
             None,
             CommodityId(1),
             Decimal::from_str("200").unwrap(),
             &[a1, a2],
+            "en",
         )
         .await
         .unwrap();

@@ -47,11 +47,11 @@ struct BudgetLimitRow {
 pub async fn budget_create(
     conn: &mut SqliteConnection,
     name: &str,
-    lang: &str,
     period: Option<FinancePeriod>,
     deadline: Option<NaiveDate>,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
+    lang: &str,
 ) -> Result<BudgetId, DbError> {
     // 显式事务：header、名字、限额要么全部落库要么全部回滚（失败随 drop 回滚）
     let mut tx = conn
@@ -150,11 +150,11 @@ pub async fn budget_update(
     conn: &mut SqliteConnection,
     budget_id: BudgetId,
     name: &str,
-    lang: &str,
     period: Option<FinancePeriod>,
     deadline: Option<NaiveDate>,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
+    lang: &str,
 ) -> Result<(), DbError> {
     // 显式事务：header、改名、限额替换原子生效（失败随 drop 回滚）
     let mut tx = conn
@@ -231,11 +231,11 @@ pub async fn budget_list_all_with_limits(
 pub async fn budget_upsert_by_name(
     conn: &mut SqliteConnection,
     name: &str,
-    lang: &str,
     period: Option<FinancePeriod>,
     deadline: Option<NaiveDate>,
     commodity_id: CommodityId,
     limits: &[(AccountId, Decimal)],
+    lang: &str,
 ) -> Result<BudgetId, DbError> {
     // Find existing budget by name via budget_names table
     let existing_id: Option<i64> = sqlx::query_scalar(
@@ -252,16 +252,16 @@ pub async fn budget_upsert_by_name(
             conn,
             budget_id,
             name,
-            lang,
             period,
             deadline,
             commodity_id,
             limits,
+            lang,
         )
         .await?;
         Ok(budget_id)
     } else {
-        budget_create(conn, name, lang, period, deadline, commodity_id, limits).await
+        budget_create(conn, name, period, deadline, commodity_id, limits, lang).await
     }
 }
 
@@ -431,7 +431,6 @@ mod tests {
         let id = budget_create(
             &mut conn,
             "Monthly Life",
-            "en",
             Some(FinancePeriod::Monthly),
             None,
             CommodityId(1),
@@ -439,6 +438,7 @@ mod tests {
                 (AccountId(1), Decimal::from_str("2000").unwrap()),
                 (AccountId(2), Decimal::from_str("500").unwrap()),
             ],
+            "en",
         )
         .await
         .unwrap();
@@ -458,11 +458,11 @@ mod tests {
         let id = budget_create(
             &mut conn,
             "Trip Fund",
-            "en",
             None,
             Some(deadline),
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("5000").unwrap())],
+            "en",
         )
         .await
         .unwrap();
@@ -476,11 +476,11 @@ mod tests {
             &mut conn,
             id,
             "Trip Fund",
-            "en",
             Some(FinancePeriod::Monthly),
             None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("3000").unwrap())],
+            "en",
         )
         .await
         .unwrap();
@@ -495,11 +495,11 @@ mod tests {
         budget_create(
             &mut conn,
             "Monthly Life",
-            "en",
             Some(FinancePeriod::Monthly),
             None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("2000").unwrap())],
+            "en",
         )
         .await
         .unwrap();
@@ -508,11 +508,11 @@ mod tests {
         let result = budget_create(
             &mut conn,
             "monthly life",
-            "en",
             Some(FinancePeriod::Yearly),
             None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("100").unwrap())],
+            "en",
         )
         .await;
         assert!(result.is_err());
@@ -525,22 +525,22 @@ mod tests {
         budget_create(
             &mut conn,
             "Budget A",
-            "en",
             Some(FinancePeriod::Monthly),
             None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+            "en",
         )
         .await
         .unwrap();
         budget_create(
             &mut conn,
             "Budget B",
-            "en",
             Some(FinancePeriod::Yearly),
             None,
             CommodityId(1),
             &[(AccountId(2), Decimal::from_str("20000").unwrap())],
+            "en",
         )
         .await
         .unwrap();
@@ -555,11 +555,11 @@ mod tests {
         let id = budget_create(
             &mut conn,
             "Old Name",
-            "en",
             Some(FinancePeriod::Monthly),
             None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+            "en",
         )
         .await
         .unwrap();
@@ -568,7 +568,6 @@ mod tests {
             &mut conn,
             id,
             "New Name",
-            "en",
             Some(FinancePeriod::Yearly),
             None,
             CommodityId(1),
@@ -576,6 +575,7 @@ mod tests {
                 (AccountId(1), Decimal::from_str("3000").unwrap()),
                 (AccountId(2), Decimal::from_str("5000").unwrap()),
             ],
+            "en",
         )
         .await
         .unwrap();
@@ -607,22 +607,22 @@ mod tests {
         let id_a = budget_create(
             &mut conn,
             "Budget A",
-            "en",
             Some(FinancePeriod::Monthly),
             None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+            "en",
         )
         .await
         .unwrap();
         budget_create(
             &mut conn,
             "Budget B",
-            "en",
             Some(FinancePeriod::Monthly),
             None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+            "en",
         )
         .await
         .unwrap();
@@ -633,11 +633,11 @@ mod tests {
                 &mut conn,
                 id_a,
                 "budget b",
-                "en",
                 Some(FinancePeriod::Monthly),
                 None,
                 CommodityId(1),
                 &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+                "en"
             )
             .await
             .is_err()
@@ -651,18 +651,17 @@ mod tests {
         budget_create(
             &mut conn,
             "Budget A",
-            "en",
             Some(FinancePeriod::Monthly),
             None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+            "en",
         )
         .await
         .unwrap();
         let id_b = budget_create(
             &mut conn,
             "Budget B",
-            "en",
             Some(FinancePeriod::Monthly),
             Some(deadline_b),
             CommodityId(1),
@@ -670,6 +669,7 @@ mod tests {
                 (AccountId(1), Decimal::from_str("2000").unwrap()),
                 (AccountId(2), Decimal::from_str("300").unwrap()),
             ],
+            "en",
         )
         .await
         .unwrap();
@@ -679,11 +679,11 @@ mod tests {
             &mut conn,
             id_b,
             "budget a",
-            "en",
             Some(FinancePeriod::Yearly),
             None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1").unwrap())],
+            "en",
         )
         .await;
         assert!(result.is_err());
@@ -708,11 +708,11 @@ mod tests {
         let id = budget_create(
             &mut conn,
             "To Delete",
-            "en",
             Some(FinancePeriod::Monthly),
             None,
             CommodityId(1),
             &[(AccountId(1), Decimal::from_str("1000").unwrap())],
+            "en",
         )
         .await
         .unwrap();
