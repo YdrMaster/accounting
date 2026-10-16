@@ -9,6 +9,7 @@ import { useSavingPlanStore } from '../stores/savingPlan'
 import type { AccountAllocationDto, SavingPlanDto, SavingPlanStatusDto } from '../types/api'
 import { formatDecimal } from '../utils/decimal'
 import { alertDialog, confirmDialog } from '../utils/dialog'
+import { fromCents, toCents } from '../utils/money'
 import { PALETTE } from '../utils/palette'
 
 const savingPlanStore = useSavingPlanStore()
@@ -39,9 +40,10 @@ function ringColor(status: SavingPlanStatusDto): string {
   return Number(status.satisfaction) >= 100 ? RING_COLORS.green : RING_COLORS.yellow
 }
 
-/** 徽标缺口按分配口径:target − allocated(账面 gap 在详情区展示) */
+/** 徽标缺口按分配口径:target − allocated(整数分域相减,账面 gap 在详情区展示) */
 function allocationGap(status: SavingPlanStatusDto): string {
-  return formatDecimal(String(Number(status.target_amount) - Number(status.allocated)))
+  const gap = toCents(status.target_amount) - toCents(status.allocated)
+  return formatDecimal(fromCents(gap))
 }
 
 function periodLabel(period: string | null): string {
@@ -72,8 +74,8 @@ function accountName(accountId: number): string {
 }
 
 function occupiedWidth(alloc: AccountAllocationDto): string {
-  const balance = Number(alloc.balance)
-  const occupied = Number(alloc.occupied_by_earlier)
+  const balance = toCents(alloc.balance)
+  const occupied = toCents(alloc.occupied_by_earlier)
   if (!(balance > 0) || !(occupied > 0)) return '0%'
   return `${Math.min((occupied / balance) * 100, 100)}%`
 }

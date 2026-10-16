@@ -31,4 +31,18 @@ describe('formatCalendarAmount', () => {
       expect(formatCalendarAmount('173692.17', 'en')).toBe('173.7k')
     })
   })
+
+  it('passes through variable-scale strings below threshold unchanged', () => {
+    expect(formatCalendarAmount('75', 'zh-CN')).toBe('75')
+    expect(formatCalendarAmount('100.5', 'en')).toBe('100.5')
+    expect(formatCalendarAmount('-50.25', 'zh-CN')).toBe('-50.25')
+  })
+
+  it('abbreviates negative amounts above threshold by absolute value', () => {
+    expect(formatCalendarAmount('-173692.17', 'zh-CN')).toBe('-17.4万')
+  })
+
+  it('throws on invalid decimal string', () => {
+    expect(() => formatCalendarAmount('abc', 'zh-CN')).toThrow()
+  })
 })

@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import type { CashFlowItemDto } from '../types/api'
 import { formatAmount } from '../utils/amount'
 import { echarts } from '../utils/echarts'
+import { fromCents } from '../utils/money'
 import { buildSunburstTree, type SunburstNode } from '../utils/sunburst'
 
 const props = withDefaults(
@@ -70,9 +71,10 @@ function render() {
 
   chart.setOption({
     tooltip: {
-      // 中间节点的 value 是可见子节点之和，真实总额取 data.total
+      // 中间节点的 value 是可见子节点之和，真实总额取 data.total；
+      // 树内金额为整数分，经 fromCents 恢复展示串再交 formatAmount
       formatter: (p: { name: string; value: number; data: { total?: number } }) =>
-        `${p.name}: ${formatAmount(new Decimal(p.data?.total ?? p.value ?? 0))}`,
+        `${p.name}: ${formatAmount(new Decimal(fromCents(p.data?.total ?? p.value ?? 0)))}`,
     },
     series: [
       {

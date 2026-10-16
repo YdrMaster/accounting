@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import type { CashFlowItemDto } from '../types/api'
 import { formatAmount } from '../utils/amount'
 import { buildDetailRows } from '../utils/cashFlowList'
+import { fromCents } from '../utils/money'
 
 const props = defineProps<{
   items: CashFlowItemDto[]
@@ -44,7 +45,9 @@ function percent(ratio: number): string {
             {{ row.name }}
           </span>
           <span class="percent">{{ percent(row.ratio) }}</span>
-          <span class="amount" :class="side">{{ formatAmount(new Decimal(row.amount)) }}</span>
+          <span class="amount" :class="side">{{
+            formatAmount(new Decimal(fromCents(row.amount)))
+          }}</span>
         </div>
         <div class="bar-track">
           <div class="bar" :style="{ width: `${Math.min(row.ratio * 100, 100)}%` }"></div>

@@ -9,6 +9,7 @@ import { useBudgetStore } from '../stores/budget'
 import type { BudgetLimitRequest, BudgetStatusDto } from '../types/api'
 import { formatDecimal } from '../utils/decimal'
 import { alertDialog, confirmDialog } from '../utils/dialog'
+import { fromCents, toCents } from '../utils/money'
 import { PALETTE } from '../utils/palette'
 
 const budgetStore = useBudgetStore()
@@ -29,11 +30,12 @@ const RING_COLORS = {
   gray: PALETTE.neutral,
 } as const
 
+/** 环形合计在整数分域累加，杜绝浮点误差 */
 function totals(status: BudgetStatusDto): { limit: number; actual: number } {
   return status.items.reduce(
     (acc, item) => ({
-      limit: acc.limit + Number(item.limit_amount),
-      actual: acc.actual + Number(item.actual_amount),
+      limit: acc.limit + toCents(item.limit_amount),
+      actual: acc.actual + toCents(item.actual_amount),
     }),
     { limit: 0, actual: 0 }
   )
@@ -62,7 +64,7 @@ function ringColor(status: BudgetStatusDto): string {
 
 function ringAmount(status: BudgetStatusDto): string {
   const { limit, actual } = totals(status)
-  return Math.abs(limit - actual).toFixed(2)
+  return fromCents(Math.abs(limit - actual))
 }
 
 function periodLabel(period: string | null): string {
@@ -252,7 +254,7 @@ watchEffect(() => {
                 v-for="item in status.items"
                 :key="item.account_id"
                 class="status-row"
-                :class="{ overspent: Number(item.remaining) < 0 }"
+                :class="{ overspent: toCents(item.remaining) < 0 }"
               >
                 <div class="status-name">{{ accountName(item.account_id) }}</div>
                 <div class="status-nums">

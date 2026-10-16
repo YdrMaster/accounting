@@ -1,9 +1,11 @@
 import type { CashFlowItemDto } from '../types/api'
+import { toCents } from './money'
 
 export interface SunburstNode {
   name: string
+  /** 整数分：叶子扇区的角度权重 */
   value?: number
-  /** 中间节点的真实汇总（含被过滤子节点）；tooltip 展示用，不参与角度计算 */
+  /** 整数分：中间节点的真实汇总（含被过滤子节点）；tooltip 展示用，不参与角度计算 */
   total?: number
   /** 账户 id，钻入事件载荷；伪子节点无 id（不响应钻入） */
   accountId?: number
@@ -17,26 +19,30 @@ export interface SunburstNode {
 
 export interface SunburstTree {
   children: SunburstNode[]
+  /** 整数分 */
   total: number
 }
 
-const EPSILON = 1e-6
-
 // 仅显示超过当前级别总额 1% 的节点，避免渲染过窄的扇区；
-// 被过滤项不参与比例计算，可见子节点重新归一化填满整环
-const MIN_VISIBLE_RATIO = 0.01
+// 被过滤项不参与比例计算，可见子节点重新归一化填满整环。
+// 整数域精确比较：child*100 > parent 等价于 child > parent/100，无浮点残差
+const MIN_VISIBLE_RATIO_NUM = 100
+
+function isVisible(childCents: number, parentCents: number): boolean {
+  return childCents * MIN_VISIBLE_RATIO_NUM > parentCents
+}
 
 function filterVisible(children: SunburstNode[], parentTotal: number): SunburstNode[] {
-  if (parentTotal <= EPSILON) return children
-  return children.filter(c => (c.value ?? c.total ?? 0) > parentTotal * MIN_VISIBLE_RATIO)
+  if (parentTotal <= 0) return children
+  return children.filter(c => isVisible(c.value ?? c.total ?? 0, parentTotal))
 }
 
 /**
  * 从扁平的「账户 → 各层汇总」列表按 account_id / parent_id 构建太阳图树。
- * 返回根节点的子节点列表与根总额；中间层直接分录生成同名伪子节点（无 accountId，
- * 不响应钻入）；每一级仅保留超过该级总额 1% 的子节点（含伪子节点），被过滤项不
- * 参与比例，可见子节点归一化填满整环；中间节点真实总额存于 total 字段供 tooltip
- * 展示；兄弟节点按金额降序排列。
+ * 返回根节点的子节点列表与根总额（整数分）；中间层直接分录生成同名伪子节点（无
+ * accountId，不响应钻入）；每一级仅保留超过该级总额 1% 的子节点（含伪子节点），
+ * 被过滤项不参与比例，可见子节点归一化填满整环；中间节点真实总额存于 total 字段
+ * 供 tooltip 展示；兄弟节点按金额降序排列。
  */
 export function buildSunburstTree(items: CashFlowItemDto[]): SunburstTree {
   if (items.length === 0) return { children: [], total: 0 }
@@ -58,16 +64,17 @@ export function buildSunburstTree(items: CashFlowItemDto[]): SunburstTree {
     (b.value ?? b.total ?? 0) - (a.value ?? a.total ?? 0)
 
   function buildNode(item: CashFlowItemDto): SunburstNode {
-    const total = Number(item.amount)
+    const total = toCents(item.amount)
     const childItems = childMap.get(item.account_id) ?? []
     if (childItems.length === 0) {
       return { name: item.name, value: total, accountId: item.account_id }
     }
     const children = childItems.map(buildNode)
-    const childrenSum = childItems.reduce((sum, c) => sum + Number(c.amount), 0)
+    const childrenSum = childItems.reduce((sum, c) => sum + toCents(c.amount), 0)
     const own = total - childrenSum
-    // 直接记入中间层的分录以同名伪子节点承载，保证父环 = 子环之和；伪子节点不响应钻入
-    if (own > EPSILON) {
+    // 直接记入中间层的分录以同名伪子节点承载，保证父环 = 子环之和；
+    // 伪子节点不响应钻入。整数域差额精确，仅正差额生成伪子节点
+    if (own > 0) {
       children.push({ name: item.name, value: own, nodeClick: false })
     }
     children.sort(byAmountDesc)
@@ -80,14 +87,14 @@ export function buildSunburstTree(items: CashFlowItemDto[]): SunburstTree {
     return { name: item.name, total, accountId: item.account_id, children: visible }
   }
 
-  const total = roots.reduce((sum, r) => sum + Number(r.amount), 0)
+  const total = roots.reduce((sum, r) => sum + toCents(r.amount), 0)
   const children: SunburstNode[] = []
   for (const root of roots) {
     const childItems = childMap.get(root.account_id) ?? []
     const nodes = childItems.map(buildNode)
-    const childrenSum = childItems.reduce((sum, c) => sum + Number(c.amount), 0)
-    const own = Number(root.amount) - childrenSum
-    if (own > EPSILON) {
+    const childrenSum = childItems.reduce((sum, c) => sum + toCents(c.amount), 0)
+    const own = toCents(root.amount) - childrenSum
+    if (own > 0) {
       nodes.push({ name: root.name, value: own, nodeClick: false })
     }
     children.push(...nodes)

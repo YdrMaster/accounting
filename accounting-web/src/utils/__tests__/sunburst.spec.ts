@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CashFlowItemDto } from '../../types/api'
+import { toCents } from '../money'
 import { buildSunburstTree } from '../sunburst'
 
 function item(
@@ -24,18 +25,18 @@ describe('buildSunburstTree', () => {
       item(4, 2, '堂食', '300'),
     ])
 
-    expect(tree.total).toBe(800)
+    expect(tree.total).toBe(toCents('800'))
     expect(tree.children).toHaveLength(1)
     const food = tree.children[0]
     expect(food.name).toBe('餐饮')
     expect(food.accountId).toBe(2)
     // 中间节点不带 value（由可见子节点求和决定角度），真实总额存于 total
     expect(food.value).toBeUndefined()
-    expect(food.total).toBe(800)
+    expect(food.total).toBe(80000)
     // 兄弟节点按金额降序
     expect(food.children).toEqual([
-      { name: '外卖', value: 500, accountId: 3 },
-      { name: '堂食', value: 300, accountId: 4 },
+      { name: '外卖', value: 50000, accountId: 3 },
+      { name: '堂食', value: 30000, accountId: 4 },
     ])
   })
 
@@ -47,11 +48,11 @@ describe('buildSunburstTree', () => {
       item(4, 1, '交通', '200'),
     ])
 
-    expect(tree.total).toBe(1000)
+    expect(tree.total).toBe(100000)
     const food = tree.children.find(c => c.name === '餐饮')!
     // 餐饮汇总 800，子节点外卖 500 → 伪子节点承载差额 300，无 accountId 且不响应点击
-    expect(food.children).toContainEqual({ name: '外卖', value: 500, accountId: 3 })
-    expect(food.children).toContainEqual({ name: '餐饮', value: 300, nodeClick: false })
+    expect(food.children).toContainEqual({ name: '外卖', value: 50000, accountId: 3 })
+    expect(food.children).toContainEqual({ name: '餐饮', value: 30000, nodeClick: false })
   })
 
   it('handles multiple top-level categories', () => {
@@ -61,14 +62,14 @@ describe('buildSunburstTree', () => {
       item(3, 1, '理财', '3000'),
     ])
 
-    expect(tree.total).toBe(15000)
+    expect(tree.total).toBe(1500000)
     expect(tree.children).toEqual([
-      { name: '工资', value: 12000, accountId: 2 },
-      { name: '理财', value: 3000, accountId: 3 },
+      { name: '工资', value: 1200000, accountId: 2 },
+      { name: '理财', value: 300000, accountId: 3 },
     ])
   })
 
-  it('ignores floating point residue below epsilon', () => {
+  it('creates no pseudo child when children sum exactly equals total', () => {
     const tree = buildSunburstTree([
       item(1, null, 'Expenses', '100.00'),
       item(2, 1, 'A', '33.33'),
@@ -76,9 +77,17 @@ describe('buildSunburstTree', () => {
       item(4, 1, 'C', '33.34'),
     ])
 
-    // 33.33 + 33.33 + 33.34 = 100.00 → 无伪子节点
+    // 33.33 + 33.33 + 33.34 = 100.00，整数分域精确相等 → 无伪子节点
     expect(tree.children).toHaveLength(3)
     expect(tree.children.every(c => c.children === undefined)).toBe(true)
+  })
+
+  it('creates a pseudo child for the smallest positive remainder', () => {
+    const tree = buildSunburstTree([item(1, null, 'Expenses', '0.99'), item(2, 1, 'A', '0.98')])
+
+    // 差额 0.01 = 1 分（占 0.99 的 ~1.01% > 1%），整数域精确捕捉，无浮点容差吞没；
+    // 根账户不生成包装节点，根的直接分录伪子节点在顶层
+    expect(tree.children).toContainEqual({ name: 'Expenses', value: 1, nodeClick: false })
   })
 
   it('filters out children not exceeding 1% of the level total', () => {
@@ -89,8 +98,8 @@ describe('buildSunburstTree', () => {
     ])
 
     // 交通占 0.5% < 1% → 被过滤；餐饮保留真实总额
-    expect(tree.children).toEqual([{ name: '餐饮', value: 995, accountId: 2 }])
-    expect(tree.total).toBe(1000)
+    expect(tree.children).toEqual([{ name: '餐饮', value: 99500, accountId: 2 }])
+    expect(tree.total).toBe(100000)
   })
 
   it('keeps children exceeding exactly 1% of the level total', () => {
@@ -116,8 +125,8 @@ describe('buildSunburstTree', () => {
     const food = tree.children.find(c => c.name === '餐饮')!
     // 奶茶占餐饮的 1%（未超过）→ 被过滤；餐饮真实总额 800 仍保留在 total 字段
     expect(food.value).toBeUndefined()
-    expect(food.total).toBe(800)
-    expect(food.children).toEqual([{ name: '外卖', value: 792, accountId: 3 }])
+    expect(food.total).toBe(80000)
+    expect(food.children).toEqual([{ name: '外卖', value: 79200, accountId: 3 }])
   })
 
   it('drops a pseudo child below the 1% threshold', () => {
@@ -127,7 +136,7 @@ describe('buildSunburstTree', () => {
       item(3, 2, '外卖', '999'),
     ])
 
-    // 根级伪子节点差额 1（占 0.1%）→ 被过滤
+    // 根级伪子节点差额 1 元（占 0.1%）→ 被过滤
     expect(tree.children).toHaveLength(1)
     expect(tree.children[0].name).toBe('餐饮')
   })

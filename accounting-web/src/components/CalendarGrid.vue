@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DailySummaryDto } from '../types/api'
 import { formatCalendarAmount } from '../utils/amount'
+import { toCents } from '../utils/money'
 
 const { t, tm, locale } = useI18n()
 
@@ -42,8 +43,8 @@ function dayAmounts(dateStr: string): { expense: string | null; income: string |
   const stat = props.dailyStats?.[dateStr]
   if (!stat) return { expense: null, income: null }
   return {
-    expense: Number(stat.expense) !== 0 ? formatCalendarAmount(stat.expense, locale.value) : null,
-    income: Number(stat.income) !== 0 ? formatCalendarAmount(stat.income, locale.value) : null,
+    expense: toCents(stat.expense) !== 0 ? formatCalendarAmount(stat.expense, locale.value) : null,
+    income: toCents(stat.income) !== 0 ? formatCalendarAmount(stat.income, locale.value) : null,
   }
 }
 

@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import type { ChartPeriod, NetWorthTrendPointDto } from '../types/api'
 import { formatAmount } from '../utils/amount'
 import { echarts } from '../utils/echarts'
+import { fromCents, toCents } from '../utils/money'
 import { PALETTE } from '../utils/palette'
 
 const props = defineProps<{
@@ -41,8 +42,9 @@ function render() {
   const visible = props.points.slice(-n)
 
   const dates = visible.map(p => axisLabel(p.date))
-  const liabilities = visible.map(p => Number(p.liabilities))
-  const netWorth = visible.map(p => Number(p.assets) - Number(p.liabilities))
+  // 净资产在整数分域相减，边界转回元单位数值喂 ECharts（保住 yLabel 万/k 阈值与轴刻度语义）
+  const liabilities = visible.map(p => Number(fromCents(toCents(p.liabilities))))
+  const netWorth = visible.map(p => Number(fromCents(toCents(p.assets) - toCents(p.liabilities))))
 
   chart.setOption({
     animation: false,
