@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import AccountPicker from './layout/AccountPicker.vue'
-import DateRangePicker from './DateRangePicker.vue'
 import { useAccountStore } from '../stores/account'
 import { useChannelStore } from '../stores/channel'
 import { useMemberStore } from '../stores/member'
@@ -11,6 +9,8 @@ import { useTransactionStore } from '../stores/transaction'
 import type { TxFilters } from '../types/api'
 import { formatDate } from '../utils/date'
 import { isFilterActive } from '../utils/txFilter'
+import DateRangePicker from './DateRangePicker.vue'
+import AccountPicker from './layout/AccountPicker.vue'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -65,7 +65,10 @@ function presetRange(key: PresetKey): { from?: string; to?: string } {
   const now = today()
   switch (key) {
     case 'thisMonth':
-      return { from: formatDate(new Date(now.getFullYear(), now.getMonth(), 1)), to: formatDate(now) }
+      return {
+        from: formatDate(new Date(now.getFullYear(), now.getMonth(), 1)),
+        to: formatDate(now),
+      }
     case 'lastMonth': {
       const start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
       const end = new Date(now.getFullYear(), now.getMonth(), 0)
@@ -86,8 +89,10 @@ const activePreset = computed<PresetKey | null>(() => {
   const keys: PresetKey[] = ['thisMonth', 'lastMonth', 'last3Months', 'thisYear', 'all']
   for (const key of keys) {
     const range = presetRange(key)
-    if ((range.from ?? undefined) === (filter.from ?? undefined) &&
-        (range.to ?? undefined) === (filter.to ?? undefined)) {
+    if (
+      (range.from ?? undefined) === (filter.from ?? undefined) &&
+      (range.to ?? undefined) === (filter.to ?? undefined)
+    ) {
       return key
     }
   }
@@ -160,7 +165,13 @@ function done() {
         <h3 class="section-title">{{ t('txFilter.timeRange') }}</h3>
         <div class="preset-chips">
           <button
-            v-for="key in (['thisMonth', 'lastMonth', 'last3Months', 'thisYear', 'all'] as PresetKey[])"
+            v-for="key in [
+              'thisMonth',
+              'lastMonth',
+              'last3Months',
+              'thisYear',
+              'all',
+            ] as PresetKey[]"
             :key="key"
             class="chip"
             :class="{ selected: activePreset === key }"

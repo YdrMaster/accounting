@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useElementSize } from '@vueuse/core'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { paneNames, paneLabels, useResponsiveLayout } from '../../composables/useResponsiveLayout'
+import { paneLabels, paneNames, useResponsiveLayout } from '../../composables/useResponsiveLayout'
 import { ringDist, useWheelScroll } from '../../composables/useWheelScroll'
 
 const emit = defineEmits<{

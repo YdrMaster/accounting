@@ -6,9 +6,9 @@ import { panelActionKey } from '../components/layout/panelAction'
 import ProgressRing from '../components/ProgressRing.vue'
 import { useAccountStore } from '../stores/account'
 import { useBudgetStore } from '../stores/budget'
-import { alertDialog, confirmDialog } from '../utils/dialog'
 import type { BudgetLimitRequest, BudgetStatusDto } from '../types/api'
 import { formatDecimal } from '../utils/decimal'
+import { alertDialog, confirmDialog } from '../utils/dialog'
 import { PALETTE } from '../utils/palette'
 
 const budgetStore = useBudgetStore()
@@ -209,10 +209,16 @@ watchEffect(() => {
           @click="toggleExpand(status.budget.id)"
         >
           <div class="budget-ring" :class="ringClass(status)">
-            <ProgressRing :percentage="ringPercentage(status)" :color="ringColor(status)" :size="80">
+            <ProgressRing
+              :percentage="ringPercentage(status)"
+              :color="ringColor(status)"
+              :size="80"
+            >
               <div class="ring-center">
                 <div class="ring-label">
-                  {{ isOverspent(status) ? t('budget.overspentLabel') : t('budget.remainingLabel') }}
+                  {{
+                    isOverspent(status) ? t('budget.overspentLabel') : t('budget.remainingLabel')
+                  }}
                 </div>
                 <div class="ring-amount">{{ ringAmount(status) }}</div>
               </div>

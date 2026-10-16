@@ -46,7 +46,8 @@ const tree = computed(() => buildSunburstTree(props.items))
 function maxDepthOf(nodes: { children?: unknown[] }[]): number {
   let max = 1
   for (const n of nodes) {
-    if (n.children?.length) max = Math.max(max, 1 + maxDepthOf(n.children as { children?: unknown[] }[]))
+    if (n.children?.length)
+      max = Math.max(max, 1 + maxDepthOf(n.children as { children?: unknown[] }[]))
   }
   return max
 }
@@ -63,7 +64,7 @@ function render() {
     ...(depth < maxDepth - 1
       ? { label: { textBorderColor: 'rgba(255,255,255,0.9)', textBorderWidth: 2 } }
       : {}),
-    children: node.children?.map((c) => colorNode(c, depth + 1)),
+    children: node.children?.map(c => colorNode(c, depth + 1)),
   })
   const colored = children.map((node, i) => colorNode(node, 0, PALETTE[i % PALETTE.length]))
 
@@ -153,7 +154,10 @@ useResizeObserver(containerRef, () => {
   chart?.resize()
 })
 
-watch(() => [props.items, props.title], () => render())
+watch(
+  () => [props.items, props.title],
+  () => render()
+)
 
 onBeforeUnmount(() => {
   chart?.dispose()

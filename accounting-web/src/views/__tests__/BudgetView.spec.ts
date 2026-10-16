@@ -1,8 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { nextTick, ref } from 'vue'
 import type { Ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import type { PanelAction } from '../../components/layout/panelAction'
 import { panelActionKey } from '../../components/layout/panelAction'
 import { i18n, setLocale } from '../../i18n'
@@ -29,9 +29,7 @@ vi.mock('../../components/layout/AccountPicker.vue', () => ({
   },
 }))
 
-function makeBudget(
-  overrides: Partial<BudgetStatusDto['budget']> = {}
-): BudgetStatusDto['budget'] {
+function makeBudget(overrides: Partial<BudgetStatusDto['budget']> = {}): BudgetStatusDto['budget'] {
   return {
     id: 1,
     name: '生活开销',
@@ -406,7 +404,9 @@ describe('BudgetView', () => {
     // 预填：名称/一次性（空值选项）/deadline/限额列表
     expect((wrapper.find('input[type="text"]').element as HTMLInputElement).value).toBe('房租')
     expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('')
-    expect((wrapper.find('input[type="date"]').element as HTMLInputElement).value).toBe('2026-12-31')
+    expect((wrapper.find('input[type="date"]').element as HTMLInputElement).value).toBe(
+      '2026-12-31'
+    )
     expect(wrapper.findAll('.picker-stub')).toHaveLength(2)
     const amounts = wrapper.findAll('.limit-row input[type="number"]')
     expect((amounts[0].element as HTMLInputElement).value).toBe('1000')

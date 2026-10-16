@@ -80,8 +80,6 @@ describe('CashFlowPanel 点击明细行跳转交易筛选', () => {
     const wrapper = mountPanel()
     await wrapper.findAll('.row')[1].trigger('click') // 外卖
 
-    expect(setFilter).toHaveBeenCalledWith(
-      expect.objectContaining({ accounts: [3] })
-    )
+    expect(setFilter).toHaveBeenCalledWith(expect.objectContaining({ accounts: [3] }))
   })
 })

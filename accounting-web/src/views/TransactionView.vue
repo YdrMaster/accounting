@@ -7,8 +7,8 @@ import TransactionList from '../components/TransactionList.vue'
 import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.vue'
 import { panelActionKey } from '../components/layout/panelAction'
 import { useTransactionStore } from '../stores/transaction'
-import { confirmDialog } from '../utils/dialog'
 import { monthOf, todayStr } from '../utils/date'
+import { confirmDialog } from '../utils/dialog'
 
 const txStore = useTransactionStore()
 const { t } = useI18n()
@@ -151,7 +151,9 @@ watchEffect(() => {
                 month: monthLabelDate.slice(5, 7),
               })
             }}
-            <span v-if="txStore.filterActive" class="filtered-badge">{{ t('txFilter.filtered') }}</span>
+            <span v-if="txStore.filterActive" class="filtered-badge">{{
+              t('txFilter.filtered')
+            }}</span>
           </p>
           <p class="label">{{ t('transactions.monthlyExpense') }}</p>
           <p class="amount">¥{{ formatAmount(new Decimal(monthlyExpense)) }}</p>
@@ -166,7 +168,11 @@ watchEffect(() => {
         </div>
         <div v-else-if="txStore.error" class="error">{{ txStore.error }}</div>
 
-        <TransactionList :transactions="txStore.transactions" @edit="onEditTx" @delete="onDeleteTx" />
+        <TransactionList
+          :transactions="txStore.transactions"
+          @edit="onEditTx"
+          @delete="onDeleteTx"
+        />
 
         <div v-if="txStore.loading && txStore.transactions.length > 0" class="loading-more">
           {{ t('transactions.loadingMore') }}

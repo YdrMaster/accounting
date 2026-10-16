@@ -6,9 +6,9 @@ import { panelActionKey } from '../components/layout/panelAction'
 import ProgressRing from '../components/ProgressRing.vue'
 import { useAccountStore } from '../stores/account'
 import { useSavingPlanStore } from '../stores/savingPlan'
-import { alertDialog, confirmDialog } from '../utils/dialog'
 import type { AccountAllocationDto, SavingPlanDto, SavingPlanStatusDto } from '../types/api'
 import { formatDecimal } from '../utils/decimal'
+import { alertDialog, confirmDialog } from '../utils/dialog'
 import { PALETTE } from '../utils/palette'
 
 const savingPlanStore = useSavingPlanStore()
@@ -263,11 +263,7 @@ watchEffect(() => {
               <div class="detail-row">
                 <span>{{ t('savingPlan.detail.met') }}</span>
                 <span>
-                  {{
-                    status.met
-                      ? t('savingPlan.detail.metYes')
-                      : t('savingPlan.detail.metNo')
-                  }}
+                  {{ status.met ? t('savingPlan.detail.metYes') : t('savingPlan.detail.metNo') }}
                 </span>
               </div>
             </div>

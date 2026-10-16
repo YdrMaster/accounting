@@ -66,7 +66,16 @@ const days = computed<DayCell[]>(() => {
       dateStr > props.from &&
       dateStr <= hoverDate.value
     )
-    cells.push({ date: dateStr, day: d.getDate(), inMonth, isToday, isStart, isEnd, inRange, inHoverRange })
+    cells.push({
+      date: dateStr,
+      day: d.getDate(),
+      inMonth,
+      isToday,
+      isStart,
+      isEnd,
+      inRange,
+      inHoverRange,
+    })
   }
   return cells
 })
@@ -135,21 +144,62 @@ const displayTo = computed(() => props.to || '—')
     <button class="trigger" @click="toggle" :class="{ active: open }">
       <span class="trigger-from">{{ displayFrom }}</span>
       <span class="trigger-sep">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
       </span>
       <span class="trigger-to">{{ displayTo }}</span>
-      <svg class="trigger-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <svg
+        class="trigger-icon"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+      >
+        <rect x="3" y="4" width="18" height="18" rx="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
     </button>
 
     <Transition name="pop">
       <div v-if="open" class="popover" @click.stop>
         <div class="cal-header">
           <button class="nav-btn" @click="prevMonth">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
           </button>
           <span class="cal-title">{{ monthLabel }}</span>
           <button class="nav-btn" @click="nextMonth">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
           </button>
         </div>
 
@@ -163,10 +213,10 @@ const displayTo = computed(() => props.to || '—')
             :key="cell.date"
             class="cal-day"
             :class="{
-              'out': !cell.inMonth,
-              'today': cell.isToday,
-              'start': cell.isStart,
-              'end': cell.isEnd,
+              out: !cell.inMonth,
+              today: cell.isToday,
+              start: cell.isStart,
+              end: cell.isEnd,
               'in-range': cell.inRange || cell.inHoverRange,
             }"
             @click="onDayClick(cell)"
@@ -203,7 +253,9 @@ const displayTo = computed(() => props.to || '—')
   color: var(--text-body);
   font-size: 0.8125rem;
   cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .trigger:hover,
@@ -251,8 +303,14 @@ const displayTo = computed(() => props.to || '—')
   animation: pop-in 0.15s ease-in reverse;
 }
 @keyframes pop-in {
-  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .cal-header {
@@ -279,7 +337,9 @@ const displayTo = computed(() => props.to || '—')
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .nav-btn:hover {
@@ -318,7 +378,10 @@ const displayTo = computed(() => props.to || '—')
   color: var(--text-body);
   font-size: 0.75rem;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s, transform 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    transform 0.12s;
 }
 
 .cal-day:hover:not(.out) {

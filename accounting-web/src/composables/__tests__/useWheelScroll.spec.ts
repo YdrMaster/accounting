@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ringDist, useWheelScroll } from '../useWheelScroll'
 import { paneNames } from '../useResponsiveLayout'
+import { ringDist, useWheelScroll } from '../useWheelScroll'
 
 const N = paneNames.length
 

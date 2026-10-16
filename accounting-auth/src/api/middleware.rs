@@ -61,23 +61,26 @@ pub async fn require_auth(
             req.extensions_mut().insert(user);
             next.run(req).await
         }
-        Err(resp) => resp,
+        Err(resp) => *resp,
     }
 }
 
 /// 校验 token 对应的会话；有效则滑动续期并返回用户身份。
+///
+/// `Err` 装箱避免 `result_large_err`：`Response` 体积超阈值，此处仅经
+/// `require_auth` 解引用转发，不需要内联布局。
 async fn authenticate(
     state: &AuthState,
     token: &str,
-) -> std::result::Result<CurrentUser, Response> {
+) -> std::result::Result<CurrentUser, Box<Response>> {
     let token_hash = session::hash_token(token);
     let db = state.db();
-    let fail = || unauthorized("unauthenticated");
+    let fail = || Box::new(unauthorized("unauthenticated"));
 
     let sess = db
         .find_session_by_token_hash(&token_hash)
         .await
-        .map_err(internal)?
+        .map_err(|e| Box::new(internal(e)))?
         .ok_or_else(fail)?;
     let now = chrono::Utc::now().timestamp();
     if session::is_expired(sess.expires_at, now) {
@@ -90,12 +93,12 @@ async fn authenticate(
     let user = db
         .find_user_by_id(sess.user_id)
         .await
-        .map_err(internal)?
+        .map_err(|e| Box::new(internal(e)))?
         .ok_or_else(fail)?;
     // 滑动续期
     db.touch_session(sess.id, now + session::SESSION_TTL_SECS)
         .await
-        .map_err(internal)?;
+        .map_err(|e| Box::new(internal(e)))?;
 
     Ok(CurrentUser {
         id: user.id,

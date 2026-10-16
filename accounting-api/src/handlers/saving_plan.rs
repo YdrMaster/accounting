@@ -91,10 +91,10 @@ async fn plan_names(
     db: &accounting_sql::SqliteDatabase,
     ids: &[SavingPlanId],
     lang: &str,
-) -> Result<std::collections::HashMap<SavingPlanId, String>, SavingPlanResponse> {
+) -> Result<std::collections::HashMap<SavingPlanId, String>, String> {
     db.saving_plan_display_names(ids, lang)
         .await
-        .map_err(|e| SavingPlanResponse::BadRequest(e.to_string()))
+        .map_err(|e| e.to_string())
 }
 
 /// 创建/更新请求解析后的公共字段
@@ -137,7 +137,7 @@ async fn list_saving_plans(
             let ids: Vec<SavingPlanId> = plans.iter().map(|p| p.id).collect();
             let names = match plan_names(&state.db, &ids, &lang).await {
                 Ok(n) => n,
-                Err(r) => return r,
+                Err(e) => return SavingPlanResponse::BadRequest(e),
             };
             let mut dtos = Vec::new();
             for p in &plans {
@@ -220,7 +220,7 @@ async fn get_saving_plan_detail(
         Ok(detail) => {
             let names = match plan_names(&state.db, &[detail.plan.id], &lang).await {
                 Ok(n) => n,
-                Err(r) => return r,
+                Err(e) => return SavingPlanResponse::BadRequest(e),
             };
             let account_ids: Vec<i64> = detail.account_ids.iter().map(|a| a.0).collect();
             let dto = SavingPlanDetailDto {
@@ -368,7 +368,7 @@ async fn get_saving_plan_status(
         Ok(status) => {
             let names = match plan_names(&state.db, &[status.plan.id], &lang).await {
                 Ok(n) => n,
-                Err(r) => return r,
+                Err(e) => return SavingPlanResponse::BadRequest(e),
             };
             let account_ids = match state.db.saving_plan_get_accounts(status.plan.id).await {
                 Ok(a) => a.iter().map(|x| x.account_id.0).collect(),
@@ -404,7 +404,7 @@ async fn list_saving_plan_statuses(
             let ids: Vec<SavingPlanId> = statuses.iter().map(|s| s.plan.id).collect();
             let names = match plan_names(&state.db, &ids, &lang).await {
                 Ok(n) => n,
-                Err(r) => return r,
+                Err(e) => return SavingPlanResponse::BadRequest(e),
             };
             let mut dtos = Vec::with_capacity(statuses.len());
             for status in &statuses {

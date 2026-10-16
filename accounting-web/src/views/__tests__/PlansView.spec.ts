@@ -1,9 +1,9 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { inject, nextTick, ref, watchEffect } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { i18n, setLocale } from '../../i18n'
+import { inject, nextTick, ref, watchEffect } from 'vue'
 import { panelActionKey, type PanelAction } from '../../components/layout/panelAction'
+import { i18n, setLocale } from '../../i18n'
 import PlansView from '../PlansView.vue'
 
 function makeViewStub(name: string, cls: string, label: string) {

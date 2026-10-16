@@ -12,10 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   click: [account: NonNullable<RowNode['row']['items'][number]['account']>]
-  dragStart: [
-    account: NonNullable<RowNode['row']['items'][number]['account']>,
-    event: PointerEvent,
-  ]
+  dragStart: [account: NonNullable<RowNode['row']['items'][number]['account']>, event: PointerEvent]
 }>()
 
 const paperBgStyle = computed(() => {

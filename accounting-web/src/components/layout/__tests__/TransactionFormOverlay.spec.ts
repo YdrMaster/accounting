@@ -14,7 +14,9 @@ vi.mock('../../../api/client', () => ({
   updateTransaction: vi.fn(),
   deleteTransaction: vi.fn(),
   fetchMembers: vi.fn().mockResolvedValue([{ id: 1, name: '我' }]),
-  fetchCommodities: vi.fn().mockResolvedValue([{ id: 1, symbol: 'CNY', name: '人民币', precision: 2 }]),
+  fetchCommodities: vi
+    .fn()
+    .mockResolvedValue([{ id: 1, symbol: 'CNY', name: '人民币', precision: 2 }]),
   fetchChannels: vi.fn().mockResolvedValue([]),
   fetchTags: vi.fn(),
   fetchAccounts: vi.fn().mockResolvedValue([]),
@@ -122,7 +124,10 @@ describe('TransactionFormOverlay 标签选择', () => {
     await nextTick()
 
     expect(tagField.findAll('.tag-chip').length).toBe(0)
-    const optionTexts = tagField.find('select').findAll('option').map(o => o.text())
+    const optionTexts = tagField
+      .find('select')
+      .findAll('option')
+      .map(o => o.text())
     expect(optionTexts).toContain('交通')
   })
 })

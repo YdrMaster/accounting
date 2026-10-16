@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { CashFlowItemDto } from '../../types/api'
 import { buildSunburstTree } from '../sunburst'
 
-function item(account_id: number, parent_id: number | null, name: string, amount: string): CashFlowItemDto {
+function item(
+  account_id: number,
+  parent_id: number | null,
+  name: string,
+  amount: string
+): CashFlowItemDto {
   return { account_id, parent_id, name, amount }
 }
 

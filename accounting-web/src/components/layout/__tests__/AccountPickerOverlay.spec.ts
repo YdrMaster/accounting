@@ -4,9 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { i18n, setLocale } from '../../../i18n'
 import { useAccountStore } from '../../../stores/account'
 import type { AccountDto } from '../../../types/api'
+import type { GridRow } from '../../../utils/accountGrid'
 import AccountGrid from '../AccountGrid.vue'
 import AccountPickerOverlay from '../AccountPickerOverlay.vue'
-import type { GridRow } from '../../../utils/accountGrid'
 
 vi.mock('../../../api/client', () => ({
   fetchAccounts: vi.fn().mockResolvedValue([]),

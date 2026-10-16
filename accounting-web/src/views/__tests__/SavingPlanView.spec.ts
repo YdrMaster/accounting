@@ -1,8 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { nextTick, ref } from 'vue'
 import type { Ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import type { PanelAction } from '../../components/layout/panelAction'
 import { panelActionKey } from '../../components/layout/panelAction'
 import { i18n, setLocale } from '../../i18n'
@@ -29,7 +29,9 @@ vi.mock('../../components/layout/AccountPicker.vue', () => ({
   },
 }))
 
-function makePlan(overrides: Partial<SavingPlanStatusDto['plan']> = {}): SavingPlanStatusDto['plan'] {
+function makePlan(
+  overrides: Partial<SavingPlanStatusDto['plan']> = {}
+): SavingPlanStatusDto['plan'] {
   return {
     id: 1,
     name: '买相机',
@@ -371,7 +373,9 @@ describe('SavingPlanView', () => {
     // 预填：名称/周期/deadline/目标金额
     expect((wrapper.find('input[type="text"]').element as HTMLInputElement).value).toBe('房租')
     expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('monthly')
-    expect((wrapper.find('input[type="date"]').element as HTMLInputElement).value).toBe('2026-12-31')
+    expect((wrapper.find('input[type="date"]').element as HTMLInputElement).value).toBe(
+      '2026-12-31'
+    )
     expect((wrapper.find('input[type="number"]').element as HTMLInputElement).value).toBe('3000')
     // 预填账户集合两行
     expect(wrapper.findAll('.picker-stub')).toHaveLength(2)

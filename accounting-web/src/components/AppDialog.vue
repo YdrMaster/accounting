@@ -7,11 +7,7 @@ const { t } = useI18n()
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="dialogState.visible"
-      class="app-dialog-overlay"
-      @click.self="resolveDialog(false)"
-    >
+    <div v-if="dialogState.visible" class="app-dialog-overlay" @click.self="resolveDialog(false)">
       <div class="app-dialog" role="dialog" aria-modal="true">
         <p class="app-dialog-message">{{ dialogState.message }}</p>
         <div class="app-dialog-actions">

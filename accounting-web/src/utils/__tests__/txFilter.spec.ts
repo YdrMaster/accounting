@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildTxQuery, isFilterActive } from '../txFilter'
 import type { TxFilters } from '../../types/api'
+import { buildTxQuery, isFilterActive } from '../txFilter'
 
 describe('buildTxQuery', () => {
   it('returns empty params for null filter', () => {
@@ -95,18 +95,12 @@ describe('isFilterActive', () => {
   })
 
   it('returns false for empty filter', () => {
-    expect(
-      isFilterActive({ accounts: [], members: [], tags: [], channels: [] })
-    ).toBe(false)
+    expect(isFilterActive({ accounts: [], members: [], tags: [], channels: [] })).toBe(false)
   })
 
   it('returns true when any condition is set', () => {
-    expect(
-      isFilterActive({ accounts: [1], members: [], tags: [], channels: [] })
-    ).toBe(true)
-    expect(
-      isFilterActive({ accounts: [], members: [], tags: ['x'], channels: [] })
-    ).toBe(true)
+    expect(isFilterActive({ accounts: [1], members: [], tags: [], channels: [] })).toBe(true)
+    expect(isFilterActive({ accounts: [], members: [], tags: ['x'], channels: [] })).toBe(true)
     expect(
       isFilterActive({ from: '2026-01-01', accounts: [], members: [], tags: [], channels: [] })
     ).toBe(true)

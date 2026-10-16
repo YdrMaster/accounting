@@ -42,7 +42,13 @@ export function buildDetailRows(items: CashFlowItemDto[], drillId: number | null
   const rows: DetailRow[] = []
   const walk = (item: CashFlowItemDto, depth: number) => {
     const amount = Number(item.amount)
-    rows.push({ accountId: item.account_id, name: item.name, amount, ratio: amount / baseAmount, depth })
+    rows.push({
+      accountId: item.account_id,
+      name: item.name,
+      amount,
+      ratio: amount / baseAmount,
+      depth,
+    })
     const children = (childMap.get(item.account_id) ?? [])
       .slice()
       .sort((a, b) => Number(b.amount) - Number(a.amount))

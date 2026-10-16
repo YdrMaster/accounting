@@ -15,9 +15,30 @@ vi.mock('../../../api/client', () => ({
 }))
 
 const channels: ChannelDto[] = [
-  { id: 1, name: '支付宝', description: null, account_id: null, is_system: false, has_import_adapter: false },
-  { id: 2, name: '招行', description: null, account_id: null, is_system: false, has_import_adapter: false },
-  { id: 3, name: '现金', description: null, account_id: null, is_system: false, has_import_adapter: false },
+  {
+    id: 1,
+    name: '支付宝',
+    description: null,
+    account_id: null,
+    is_system: false,
+    has_import_adapter: false,
+  },
+  {
+    id: 2,
+    name: '招行',
+    description: null,
+    account_id: null,
+    is_system: false,
+    has_import_adapter: false,
+  },
+  {
+    id: 3,
+    name: '现金',
+    description: null,
+    account_id: null,
+    is_system: false,
+    has_import_adapter: false,
+  },
 ]
 
 function chainNodes(...ids: number[]) {
