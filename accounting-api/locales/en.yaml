@@ -11,7 +11,7 @@ frontend_build_skipped: "Skipping frontend build, will use existing dist or retu
 npm_found: "[debug] Found npm: %{path}"
 npm_not_found: "[debug] npm/npm.cmd/npm.ps1 not found in PATH"
 member_not_found: "Member not found"
-invalid_date_format: "Expected format YYYY-MM-DD or YYYY-MM-DD HH:MM:SS: %{value}"
+invalid_date_format: "Expected format YYYY-MM-DD or YYYY-MM-DD[THH:MM[:SS]]: %{value}"
 tag_not_found: "Tag not found"
 cannot_delete_system_tag: "Cannot delete system tag"
 cannot_modify_system_tag: "Cannot modify system tag"

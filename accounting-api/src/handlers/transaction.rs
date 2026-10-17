@@ -13,6 +13,7 @@ use accounting_service::transaction_service::TransactionService;
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
+    http::StatusCode,
     routing::{get, put},
 };
 use chrono::NaiveDate;
@@ -98,8 +99,16 @@ fn parse_id(key: &str, value: &str, lang: &str) -> Result<i64, String> {
 
 /// 解析日期时间字符串
 fn parse_date_time(s: &str, lang: &str) -> Result<chrono::NaiveDateTime, AccountingError> {
-    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
-        return Ok(dt);
+    // 兼容 datetime-local 控件的 `T` 分隔与秒省略（YYYY-MM-DDTHH:MM[:SS]），以及空格分隔
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M",
+    ] {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, fmt) {
+            return Ok(dt);
+        }
     }
     chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
         .map(datetime_utils::start_of_day)
@@ -108,6 +117,20 @@ fn parse_date_time(s: &str, lang: &str) -> Result<chrono::NaiveDateTime, Account
                 t!("invalid_date_format", locale = lang, value = s).to_string(),
             )
         })
+}
+
+/// 服务层校验错误 → HTTP 响应：输入类错误 400，数据库故障 500，文案本地化可读
+fn api_error(e: &AccountingError) -> (StatusCode, String) {
+    let status = match e {
+        AccountingError::DatabaseError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        _ => StatusCode::BAD_REQUEST,
+    };
+    (status, e.to_string())
+}
+
+/// handler 内联校验（账户/商品/渠道解析等）→ 400
+fn bad_request(msg: String) -> (StatusCode, String) {
+    (StatusCode::BAD_REQUEST, msg)
 }
 
 /// 交易展示所需的批量解析结果
@@ -347,14 +370,18 @@ async fn create_transaction(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Json(req): Json<CreateTransactionRequest>,
-) -> Result<Json<i64>, String> {
+) -> Result<Json<i64>, (StatusCode, String)> {
     let db = state.db();
 
-    let date_time = parse_date_time(&req.date_time, &lang).map_err(|e| e.to_string())?;
+    let date_time = parse_date_time(&req.date_time, &lang).map_err(|e| api_error(&e))?;
     let member_id = MemberId(req.member_id);
 
-    let postings = build_postings(db, &lang, TransactionId(0), req.postings).await?;
-    let tag_ids = resolve_tag_ids(db, req.tags, &lang).await?;
+    let postings = build_postings(db, &lang, TransactionId(0), req.postings)
+        .await
+        .map_err(bad_request)?;
+    let tag_ids = resolve_tag_ids(db, req.tags, &lang)
+        .await
+        .map_err(bad_request)?;
 
     let tx_kind = match req.kind.as_str() {
         "refund" => accounting::transaction::TransactionKind::Refund,
@@ -370,13 +397,14 @@ async fn create_transaction(
         member_id,
     };
 
-    let channel_path_nodes = build_channel_path_nodes(req.channel_paths, &lang)?;
+    let channel_path_nodes =
+        build_channel_path_nodes(req.channel_paths, &lang).map_err(bad_request)?;
 
     let service = TransactionService::new(db.clone());
     let id = service
         .submit(transaction, postings, tag_ids, channel_path_nodes)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| api_error(&e))?;
 
     Ok(Json(id.0))
 }
@@ -569,13 +597,17 @@ async fn update_transaction(
     Lang(lang): Lang,
     Path(id): Path<i64>,
     Json(req): Json<CreateTransactionRequest>,
-) -> Result<String, String> {
+) -> Result<String, (StatusCode, String)> {
     let db = state.db();
-    let date_time = parse_date_time(&req.date_time, &lang).map_err(|e| e.to_string())?;
+    let date_time = parse_date_time(&req.date_time, &lang).map_err(|e| api_error(&e))?;
     let member_id = MemberId(req.member_id);
 
-    let postings = build_postings(db, &lang, TransactionId(id), req.postings).await?;
-    let tag_ids = resolve_tag_ids(db, req.tags, &lang).await?;
+    let postings = build_postings(db, &lang, TransactionId(id), req.postings)
+        .await
+        .map_err(bad_request)?;
+    let tag_ids = resolve_tag_ids(db, req.tags, &lang)
+        .await
+        .map_err(bad_request)?;
 
     let tx_kind = match req.kind.as_str() {
         "refund" => accounting::transaction::TransactionKind::Refund,
@@ -591,13 +623,14 @@ async fn update_transaction(
         member_id,
     };
 
-    let channel_path_nodes = build_channel_path_nodes(req.channel_paths, &lang)?;
+    let channel_path_nodes =
+        build_channel_path_nodes(req.channel_paths, &lang).map_err(bad_request)?;
 
     let service = TransactionService::new(db.clone());
     service
         .update(transaction, postings, tag_ids, channel_path_nodes)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| api_error(&e))?;
     Ok("updated".to_string())
 }
 
@@ -605,13 +638,13 @@ async fn update_transaction(
 async fn delete_transaction(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<String, String> {
+) -> Result<String, (StatusCode, String)> {
     let db = state.db();
     let service = TransactionService::new(db.clone());
     service
         .delete(TransactionId(id))
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| api_error(&e))?;
     Ok("deleted".to_string())
 }
 
@@ -620,7 +653,7 @@ async fn reconcile_channel_path(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(req): Json<crate::dto::ReconcileRequest>,
-) -> Result<String, String> {
+) -> Result<String, (StatusCode, String)> {
     let db = state.db();
     let service = TransactionService::new(db.clone());
     let status = if req.unset {
@@ -631,7 +664,7 @@ async fn reconcile_channel_path(
     service
         .update_status(accounting::id::ChannelPathId(id), status)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| api_error(&e))?;
     Ok("updated".to_string())
 }
 
@@ -852,5 +885,115 @@ mod tests {
 
         assert!(!normal.pending);
         assert!(pending.pending);
+    }
+
+    fn tx_body(member_id: i64, date_time: &str) -> serde_json::Value {
+        serde_json::json!({
+            "date_time": date_time,
+            "description": "午餐",
+            "kind": "normal",
+            "member_id": member_id,
+            "postings": [
+                { "account": "Expenses:Fees", "commodity": "CNY", "amount": "35.00" },
+                { "account": "Assets:Cash", "commodity": "CNY", "amount": "-35.00" }
+            ],
+            "tags": []
+        })
+    }
+
+    async fn post_transaction(
+        state: Arc<AppState>,
+        body: serde_json::Value,
+    ) -> axum::http::Response<axum::body::Body> {
+        let app = router().with_state(state);
+        let req = axum::http::Request::builder()
+            .method(axum::http::Method::POST)
+            .uri("/api/transactions?lang=en")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap();
+        tower::ServiceExt::oneshot(app, req).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn create_transaction_http_accepts_datetime_local() {
+        let state = setup().await;
+        let member = state
+            .db()
+            .member_get_or_create_by_name("测试用户", "zh-CN")
+            .await
+            .unwrap();
+
+        // datetime-local 控件输出：T 分隔、无秒
+        let resp = post_transaction(state.clone(), tx_body(member.0, "2026-01-15T09:30")).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let id: i64 = serde_json::from_slice(&bytes).unwrap();
+        assert!(id > 0);
+    }
+
+    #[tokio::test]
+    async fn create_transaction_http_invalid_date_returns_400() {
+        let state = setup().await;
+        let member = state
+            .db()
+            .member_get_or_create_by_name("测试用户", "zh-CN")
+            .await
+            .unwrap();
+
+        let resp = post_transaction(state, tx_body(member.0, "not-a-date")).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(
+            text.contains("Expected format"),
+            "body should be a readable date error, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_transaction_http_accepts_datetime_local() {
+        let state = setup().await;
+        let member = state
+            .db()
+            .member_get_or_create_by_name("测试用户", "zh-CN")
+            .await
+            .unwrap();
+
+        // 创建用空格+秒格式
+        let resp = post_transaction(state.clone(), tx_body(member.0, "2026-01-15 09:30:00")).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let id: i64 = serde_json::from_slice(&bytes).unwrap();
+
+        // 更新用 datetime-local 的 T 分隔无秒格式
+        let app = router().with_state(state);
+        let req = axum::http::Request::builder()
+            .method(axum::http::Method::PUT)
+            .uri(format!("/api/transactions/{id}?lang=en"))
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::json!({
+                    "date_time": "2026-01-16T08:05",
+                    "description": "早餐",
+                    "kind": "normal",
+                    "member_id": member.0,
+                    "postings": [
+                        { "account": "Expenses:Fees", "commodity": "CNY", "amount": "12.00" },
+                        { "account": "Assets:Cash", "commodity": "CNY", "amount": "-12.00" }
+                    ],
+                    "tags": []
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }
