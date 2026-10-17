@@ -38,22 +38,18 @@ function sortedChildrenOf(parentId: number): AccountDto[] {
   return sortSiblings(store.getChildren(parentId), siblingOrder.value[String(parentId)])
 }
 
-function getChildrenOfType(type: string): AccountDto[] {
-  const roots = store.groupedAccounts.get(type) ?? []
-  const children: AccountDto[] = []
-  for (const root of roots) {
-    children.push(...sortedChildrenOf(root.id))
-  }
-  return children
+function rootsForType(type: string): AccountDto[] {
+  return store.groupedAccounts.get(type) ?? []
 }
 
 const expandedPath = ref<number[]>([])
 const selectedAccountId = ref<number | null>(null)
+const selectedContainerId = ref<number | null>(null)
 const drawerVisible = ref(false)
-const columnsByType = ref<Record<string, number>>({})
+const columnsByRoot = ref<Record<number, number>>({})
 
-function onColumnsChange(type: string, columns: number) {
-  columnsByType.value[type] = columns
+function onColumnsChange(rootId: number, columns: number) {
+  columnsByRoot.value[rootId] = columns
 }
 
 function isRootAccount(account: AccountDto): boolean {
@@ -69,6 +65,7 @@ function handleAccountClick(account: AccountDto) {
 
   // 与卡片交互时收起新建抽屉，避免两个抽屉叠加
   createDrawerVisible.value = false
+  selectedContainerId.value = null
 
   if (selectedAccountId.value === clickedId) {
     // 反复点击已选中的卡片：切换其子账户的展开/折叠状态
@@ -103,10 +100,25 @@ function handleAccountClick(account: AccountDto) {
   }
 }
 
-function rowsForType(type: string): GridRow[] {
-  const roots = getChildrenOfType(type)
-  const columns = columnsByType.value[type] ?? 2
-  return compileRows(roots, expandedPath.value, columns, sortedChildrenOf)
+function handleContainerClick(accountId: number, event: MouseEvent) {
+  const target = event.target as HTMLElement | null
+  // 卡片自身的点击按卡片逻辑处理，不触发容器选中
+  if (target?.closest('.account-card')) return
+  // 嵌套容器会层层冒泡，只响应最内层容器的归属
+  const innermost = target?.closest('[data-container-account-id]')
+  if (!innermost || Number(innermost.getAttribute('data-container-account-id')) !== accountId) {
+    return
+  }
+
+  drawerVisible.value = false
+  createDrawerVisible.value = false
+  selectedAccountId.value = accountId
+  selectedContainerId.value = accountId
+}
+
+function rowsForRoot(root: AccountDto): GridRow[] {
+  const columns = columnsByRoot.value[root.id] ?? 2
+  return compileRows(sortedChildrenOf(root.id), expandedPath.value, columns, sortedChildrenOf)
 }
 
 const selectedAccount = computed(() => {
@@ -129,6 +141,7 @@ function onAccountDeleted(id: number) {
   expandedPath.value = expandedPath.value.filter(x => x !== id)
   if (selectedAccountId.value === id) {
     selectedAccountId.value = null
+    selectedContainerId.value = null
     drawerVisible.value = false
   }
 }
@@ -179,27 +192,39 @@ const draggedAccount = computed(() => {
 
 async function handleDrop(result: AccountDropResult) {
   if (result.kind === 'child') {
-    await handleMoveAccount(result.draggedId, result.targetId)
+    const moved = await handleMoveAccount(result.draggedId, result.targetId)
+    // 保证「最后一个子账户」的视觉顺序
+    if (moved) handleSiblingReorder(result.draggedId, result.targetId, null)
   } else {
-    handleSiblingReorder(result.draggedId, result.parentId, result.beforeId)
+    const dragged = store.accounts.find(a => a.id === result.draggedId)
+    const crossParent = !!dragged && dragged.parent_id !== result.parentId
+    if (crossParent) {
+      const moved = await handleMoveAccount(result.draggedId, result.parentId)
+      if (moved) handleSiblingReorder(result.draggedId, result.parentId, result.beforeId)
+    } else {
+      handleSiblingReorder(result.draggedId, result.parentId, result.beforeId)
+    }
   }
   // 拖放完成后如同点击了被拖放卡片一样切换选中
   const dragged = store.accounts.find(a => a.id === result.draggedId)
   if (dragged) handleAccountClick(dragged)
 }
 
-async function handleMoveAccount(draggedId: number, targetId: number) {
+/** 尝试改父移动；返回是否处于「已就位」状态（成功移动或本就是该父级）。 */
+async function handleMoveAccount(draggedId: number, targetId: number): Promise<boolean> {
   const dragged = store.accounts.find(a => a.id === draggedId)
   const target = store.accounts.find(a => a.id === targetId)
-  if (!dragged || !target) return
-  if (dragged.parent_id === targetId) return
-  if (store.isDescendant(targetId, draggedId)) return
+  if (!dragged || !target) return false
+  if (dragged.parent_id === targetId) return true
+  if (store.isDescendant(targetId, draggedId)) return false
 
   const fromType = store.getRootType(dragged)
   const toType = store.getRootType(target)
   if (fromType !== null && toType !== null && fromType !== toType) {
     const typeLabel = typeLabels.value[toType] ?? toType
-    if (!(await confirmDialog(t('accounts.moveTypeChangeConfirm', { type: typeLabel })))) return
+    if (!(await confirmDialog(t('accounts.moveTypeChangeConfirm', { type: typeLabel })))) {
+      return false
+    }
   }
 
   const oldParentId = dragged.parent_id
@@ -211,9 +236,11 @@ async function handleMoveAccount(draggedId: number, targetId: number) {
     if (store.getChildren(targetId).length > 0 && !expandedPath.value.includes(targetId)) {
       expandedPath.value = [...expandedPath.value, targetId]
     }
+    return true
   } catch (e) {
     store.setAccountParent(draggedId, oldParentId)
     alertDialog(t('accounts.moveFailed', { message: e instanceof Error ? e.message : String(e) }))
+    return false
   }
 }
 
@@ -236,18 +263,24 @@ function handleSiblingReorder(draggedId: number, parentId: number, beforeId: num
 
     <template v-else>
       <div class="card-area">
-        <AccountGrid
-          v-for="type in typeOrder"
-          :key="type"
-          :type-label="typeLabels[type]"
-          :rows="rowsForType(type)"
-          :selected-account-id="selectedAccountId"
-          :dragging-id="drag.draggingId.value"
-          :drop-target-id="drag.dropTargetId.value"
-          @click="handleAccountClick"
-          @drag-start="drag.onCardPointerDown"
-          @columns-change="columns => onColumnsChange(type, columns)"
-        />
+        <template v-for="type in typeOrder" :key="type">
+          <AccountGrid
+            v-for="root in rootsForType(type)"
+            :key="root.id"
+            :type-label="typeLabels[type]"
+            :root-account="root"
+            :rows="rowsForRoot(root)"
+            :selected-account-id="selectedAccountId"
+            :selected-container-id="selectedContainerId"
+            :dragging-id="drag.draggingId.value"
+            :drop-target-id="drag.dropTargetId.value"
+            :drop-container-id="drag.insertion.value?.parentId ?? null"
+            @click="handleAccountClick"
+            @container-click="handleContainerClick"
+            @drag-start="drag.onCardPointerDown"
+            @columns-change="columns => onColumnsChange(root.id, columns)"
+          />
+        </template>
       </div>
     </template>
 

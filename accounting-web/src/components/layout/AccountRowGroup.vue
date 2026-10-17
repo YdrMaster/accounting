@@ -6,12 +6,15 @@ import AccountCard from './AccountCard.vue'
 const props = defineProps<{
   node: RowNode
   selectedAccountId: number | null
+  selectedContainerId?: number | null
   draggingId?: number | null
   dropTargetId?: number | null
+  dropContainerId?: number | null
 }>()
 
 const emit = defineEmits<{
   click: [account: NonNullable<RowNode['row']['items'][number]['account']>]
+  containerClick: [accountId: number, event: MouseEvent]
   dragStart: [account: NonNullable<RowNode['row']['items'][number]['account']>, event: PointerEvent]
 }>()
 
@@ -23,6 +26,11 @@ const paperBgStyle = computed(() => {
   const a = +(0.08 + 0.02 * d).toFixed(2)
   return { '--paper-bg': `hsla(${h}, ${s}%, ${l}%, ${a})` }
 })
+
+function onContainerClick(event: MouseEvent) {
+  const id = props.node.row.expandedAccountId
+  if (id !== null) emit('containerClick', id, event)
+}
 </script>
 
 <template>
@@ -42,16 +50,25 @@ const paperBgStyle = computed(() => {
   <div
     v-if="node.children.length"
     class="children-container stacked-children"
+    :class="{
+      'container-selected': selectedContainerId === node.row.expandedAccountId,
+      'container-drop-target': dropContainerId === node.row.expandedAccountId,
+    }"
     :style="paperBgStyle"
+    :data-container-account-id="node.row.expandedAccountId"
+    @click="onContainerClick"
   >
     <AccountRowGroup
       v-for="(child, index) in node.children"
       :key="index"
       :node="child"
       :selected-account-id="selectedAccountId"
+      :selected-container-id="selectedContainerId"
       :dragging-id="draggingId"
       :drop-target-id="dropTargetId"
+      :drop-container-id="dropContainerId"
       @click="emit('click', $event)"
+      @container-click="(accountId, event) => emit('containerClick', accountId, event)"
       @drag-start="(account, event) => emit('dragStart', account, event)"
     />
   </div>
@@ -106,5 +123,17 @@ const paperBgStyle = computed(() => {
   box-shadow:
     0 -2px 8px rgba(0, 0, 0, 0.25),
     0 -1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+.children-container.container-selected {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: 0.75rem;
+}
+
+.children-container.container-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  border-radius: 0.75rem;
 }
 </style>

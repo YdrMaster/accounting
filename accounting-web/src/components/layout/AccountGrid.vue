@@ -8,14 +8,19 @@ import AccountRowGroup from './AccountRowGroup.vue'
 
 const props = defineProps<{
   typeLabel: string
+  /** 分区绑定的根账户；缺省时网格为纯展示（无容器选中/拖放语义），如账户选择器 */
+  rootAccount?: AccountDto | null
   rows: GridRow[]
   selectedAccountId: number | null
+  selectedContainerId?: number | null
   draggingId?: number | null
   dropTargetId?: number | null
+  dropContainerId?: number | null
 }>()
 
 const emit = defineEmits<{
   click: [account: AccountDto]
+  containerClick: [accountId: number, event: MouseEvent]
   dragStart: [account: AccountDto, event: PointerEvent]
   columnsChange: [columns: number]
 }>()
@@ -23,6 +28,15 @@ const emit = defineEmits<{
 const tree = computed(() => buildRowTree(props.rows))
 const gridRef = ref<HTMLElement | undefined>(undefined)
 const { columns, isReady } = useGridColumns(gridRef)
+
+const isSelectedContainer = computed(() => props.selectedContainerId === props.rootAccount?.id)
+const isDropContainer = computed(() => props.dropContainerId === props.rootAccount?.id)
+
+function onGridClick(event: MouseEvent) {
+  if (props.rootAccount) {
+    emit('containerClick', props.rootAccount.id, event)
+  }
+}
 
 watch(
   [columns, isReady],
@@ -39,17 +53,30 @@ watch(
   <div class="type-section">
     <h3 class="type-label">{{ typeLabel }}</h3>
     <div class="highlight-container depth-0" :style="{ '--paper-bg': 'hsla(237, 76%, 65%, 0.08)' }">
-      <div ref="gridRef" class="account-grid">
+      <div
+        ref="gridRef"
+        class="account-grid"
+        :class="{
+          'container-selected': isSelectedContainer,
+          'container-drop-target': isDropContainer,
+        }"
+        :data-container-account-id="rootAccount?.id"
+        @click="onGridClick"
+      >
         <AccountRowGroup
           v-for="(node, index) in tree"
           :key="index"
           :node="node"
           :selected-account-id="selectedAccountId"
+          :selected-container-id="selectedContainerId"
           :dragging-id="draggingId"
           :drop-target-id="dropTargetId"
+          :drop-container-id="dropContainerId"
           @click="emit('click', $event)"
+          @container-click="(accountId, event) => emit('containerClick', accountId, event)"
           @drag-start="(account, event) => emit('dragStart', account, event)"
         />
+        <div v-if="rows.length === 0" class="grid-empty-placeholder" />
       </div>
     </div>
   </div>
@@ -100,15 +127,34 @@ watch(
   gap: 0.5rem;
 }
 
-@container (min-width: 600px) {
+@container (min-width: 450px) {
   .account-grid {
     --grid-columns: 3;
   }
 }
 
-@container (min-width: 900px) {
+@container (min-width: 675px) {
   .account-grid {
     --grid-columns: 4;
   }
+}
+
+.account-grid.container-selected {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: 0.75rem;
+}
+
+.account-grid.container-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  border-radius: 0.75rem;
+}
+
+.grid-empty-placeholder {
+  grid-column: 1 / -1;
+  min-height: 3.25rem;
+  border: 1.5px dashed var(--border);
+  border-radius: 0.75rem;
 }
 </style>

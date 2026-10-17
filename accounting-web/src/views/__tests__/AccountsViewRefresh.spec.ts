@@ -44,10 +44,15 @@ vi.mock('../../components/layout/AccountCreateDrawer.vue', () => ({
 vi.mock('../../components/layout/AccountGrid.vue', () => ({
   default: {
     name: 'AccountGrid',
-    props: ['typeLabel', 'rows', 'selectedAccountId'],
-    emits: ['click', 'columnsChange'],
+    props: ['typeLabel', 'rootAccount', 'rows', 'selectedAccountId', 'selectedContainerId'],
+    emits: ['click', 'containerClick', 'columnsChange'],
     template: `
       <div data-testid="grid">
+        <div
+          data-testid="root-container"
+          :data-container-account-id="rootAccount?.id"
+          @click="$emit('containerClick', rootAccount?.id, $event)"
+        />
         <template v-for="(row, rowIndex) in rows" :key="rowIndex">
           <button
             v-for="(item, itemIndex) in row.items"
@@ -143,5 +148,56 @@ describe('AccountsView 账户变更后的刷新', () => {
     await nextTick()
 
     expect(notifyAccountsChanged).toHaveBeenCalled()
+  })
+})
+
+describe('AccountsView 容纳框选中与分区', () => {
+  it('每个根账户渲染一个分区网格', () => {
+    const wrapper = mount(AccountsView, {
+      global: { plugins: [i18n], provide: { [panelActionKey]: ref<PanelAction[]>([]) } },
+    })
+    const grids = wrapper.findAllComponents({ name: 'AccountGrid' })
+    expect(grids).toHaveLength(1)
+  })
+
+  it('点击根容纳框选中根账户，不弹详情抽屉', async () => {
+    const panelAction = ref<PanelAction[]>([])
+    const wrapper = mount(AccountsView, {
+      global: { plugins: [i18n], provide: { [panelActionKey]: panelAction } },
+    })
+    await nextTick()
+
+    await wrapper.find('[data-testid="root-container"]').trigger('click')
+    await nextTick()
+
+    // 新建按钮以根账户为父启用，编辑抽屉不出现
+    expect(panelAction.value[0].disabled).toBe(false)
+    expect(wrapper.findComponent({ name: 'AccountDrawer' }).exists()).toBe(false)
+
+    panelAction.value[0].onClick()
+    await nextTick()
+    const createDrawer = wrapper.findComponent({ name: 'AccountCreateDrawer' })
+    expect(createDrawer.exists()).toBe(true)
+    expect(createDrawer.props('parentAccount')?.id).toBe(rootAccount.id)
+  })
+
+  it('点击卡片后容器选中标识清除', async () => {
+    const panelAction = ref<PanelAction[]>([])
+    const wrapper = mount(AccountsView, {
+      global: { plugins: [i18n], provide: { [panelActionKey]: panelAction } },
+    })
+    await nextTick()
+    const grid = wrapper.findComponent({ name: 'AccountGrid' })
+
+    await wrapper.find('[data-testid="root-container"]').trigger('click')
+    await nextTick()
+    expect(grid.props('selectedContainerId')).toBe(rootAccount.id)
+
+    const button = grid
+      .findAll('button')
+      .find(b => b.attributes('data-account-id') === String(childAccount.id))
+    await button?.trigger('click')
+    await nextTick()
+    expect(grid.props('selectedContainerId')).toBeNull()
   })
 })

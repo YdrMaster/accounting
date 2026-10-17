@@ -4,7 +4,6 @@ import type { AccountDto } from '../types/api'
 const DRAG_THRESHOLD = 6
 const EXPAND_DELAY = 600
 const ROW_Y_TOLERANCE = 4
-const GAP_X_TOLERANCE = 8
 
 export type AccountDropResult =
   | { kind: 'child'; draggedId: number; targetId: number }
@@ -27,10 +26,102 @@ interface UseAccountDragOptions {
   onDrop: (result: AccountDropResult) => void
 }
 
+interface RectLike {
+  left: number
+  right: number
+  top: number
+  bottom: number
+  width: number
+  height: number
+}
+
 interface CardRect {
   id: number
   parentId: number | null
-  rect: DOMRect
+  rect: RectLike
+}
+
+interface ContainerRect {
+  id: number
+  rect: RectLike
+}
+
+export interface InsertSlot {
+  beforeId: number | null
+  left: number
+  top: number
+  height: number
+}
+
+/** 取包含指针的最内层（面积最小）容器；无命中返回 null。 */
+export function pickContainer(
+  containers: ContainerRect[],
+  x: number,
+  y: number
+): ContainerRect | null {
+  let best: ContainerRect | null = null
+  let bestArea = Infinity
+  for (const c of containers) {
+    const r = c.rect
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue
+    const area = r.width * r.height
+    if (area < bestArea) {
+      bestArea = area
+      best = c
+    }
+  }
+  return best
+}
+
+/** 在容器直接子卡片的几何中取最近插槽；卡片为空返回 null（由调用方回落到整框落点）。 */
+export function pickInsertSlot(
+  cards: { id: number; rect: RectLike }[],
+  x: number,
+  y: number
+): InsertSlot | null {
+  if (cards.length === 0) return null
+
+  const rows: { top: number; bottom: number; cards: { id: number; rect: RectLike }[] }[] = []
+  for (const card of cards) {
+    const row = rows.find(r => Math.abs(r.top - card.rect.top) <= ROW_Y_TOLERANCE)
+    if (row) {
+      row.cards.push(card)
+      row.bottom = Math.max(row.bottom, card.rect.bottom)
+    } else {
+      rows.push({ top: card.rect.top, bottom: card.rect.bottom, cards: [card] })
+    }
+  }
+  rows.sort((a, b) => a.top - b.top)
+  for (const row of rows) row.cards.sort((a, b) => a.rect.left - b.rect.left)
+
+  const distToRow = (row: { top: number; bottom: number }) =>
+    y < row.top ? row.top - y : y > row.bottom ? y - row.bottom : 0
+  const row = rows.reduce((nearest, r) => (distToRow(r) < distToRow(nearest) ? r : nearest))
+
+  const first = row.cards[0]
+  const last = row.cards[row.cards.length - 1]
+  const slotBefore = (card: { id: number; rect: RectLike }): InsertSlot => ({
+    beforeId: card.id,
+    left: card.rect.left - 3,
+    top: card.rect.top,
+    height: card.rect.height,
+  })
+  const slotAfter = (card: { id: number; rect: RectLike }): InsertSlot => ({
+    beforeId: null,
+    left: card.rect.right + 1,
+    top: card.rect.top,
+    height: card.rect.height,
+  })
+
+  // 垂直方向在行带之外时，归并到该行的首位/末位插槽
+  if (y < row.top) return slotBefore(first)
+  if (y > row.bottom) return slotAfter(last)
+
+  if (x < first.rect.left) return slotBefore(first)
+  for (const card of row.cards) {
+    if (x <= card.rect.right) return slotBefore(card)
+  }
+  return slotAfter(last)
 }
 
 export function useAccountDrag(options: UseAccountDragOptions) {
@@ -124,10 +215,22 @@ export function useAccountDrag(options: UseAccountDragOptions) {
     const result: CardRect[] = []
     for (const el of els) {
       const id = Number(el.dataset.accountId)
+      if (Number.isNaN(id)) continue
       if (id === draggingId.value) continue
       const account = options.getAccount(id)
       if (!account) continue
       result.push({ id, parentId: account.parent_id, rect: el.getBoundingClientRect() })
+    }
+    return result
+  }
+
+  function collectContainers(): ContainerRect[] {
+    const els = document.querySelectorAll<HTMLElement>('[data-container-account-id]')
+    const result: ContainerRect[] = []
+    for (const el of els) {
+      const id = Number(el.dataset.containerAccountId)
+      if (Number.isNaN(id)) continue
+      result.push({ id, rect: el.getBoundingClientRect() })
     }
     return result
   }
@@ -138,10 +241,11 @@ export function useAccountDrag(options: UseAccountDragOptions) {
     insertion.value = null
     const draggedId = draggingId.value
     if (draggedId === null) return
+    if (!options.getAccount(draggedId)) return
 
     const cards = collectCards()
 
-    // Direct hit on a card => drop as its child.
+    // 1) 卡片直接命中 => 成为该卡片的最后一个子账户
     for (const card of cards) {
       const r = card.rect
       if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
@@ -153,60 +257,29 @@ export function useAccountDrag(options: UseAccountDragOptions) {
       }
     }
 
-    // Gap between sibling cards of the dragged account => sibling reorder.
-    const dragged = options.getAccount(draggedId)
-    if (!dragged) return
-    const rows: { top: number; bottom: number; cards: CardRect[] }[] = []
-    for (const card of cards) {
-      if (card.parentId !== dragged.parent_id) continue
-      const row = rows.find(r => Math.abs(r.top - card.rect.top) <= ROW_Y_TOLERANCE)
-      if (row) {
-        row.cards.push(card)
-        row.bottom = Math.max(row.bottom, card.rect.bottom)
-      } else {
-        rows.push({ top: card.rect.top, bottom: card.rect.bottom, cards: [card] })
-      }
-    }
+    // 2) 最内层包含容器（自身及其子树容器不可作为落点，防成环）
+    const containers = collectContainers().filter(c => !options.isDescendant(c.id, draggedId))
+    const container = pickContainer(containers, x, y)
+    if (!container) return
 
-    for (const row of rows) {
-      if (y < row.top - ROW_Y_TOLERANCE || y > row.bottom + ROW_Y_TOLERANCE) continue
-      row.cards.sort((a, b) => a.rect.left - b.rect.left)
-      const first = row.cards[0]
-      const last = row.cards[row.cards.length - 1]
-
-      if (x >= first.rect.left - GAP_X_TOLERANCE && x < first.rect.left) {
-        insertion.value = {
-          parentId: dragged.parent_id!,
-          beforeId: first.id,
-          left: first.rect.left - 3,
-          top: first.rect.top,
-          height: first.rect.height,
-        }
-        return
+    // 3) 容器内最近插槽；空容器整框即落点
+    const childCards = cards.filter(c => c.parentId === container.id)
+    const slot = pickInsertSlot(childCards, x, y)
+    if (slot) {
+      insertion.value = {
+        parentId: container.id,
+        beforeId: slot.beforeId,
+        left: slot.left,
+        top: slot.top,
+        height: slot.height,
       }
-      for (let i = 0; i < row.cards.length - 1; i++) {
-        const a = row.cards[i]
-        const b = row.cards[i + 1]
-        if (x >= a.rect.right && x <= b.rect.left) {
-          insertion.value = {
-            parentId: dragged.parent_id!,
-            beforeId: b.id,
-            left: (a.rect.right + b.rect.left) / 2 - 1.5,
-            top: a.rect.top,
-            height: a.rect.height,
-          }
-          return
-        }
-      }
-      if (x > last.rect.right && x <= last.rect.right + GAP_X_TOLERANCE) {
-        insertion.value = {
-          parentId: dragged.parent_id!,
-          beforeId: null,
-          left: last.rect.right + 1,
-          top: last.rect.top,
-          height: last.rect.height,
-        }
-        return
+    } else {
+      insertion.value = {
+        parentId: container.id,
+        beforeId: null,
+        left: container.rect.left - 3,
+        top: container.rect.top,
+        height: container.rect.height,
       }
     }
   }

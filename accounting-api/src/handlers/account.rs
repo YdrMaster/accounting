@@ -7,6 +7,7 @@ use crate::dto::{
 use crate::handlers::{Lang, member::AppState};
 use accounting::account::Account;
 use accounting::account_type::AccountType;
+use accounting::error::AccountingError;
 use accounting::id::{AccountId, MemberId};
 use accounting_sql::error::DbError;
 use axum::{
@@ -287,24 +288,32 @@ async fn set_parent(
     Lang(lang): Lang,
     Path(id): Path<i64>,
     Json(req): Json<SetAccountParentRequest>,
-) -> Result<Json<AccountDto>, String> {
+) -> Result<Json<AccountDto>, (StatusCode, String)> {
     let db = state.db();
     let service = accounting_service::account_service::AccountService::new(db.clone());
     service
         .reparent(AccountId(id), AccountId(req.parent_id), &lang)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let status = match &e {
+                AccountingError::AccountAlreadyExists(_) => StatusCode::CONFLICT,
+                AccountingError::DatabaseError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                _ => StatusCode::BAD_REQUEST,
+            };
+            (status, e.to_string())
+        })?;
 
     // 返回更新后的账户（与列表端点的 DTO 口径一致）
+    let server_error = |msg: String| (StatusCode::INTERNAL_SERVER_ERROR, msg);
     let account = db
         .account_get(AccountId(id))
         .await
-        .map_err(|e| e.to_string())?
-        .ok_or(t!("account_not_found", locale = lang.as_str()).to_string())?;
+        .map_err(|e| server_error(e.to_string()))?
+        .ok_or_else(|| server_error(t!("account_not_found", locale = lang.as_str()).to_string()))?;
     let names = db
         .account_display_names(&[account.id], &lang)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| server_error(e.to_string()))?;
     let account_type = db
         .account_find_root_name(account.id, &lang)
         .await
@@ -315,7 +324,7 @@ async fn set_parent(
     let owner_ids: Vec<i64> = db
         .account_get_owners(account.id)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| server_error(e.to_string()))?
         .into_iter()
         .map(|m| m.0)
         .collect();
@@ -663,5 +672,69 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(names.get(&AccountId(bank)).unwrap(), "NewBank");
+    }
+
+    async fn set_parent_http(
+        state: Arc<AppState>,
+        id: i64,
+        parent_id: i64,
+    ) -> axum::http::Response<axum::body::Body> {
+        let app = router().with_state(state);
+        let req = axum::http::Request::builder()
+            .method(axum::http::Method::PUT)
+            .uri(format!("/api/accounts/{id}/parent?lang=en"))
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::json!({ "parent_id": parent_id }).to_string(),
+            ))
+            .unwrap();
+        tower::ServiceExt::oneshot(app, req).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn set_parent_http_conflict_names_duplicate_account() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let expenses = account_id_by_name(&state, "Expenses").await;
+        let bank = create_child(&state, assets, "Bank").await;
+        // 目标父账户下已有同名子账户
+        let _bank_dup = create_child(&state, expenses, "Bank").await;
+
+        let resp = set_parent_http(state, bank, expenses).await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(
+            text.contains("Account already exists: Bank"),
+            "conflict body should name the duplicate, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_parent_http_rejects_root_with_bad_request() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let expenses = account_id_by_name(&state, "Expenses").await;
+
+        let resp = set_parent_http(state, assets, expenses).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn set_parent_http_success_returns_updated_dto() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let expenses = account_id_by_name(&state, "Expenses").await;
+        let bank = create_child(&state, assets, "Bank").await;
+
+        let resp = set_parent_http(state, bank, expenses).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["parent_id"], serde_json::json!(expenses));
     }
 }
