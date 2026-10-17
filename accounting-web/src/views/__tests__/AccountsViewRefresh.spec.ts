@@ -44,7 +44,7 @@ vi.mock('../../components/layout/AccountCreateDrawer.vue', () => ({
 vi.mock('../../components/layout/AccountGrid.vue', () => ({
   default: {
     name: 'AccountGrid',
-    props: ['typeLabel', 'rootAccount', 'rows', 'selectedAccountId', 'selectedContainerId'],
+    props: ['typeLabel', 'rootAccount', 'rows', 'selectedAccountId'],
     emits: ['click', 'containerClick', 'columnsChange'],
     template: `
       <div data-testid="grid">
@@ -181,7 +181,7 @@ describe('AccountsView 容纳框选中与分区', () => {
     expect(createDrawer.props('parentAccount')?.id).toBe(rootAccount.id)
   })
 
-  it('点击卡片后容器选中标识清除', async () => {
+  it('点击卡片后选中态切到卡片(容器视觉随 selectedAccountId 联动)', async () => {
     const panelAction = ref<PanelAction[]>([])
     const wrapper = mount(AccountsView, {
       global: { plugins: [i18n], provide: { [panelActionKey]: panelAction } },
@@ -191,13 +191,43 @@ describe('AccountsView 容纳框选中与分区', () => {
 
     await wrapper.find('[data-testid="root-container"]').trigger('click')
     await nextTick()
-    expect(grid.props('selectedContainerId')).toBe(rootAccount.id)
+    expect(grid.props('selectedAccountId')).toBe(rootAccount.id)
 
     const button = grid
       .findAll('button')
       .find(b => b.attributes('data-account-id') === String(childAccount.id))
     await button?.trigger('click')
     await nextTick()
-    expect(grid.props('selectedContainerId')).toBeNull()
+    expect(grid.props('selectedAccountId')).toBe(childAccount.id)
+  })
+
+  it('抽屉关闭后重复点击已选中账户重开抽屉', async () => {
+    const panelAction = ref<PanelAction[]>([])
+    const wrapper = mount(AccountsView, {
+      global: { plugins: [i18n], provide: { [panelActionKey]: panelAction } },
+    })
+    await nextTick()
+    const grid = wrapper.findComponent({ name: 'AccountGrid' })
+    const cardButton = () =>
+      grid.findAll('button').find(b => b.attributes('data-account-id') === String(childAccount.id))
+
+    // 首次点击:选中并打开详情抽屉
+    await cardButton()?.trigger('click')
+    await nextTick()
+    const drawer = wrapper.findComponent({ name: 'AccountDrawer' })
+    expect(drawer.exists()).toBe(true)
+
+    // 关闭抽屉
+    drawer.vm.$emit('close')
+    await nextTick()
+    expect(wrapper.findComponent({ name: 'AccountDrawer' }).exists()).toBe(false)
+
+    // 重复点击已选中账户:抽屉重新打开,选中态不变
+    await cardButton()?.trigger('click')
+    await nextTick()
+    const reopened = wrapper.findComponent({ name: 'AccountDrawer' })
+    expect(reopened.exists()).toBe(true)
+    expect(reopened.props('account')?.id).toBe(childAccount.id)
+    expect(grid.props('selectedAccountId')).toBe(childAccount.id)
   })
 })

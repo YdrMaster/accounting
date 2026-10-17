@@ -44,7 +44,6 @@ function rootsForType(type: string): AccountDto[] {
 
 const expandedPath = ref<number[]>([])
 const selectedAccountId = ref<number | null>(null)
-const selectedContainerId = ref<number | null>(null)
 const drawerVisible = ref(false)
 const columnsByRoot = ref<Record<number, number>>({})
 
@@ -65,16 +64,20 @@ function handleAccountClick(account: AccountDto) {
 
   // 与卡片交互时收起新建抽屉，避免两个抽屉叠加
   createDrawerVisible.value = false
-  selectedContainerId.value = null
 
   if (selectedAccountId.value === clickedId) {
-    // 反复点击已选中的卡片：切换其子账户的展开/折叠状态
-    if (store.getChildren(clickedId).length > 0) {
-      if (expandedPath.value.includes(clickedId)) {
-        expandedPath.value = expandedPath.value.filter(x => x !== clickedId)
-      } else {
-        expandedPath.value = [...expandedPath.value, clickedId]
+    if (drawerVisible.value) {
+      // 抽屉打开时重复点击：切换其子账户的展开/折叠状态
+      if (store.getChildren(clickedId).length > 0) {
+        if (expandedPath.value.includes(clickedId)) {
+          expandedPath.value = expandedPath.value.filter(x => x !== clickedId)
+        } else {
+          expandedPath.value = [...expandedPath.value, clickedId]
+        }
       }
+    } else if (!account.is_system && !isRootAccount(account)) {
+      // 抽屉已关闭时重复点击：重新拉起详情抽屉
+      drawerVisible.value = true
     }
     return
   }
@@ -113,7 +116,6 @@ function handleContainerClick(accountId: number, event: MouseEvent) {
   drawerVisible.value = false
   createDrawerVisible.value = false
   selectedAccountId.value = accountId
-  selectedContainerId.value = accountId
 }
 
 function rowsForRoot(root: AccountDto): GridRow[] {
@@ -141,7 +143,6 @@ function onAccountDeleted(id: number) {
   expandedPath.value = expandedPath.value.filter(x => x !== id)
   if (selectedAccountId.value === id) {
     selectedAccountId.value = null
-    selectedContainerId.value = null
     drawerVisible.value = false
   }
 }
@@ -271,7 +272,6 @@ function handleSiblingReorder(draggedId: number, parentId: number, beforeId: num
             :root-account="root"
             :rows="rowsForRoot(root)"
             :selected-account-id="selectedAccountId"
-            :selected-container-id="selectedContainerId"
             :dragging-id="drag.draggingId.value"
             :drop-target-id="drag.dropTargetId.value"
             :drop-container-id="drag.insertion.value?.parentId ?? null"

@@ -6,7 +6,6 @@ import AccountCard from './AccountCard.vue'
 const props = defineProps<{
   node: RowNode
   selectedAccountId: number | null
-  selectedContainerId?: number | null
   draggingId?: number | null
   dropTargetId?: number | null
   dropContainerId?: number | null
@@ -17,6 +16,15 @@ const emit = defineEmits<{
   containerClick: [accountId: number, event: MouseEvent]
   dragStart: [account: NonNullable<RowNode['row']['items'][number]['account']>, event: PointerEvent]
 }>()
+
+// 选中态单源：owner === selectedAccountId 时子容纳框随卡片联动高亮
+const childContainerSelected = computed(
+  () =>
+    props.selectedAccountId != null && props.selectedAccountId === props.node.row.expandedAccountId
+)
+const childContainerDropTarget = computed(
+  () => props.dropContainerId === props.node.row.expandedAccountId
+)
 
 const paperBgStyle = computed(() => {
   const d = props.node.row.depth
@@ -51,8 +59,8 @@ function onContainerClick(event: MouseEvent) {
     v-if="node.children.length"
     class="children-container stacked-children"
     :class="{
-      'container-selected': selectedContainerId === node.row.expandedAccountId,
-      'container-drop-target': dropContainerId === node.row.expandedAccountId,
+      'container-selected': childContainerSelected,
+      'container-drop-target': childContainerDropTarget,
     }"
     :style="paperBgStyle"
     :data-container-account-id="node.row.expandedAccountId"
@@ -63,7 +71,6 @@ function onContainerClick(event: MouseEvent) {
       :key="index"
       :node="child"
       :selected-account-id="selectedAccountId"
-      :selected-container-id="selectedContainerId"
       :dragging-id="draggingId"
       :drop-target-id="dropTargetId"
       :drop-container-id="dropContainerId"
@@ -125,10 +132,14 @@ function onContainerClick(event: MouseEvent) {
     0 -1px 0 rgba(255, 255, 255, 0.04) inset;
 }
 
-.children-container.container-selected {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
+.children-container.container-selected::after {
+  content: '';
+  position: absolute;
+  inset: -0.15rem -0.35rem;
+  z-index: -1;
+  background: hsla(237, 76%, 65%, 0.17);
   border-radius: 0.75rem;
+  pointer-events: none;
 }
 
 .children-container.container-drop-target {

@@ -12,7 +12,6 @@ const props = defineProps<{
   rootAccount?: AccountDto | null
   rows: GridRow[]
   selectedAccountId: number | null
-  selectedContainerId?: number | null
   draggingId?: number | null
   dropTargetId?: number | null
   dropContainerId?: number | null
@@ -29,8 +28,13 @@ const tree = computed(() => buildRowTree(props.rows))
 const gridRef = ref<HTMLElement | undefined>(undefined)
 const { columns, isReady } = useGridColumns(gridRef)
 
-const isSelectedContainer = computed(() => props.selectedContainerId === props.rootAccount?.id)
-const isDropContainer = computed(() => props.dropContainerId === props.rootAccount?.id)
+// 容器视觉仅存在于账户页（rootAccount 存在）；选中态单源：selectedAccountId === owner
+const isSelectedContainer = computed(
+  () => props.rootAccount != null && props.selectedAccountId === props.rootAccount.id
+)
+const isDropContainer = computed(
+  () => props.rootAccount != null && props.dropContainerId === props.rootAccount.id
+)
 
 function onGridClick(event: MouseEvent) {
   if (props.rootAccount) {
@@ -68,7 +72,6 @@ watch(
           :key="index"
           :node="node"
           :selected-account-id="selectedAccountId"
-          :selected-container-id="selectedContainerId"
           :dragging-id="draggingId"
           :drop-target-id="dropTargetId"
           :drop-container-id="dropContainerId"
@@ -122,6 +125,7 @@ watch(
 }
 
 .account-grid {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(var(--grid-columns, 2), minmax(0, 1fr));
   gap: 0.5rem;
@@ -139,10 +143,14 @@ watch(
   }
 }
 
-.account-grid.container-selected {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
+.account-grid.container-selected::after {
+  content: '';
+  position: absolute;
+  inset: -0.15rem -0.35rem;
+  z-index: -1;
+  background: hsla(237, 76%, 65%, 0.17);
   border-radius: 0.75rem;
+  pointer-events: none;
 }
 
 .account-grid.container-drop-target {
@@ -156,5 +164,10 @@ watch(
   min-height: 3.25rem;
   border: 1.5px dashed var(--border);
   border-radius: 0.75rem;
+}
+
+.account-grid.container-selected .grid-empty-placeholder {
+  border-color: transparent;
+  background: hsla(237, 76%, 65%, 0.17);
 }
 </style>

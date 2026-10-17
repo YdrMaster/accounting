@@ -97,12 +97,38 @@ describe('AccountGrid', () => {
     expect(wrapper.find('.grid-empty-placeholder').exists()).toBe(false)
   })
 
-  it('选中容纳框时渲染选中标识，冒泡 containerClick', async () => {
-    const wrapper = mountGrid([], { selectedContainerId: 1 })
+  it('选中容纳框:owner 被选中时整体高亮,冒泡 containerClick', async () => {
+    // 选中态单源:selectedAccountId === 根账户 id
+    const wrapper = mountGrid([], { selectedAccountId: 1 })
     expect(wrapper.find('.account-grid.container-selected').exists()).toBe(true)
+
+    // 空占位区随容器选中整体铺色
+    expect(wrapper.find('.account-grid.container-selected .grid-empty-placeholder').exists()).toBe(
+      true
+    )
 
     await wrapper.find('.account-grid').trigger('click')
     expect(wrapper.emitted('containerClick')?.[0]?.[0]).toBe(1)
+  })
+
+  it('非 owner 选中时不高亮', () => {
+    const wrapper = mountGrid([rowOf(account(2, 'A'), null)], { selectedAccountId: 999 })
+    expect(wrapper.find('.account-grid.container-selected').exists()).toBe(false)
+  })
+
+  it('选择器模式(无 rootAccount)零容器视觉', () => {
+    const wrapper = mount(AccountGrid, {
+      props: {
+        typeLabel: '资产',
+        rows: [rowOf(account(2, 'A'), null)],
+        selectedAccountId: 2,
+        dropContainerId: 1,
+      },
+    })
+    const grid = wrapper.find('.account-grid')
+    expect(grid.classes()).not.toContain('container-selected')
+    expect(grid.classes()).not.toContain('container-drop-target')
+    expect(grid.attributes('data-container-account-id')).toBeUndefined()
   })
 
   it('拖放目标容器渲染虚线高亮标识', () => {
