@@ -72,6 +72,7 @@ export default {
     nameRequired: '请输入预算表名称',
     limitRequired: '请至少添加一个限额',
     saveFailed: '保存失败: {message}',
+    deleteFailed: '删除失败: {message}',
     new: '新建预算',
     empty: '暂无预算表',
     editTitle: '编辑预算',
@@ -185,7 +186,6 @@ export default {
     },
   },
   txCard: {
-    transfer: '转账',
     refundPrefix: '退款 · ',
   },
   txList: {

@@ -219,6 +219,9 @@ facade! { db: account {
 
     account_get_by_name(name: &str) -> Option<accounting::account::Account>;
 
+    /// 按英文系统名（`is_system=1`、`lang='en'`）批量解析内置账户 ID。
+    account_ids_by_system_english_names(names: &[&str]) -> Vec<accounting::id::AccountId>;
+
     account_get(id: accounting::id::AccountId) -> Option<accounting::account::Account>;
 
     account_create_with_name(account: &accounting::account::Account,name: &str,lang: &str) -> accounting::id::AccountId;

@@ -54,6 +54,7 @@ function makeTx(id: number, date: string): TransactionDto {
     pending: false,
     channel_paths: [],
     postings: [],
+    is_transfer: false,
   }
 }
 

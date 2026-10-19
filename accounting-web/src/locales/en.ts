@@ -73,6 +73,7 @@ export default {
     nameRequired: 'Please enter a budget name',
     limitRequired: 'Please add at least one limit',
     saveFailed: 'Failed to save: {message}',
+    deleteFailed: 'Delete failed: {message}',
     new: 'New Budget',
     empty: 'No budgets yet',
     editTitle: 'Edit Budget',
@@ -186,7 +187,6 @@ export default {
     },
   },
   txCard: {
-    transfer: 'Transfer',
     refundPrefix: 'Refund · ',
   },
   txList: {

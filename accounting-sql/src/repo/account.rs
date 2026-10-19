@@ -80,6 +80,36 @@ pub async fn account_get_by_parent_and_name(
     row.map(|r| r.try_into()).transpose()
 }
 
+/// 按英文系统名批量解析内置账户 ID。
+///
+/// 只命中系统名字记录（`is_system = 1` 且 `lang = 'en'`）：系统名文本不可改，
+/// 因此这是内置账户的稳定身份；用户自定义显示名、其它语言名与同名的用户账户
+/// （`is_system = 0`）都不会被命中。
+pub async fn account_ids_by_system_english_names(
+    conn: &mut SqliteConnection,
+    names: &[&str],
+) -> Result<Vec<AccountId>, DbError> {
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut builder = sqlx::QueryBuilder::new(
+        "SELECT a.id FROM accounts a
+         JOIN account_names an ON an.account_id = a.id
+         WHERE an.is_system = 1 AND an.lang = 'en' AND an.name IN (",
+    );
+    let mut separated = builder.separated(", ");
+    for name in names {
+        separated.push_bind(*name);
+    }
+    builder.push(") ORDER BY a.id");
+    let rows: Vec<i64> = builder
+        .build_query_scalar()
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(rows.into_iter().map(AccountId).collect())
+}
+
 pub async fn account_list(conn: &mut SqliteConnection) -> Result<Vec<Account>, DbError> {
     let rows: Vec<AccountRow> = sqlx::query_as(
         "SELECT id, parent_id, closed_at, is_system, billing_day, repayment_day
@@ -712,6 +742,40 @@ mod tests {
             .await
             .unwrap();
         assert!(found.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_ids_by_system_english_names() {
+        let mut conn = setup().await;
+        let ids = account_ids_by_system_english_names(
+            &mut conn,
+            &["Fees", "InstallmentFees", "Discounts"],
+        )
+        .await
+        .unwrap();
+        assert_eq!(ids.len(), 3);
+        for (parent, leaf) in [
+            ("Expenses", "Fees"),
+            ("Expenses", "InstallmentFees"),
+            ("Equity", "Discounts"),
+        ] {
+            let expected = account_get_by_name(&mut conn, &format!("{parent}:{leaf}"))
+                .await
+                .unwrap()
+                .unwrap()
+                .id;
+            assert!(
+                ids.contains(&expected),
+                "{parent}:{leaf} 应被解析为内置账户"
+            );
+        }
+        // 非系统英文名（如本地化名 / 未知名）解析为空
+        assert!(
+            account_ids_by_system_english_names(&mut conn, &["手续费", "Nope"])
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]

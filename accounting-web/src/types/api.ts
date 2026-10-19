@@ -29,6 +29,8 @@ export interface TransactionDto {
   pending: boolean
   channel_paths: ChannelPathNodeDto[]
   postings: PostingDto[]
+  /** 是否为转账交易（服务端按分录结构实时判定）。 */
+  is_transfer: boolean
 }
 
 export interface SummaryDto {

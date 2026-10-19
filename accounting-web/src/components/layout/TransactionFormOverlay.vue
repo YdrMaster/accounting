@@ -10,7 +10,7 @@ import { useMemberStore } from '../../stores/member'
 import { useTagStore } from '../../stores/tag'
 import { useTransactionStore } from '../../stores/transaction'
 import type { ChannelPathNodeInput, CreateTransactionData } from '../../types/api'
-import { alertDialog } from '../../utils/dialog'
+import { alertDialog, confirmDialog } from '../../utils/dialog'
 import AccountPicker from './AccountPicker.vue'
 import ChannelPathInput from './ChannelPathInput.vue'
 
@@ -215,6 +215,17 @@ async function handleSubmit() {
     alertDialog(t('txForm.saveFailed', { message: e instanceof Error ? e.message : String(e) }))
   }
 }
+
+async function handleDelete() {
+  if (!isEdit.value || props.editId == null) return
+  if (!(await confirmDialog(t('transactions.confirmDelete')))) return
+  try {
+    await txStore.remove(props.editId)
+    emit('close')
+  } catch (e) {
+    alertDialog(t('txForm.deleteFailed', { message: e instanceof Error ? e.message : String(e) }))
+  }
+}
 </script>
 
 <template>
@@ -326,6 +337,9 @@ async function handleSubmit() {
       </div>
 
       <div class="form-footer">
+        <button v-if="isEdit" class="delete-btn" @click="handleDelete">
+          {{ t('common.delete') }}
+        </button>
         <button class="cancel-btn" @click="emit('close')">{{ t('common.cancel') }}</button>
         <button class="submit-btn" :disabled="!canSubmit" @click="handleSubmit">
           {{ isEdit ? t('common.save') : t('common.confirm') }}
@@ -627,6 +641,22 @@ async function handleSubmit() {
   gap: 0.75rem;
   padding: 1rem;
   border-top: 1px solid var(--border);
+}
+
+.delete-btn {
+  flex: 1;
+  background: none;
+  border: 1px solid var(--color-expense);
+  border-radius: 0.5rem;
+  padding: 0.625rem;
+  color: var(--color-expense);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.delete-btn:hover {
+  background: var(--color-expense);
+  color: #fff;
 }
 
 .cancel-btn {

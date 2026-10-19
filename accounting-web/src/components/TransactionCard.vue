@@ -94,13 +94,51 @@ function commodityPrefix(code: string): string {
   return COMMODITY_SYMBOLS[dtoCode] ?? dtoCode
 }
 
-/** 折叠态金额：单币种无前缀；多币种带主币种前缀 */
+const isTransfer = computed(() => props.tx.is_transfer)
+
+/** 转账转出金额：资产类分录中负金额之和的相反数 */
+const transferOutAmount = computed(() => {
+  let sum = new Decimal(0)
+  for (const p of props.tx.postings) {
+    if (p.account_type !== 'asset') continue
+    const a = new Decimal(p.amount)
+    if (a.lt(0)) sum = sum.plus(a)
+  }
+  return sum.negated()
+})
+
+/** 转账引起的资产变动金额：非资产类分录金额之和 */
+const assetChangeAmount = computed(() => {
+  let sum = new Decimal(0)
+  for (const p of props.tx.postings) {
+    if (p.account_type === 'asset') continue
+    sum = sum.plus(new Decimal(p.amount))
+  }
+  return sum
+})
+
+/** 折叠态金额：单币种无前缀；多币种带主币种前缀；转账为蓝色转出金额且不带符号 */
 const displayAmount = computed(() => {
   const prefix = multiCurrency.value ? commodityPrefix(primaryCommodity.value) : ''
-  const sign = amount.value.gt(0) ? '+' : ''
-  const body = formatAmount(amount.value)
   const refund = isRefund()
-  return { prefix, sign, body, refund }
+  if (isTransfer.value) {
+    return { prefix, sign: '', body: formatAmount(transferOutAmount.value), refund, transfer: true }
+  }
+  const sign = amount.value.gt(0) ? '+' : ''
+  return { prefix, sign, body: formatAmount(amount.value), refund, transfer: false }
+})
+
+/** 转账资产变动额：S>0（资产减少）显示红色 -S；S<0（资产增加）显示绿色 +S；S=0 不显示 */
+const assetChange = computed(() => {
+  if (!isTransfer.value) return null
+  const s = assetChangeAmount.value
+  if (s.isZero()) return null
+  const decreasing = s.gt(0)
+  return {
+    sign: decreasing ? '-' : '+',
+    body: formatAmount(s.abs()),
+    className: decreasing ? 'negative' : 'positive',
+  }
 })
 
 function isRefund(): boolean {
@@ -115,14 +153,40 @@ let touchStartX = 0
 let touchStartY = 0
 const SWIPE_THRESHOLD = 60
 
+/** 右滑过程反馈：横向位移（px）与是否越过删除阈值 */
+const swipeDx = ref(0)
+const swipeArmed = ref(false)
+
+const cardStyle = computed(() =>
+  swipeDx.value > 0 ? { transform: `translateX(${swipeDx.value}px)` } : {}
+)
+
 function onTouchStart(e: TouchEvent) {
   touchStartX = e.changedTouches[0].screenX
   touchStartY = e.changedTouches[0].screenY
+  swipeDx.value = 0
+  swipeArmed.value = false
+}
+
+function onTouchMove(e: TouchEvent) {
+  const dx = e.changedTouches[0].screenX - touchStartX
+  const dy = e.changedTouches[0].screenY - touchStartY
+  if (Math.abs(dy) > Math.abs(dx)) {
+    // 纵向滚动优先，放弃横向反馈
+    swipeDx.value = 0
+    swipeArmed.value = false
+    return
+  }
+  // 仅右滑（删除方向）给出反馈
+  swipeDx.value = dx > 0 ? Math.min(dx, SWIPE_THRESHOLD * 1.5) : 0
+  swipeArmed.value = dx >= SWIPE_THRESHOLD
 }
 
 function onTouchEnd(e: TouchEvent) {
   const dx = e.changedTouches[0].screenX - touchStartX
   const dy = e.changedTouches[0].screenY - touchStartY
+  swipeDx.value = 0
+  swipeArmed.value = false
   if (Math.abs(dy) > Math.abs(dx)) return
   if (Math.abs(dx) < SWIPE_THRESHOLD) return
 
@@ -141,10 +205,12 @@ function onDblClick() {
 <template>
   <div
     class="tx-card"
-    :class="{ pending: tx.pending }"
+    :class="{ pending: tx.pending, 'swipe-armed': swipeArmed }"
+    :style="cardStyle"
     @click="toggleExpand"
     @dblclick="onDblClick"
     @touchstart="onTouchStart"
+    @touchmove="onTouchMove"
     @touchend="onTouchEnd"
   >
     <!-- 描述非空：两行锚定 -->
@@ -153,11 +219,20 @@ function onDblClick() {
         <span class="title" :class="{ refund: refundPrefix }"
           >{{ refundPrefix }}{{ tx.description }}</span
         >
-        <span
-          class="amount"
-          :class="{ refund: displayAmount.refund, 'amount-positive': amount.gt(0) }"
-          >{{ displayAmount.prefix }}{{ displayAmount.sign }}{{ displayAmount.body }}</span
-        >
+        <span class="amount-group">
+          <span
+            class="amount"
+            :class="{
+              refund: displayAmount.refund,
+              'amount-transfer': displayAmount.transfer,
+              'amount-positive': !displayAmount.transfer && amount.gt(0),
+            }"
+            >{{ displayAmount.prefix }}{{ displayAmount.sign }}{{ displayAmount.body }}</span
+          >
+          <span v-if="assetChange" class="amount-change" :class="assetChange.className"
+            >{{ assetChange.sign }}{{ assetChange.body }}</span
+          >
+        </span>
       </div>
       <div class="row-sub">
         <span v-if="tx.member_name" class="member">{{ tx.member_name }}</span>
@@ -177,11 +252,20 @@ function onDblClick() {
         secondaryCommodity
       }}</span>
       <span v-for="tag in tx.tags" :key="tag" class="tag">{{ tag }}</span>
-      <span
-        class="amount"
-        :class="{ refund: displayAmount.refund, 'amount-positive': amount.gt(0) }"
-        >{{ displayAmount.prefix }}{{ displayAmount.sign }}{{ displayAmount.body }}</span
-      >
+      <span class="amount-group">
+        <span
+          class="amount"
+          :class="{
+            refund: displayAmount.refund,
+            'amount-transfer': displayAmount.transfer,
+            'amount-positive': !displayAmount.transfer && amount.gt(0),
+          }"
+          >{{ displayAmount.prefix }}{{ displayAmount.sign }}{{ displayAmount.body }}</span
+        >
+        <span v-if="assetChange" class="amount-change" :class="assetChange.className"
+          >{{ assetChange.sign }}{{ assetChange.body }}</span
+        >
+      </span>
       <span class="expand-indicator">{{ expanded ? '▲' : '▼' }}</span>
     </div>
     <Transition name="expand">
@@ -216,6 +300,9 @@ function onDblClick() {
   user-select: none;
   -webkit-user-select: none;
   touch-action: pan-y;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .tx-card:last-child {
@@ -225,6 +312,12 @@ function onDblClick() {
 /* 待分类：琥珀左→右渐变，容器级标识，文字保持原色 */
 .tx-card.pending {
   background: linear-gradient(90deg, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0) 65%);
+}
+
+/* 右滑越阈：危险色高亮提示将触发删除 */
+.tx-card.swipe-armed {
+  background: rgba(231, 76, 60, 0.18);
+  box-shadow: inset -3px 0 0 var(--color-expense);
 }
 
 .row-main {
@@ -271,8 +364,34 @@ function onDblClick() {
   font-size: 0.9375rem;
   white-space: nowrap;
   text-align: right;
+  margin-left: 0;
+  flex-shrink: 0;
+}
+
+.amount-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.amount-transfer {
+  color: var(--color-info);
+}
+
+.amount-change {
+  font-weight: 500;
+  font-size: 0.9375rem;
+  white-space: nowrap;
+}
+
+.amount-change.positive {
+  color: var(--color-income);
+}
+
+.amount-change.negative {
+  color: var(--color-expense);
 }
 
 .amount.refund {

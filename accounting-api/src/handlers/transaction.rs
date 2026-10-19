@@ -19,7 +19,7 @@ use axum::{
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use rust_i18n::t;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -137,6 +137,9 @@ fn bad_request(msg: String) -> (StatusCode, String) {
 struct DisplayContext {
     account_paths: HashMap<i64, String>,
     account_types: HashMap<i64, String>,
+    /// 3 个内置转账允许账户的 ID 集合（Expenses:Fees / Expenses:InstallmentFees / Equity:Discounts），
+    /// 由系统英文名一次性解析，判定分录时只比对 `account_id`
+    transfer_account_ids: HashSet<i64>,
     commodities: HashMap<i64, String>,
     members: HashMap<i64, String>,
     channel_names: HashMap<ChannelId, String>,
@@ -165,6 +168,16 @@ async fn load_display_context(
         .collect();
     let account_types = build_account_type_map(&accounts, &account_names);
 
+    // 内置转账账户按系统英文名解析账户 ID（系统名不可改，是内置账户的稳定身份），
+    // 之后判定分录时只比对 account_id，不依赖任何显示名
+    let transfer_account_ids: HashSet<i64> = db
+        .account_ids_by_system_english_names(&["Fees", "InstallmentFees", "Discounts"])
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|id| id.0)
+        .collect();
+
     let commodity_list = db.commodity_list().await.map_err(|e| e.to_string())?;
     let commodities: HashMap<i64, String> = commodity_list
         .into_iter()
@@ -192,6 +205,7 @@ async fn load_display_context(
     Ok(DisplayContext {
         account_paths,
         account_types,
+        transfer_account_ids,
         commodities,
         members,
         channel_names,
@@ -310,6 +324,7 @@ async fn list_transactions(
                     status: n.status.as_str().to_string(),
                 })
                 .collect(),
+            is_transfer: detect_transfer(&postings, &ctx),
             postings: postings
                 .into_iter()
                 .map(|p| posting_to_dto(p, &ctx))
@@ -318,6 +333,48 @@ async fn list_transactions(
         .collect();
 
     Ok(Json(dtos))
+}
+
+/// 判定一笔交易是否为转账。
+///
+/// 条件（见规格 `transaction-list-ui`「转账交易识别」）：
+/// - 至少 2 条资产类分录，且涉及至少 2 个不同账户；
+/// - 资产类分录中同时存在金额小于 0 与不小于 0（≥ 0）的分录；
+/// - 所有非资产类分录的账户均属于内置转账账户（手续费/分期手续费/折扣）——按
+///   [`DisplayContext::transfer_account_ids`] 中的账户 ID 判定。
+fn detect_transfer(postings: &[Posting], ctx: &DisplayContext) -> bool {
+    let account_type_of = |p: &Posting| -> &str {
+        ctx.account_types
+            .get(&p.account_id.0)
+            .map(|s| s.as_str())
+            .unwrap_or("")
+    };
+
+    let asset_postings: Vec<&Posting> = postings
+        .iter()
+        .filter(|p| account_type_of(p) == "asset")
+        .collect();
+    if asset_postings.len() < 2 {
+        return false;
+    }
+
+    let distinct_accounts: HashSet<i64> = asset_postings.iter().map(|p| p.account_id.0).collect();
+    if distinct_accounts.len() < 2 {
+        return false;
+    }
+
+    // 须同时存在「流出」（amount < 0）与「未流出」（amount ≥ 0），
+    // 单一符号（全为负或全为非负）不构成一进一出
+    let has_negative = asset_postings.iter().any(|p| p.amount < Decimal::ZERO);
+    let has_non_negative = asset_postings.iter().any(|p| p.amount >= Decimal::ZERO);
+    if !has_negative || !has_non_negative {
+        return false;
+    }
+
+    postings
+        .iter()
+        .filter(|p| account_type_of(p) != "asset")
+        .all(|p| ctx.transfer_account_ids.contains(&p.account_id.0))
 }
 
 /// 分录转 DTO
@@ -534,6 +591,7 @@ async fn get_transaction(
         .map_err(|e| e.to_string())?;
     let pending_id = pending_tag_id(db).await?;
 
+    let is_transfer = detect_transfer(&postings, &ctx);
     let posting_dtos: Vec<PostingDto> = postings
         .into_iter()
         .map(|p| posting_to_dto(p, &ctx))
@@ -570,6 +628,7 @@ async fn get_transaction(
             })
             .collect(),
         postings: posting_dtos,
+        is_transfer,
     }))
 }
 
@@ -735,6 +794,7 @@ pub fn router() -> Router<Arc<AppState>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use accounting::account::Account;
     use accounting::id::CommodityId;
     use accounting::transaction::TransactionKind;
     use accounting_sql::SqliteDatabase;
@@ -819,6 +879,203 @@ mod tests {
             .await
             .unwrap()
             .0
+    }
+
+    async fn create_child_account(state: &Arc<AppState>, parent: &str, name: &str) -> AccountId {
+        let parent_account = state
+            .db()
+            .account_get_by_name(parent)
+            .await
+            .unwrap()
+            .unwrap();
+        let account = Account {
+            id: AccountId(0),
+            parent_id: Some(parent_account.id),
+            closed_at: None,
+            is_system: false,
+            billing_day: None,
+            repayment_day: None,
+        };
+        state
+            .db()
+            .account_create_with_name(&account, name, "en")
+            .await
+            .unwrap()
+    }
+
+    async fn submit_postings(state: &Arc<AppState>, lines: &[(AccountId, &str)]) -> i64 {
+        let service = TransactionService::new(state.db().clone());
+        let member_id = state
+            .db()
+            .member_get_or_create_by_name("测试用户", "zh-CN")
+            .await
+            .unwrap();
+        let cny = CommodityId(
+            state
+                .db()
+                .commodity_list()
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|c| c.symbol == "CNY")
+                .expect("seed 应包含 CNY 商品")
+                .id
+                .0,
+        );
+        let tx = Transaction {
+            id: TransactionId(0),
+            date_time: NaiveDateTime::parse_from_str("2026-01-01T12:00:00", "%Y-%m-%dT%H:%M:%S")
+                .unwrap(),
+            description: "转账".to_string(),
+            kind: TransactionKind::Normal,
+            member_id,
+        };
+        let postings = lines
+            .iter()
+            .map(|(account_id, amount)| Posting {
+                id: PostingId(0),
+                transaction_id: TransactionId(0),
+                account_id: *account_id,
+                commodity_id: cny,
+                amount: Decimal::from_str(amount).unwrap(),
+                cost: None,
+                cost_commodity_id: None,
+                is_reimbursable: false,
+                linked_posting_id: None,
+                reversal_total: Decimal::ZERO,
+            })
+            .collect();
+        service
+            .submit(tx, postings, vec![], vec![])
+            .await
+            .unwrap()
+            .0
+    }
+
+    async fn dto_of(state: &Arc<AppState>, id: i64) -> TransactionDto {
+        let Json(dto) = get_transaction(State(state.clone()), Lang("en".to_string()), Path(id))
+            .await
+            .unwrap();
+        dto
+    }
+
+    #[tokio::test]
+    async fn transfer_detection_rules() {
+        let state = setup().await;
+        let cash = AccountId(account_id(&state, "Assets:Cash").await);
+        let bank = create_child_account(&state, "Assets", "Bank").await;
+        let fees = AccountId(account_id(&state, "Expenses:Fees").await);
+        let discounts = AccountId(account_id(&state, "Equity:Discounts").await);
+        let opening = AccountId(account_id(&state, "Equity:OpeningBalances").await);
+        let food = create_child_account(&state, "Expenses", "Food").await;
+
+        let pure = submit_postings(&state, &[(cash, "-1000.00"), (bank, "1000.00")]).await;
+        assert!(dto_of(&state, pure).await.is_transfer, "纯转账应识别为转账");
+
+        let with_fee = submit_postings(
+            &state,
+            &[(cash, "-1010.00"), (bank, "1000.00"), (fees, "10.00")],
+        )
+        .await;
+        assert!(
+            dto_of(&state, with_fee).await.is_transfer,
+            "带手续费转账应识别为转账"
+        );
+
+        let with_discount = submit_postings(
+            &state,
+            &[(cash, "-990.00"), (bank, "1000.00"), (discounts, "-10.00")],
+        )
+        .await;
+        assert!(
+            dto_of(&state, with_discount).await.is_transfer,
+            "带折扣转账应识别为转账"
+        );
+
+        let opening_tx = submit_postings(&state, &[(cash, "8000.00"), (opening, "-8000.00")]).await;
+        assert!(
+            !dto_of(&state, opening_tx).await.is_transfer,
+            "期初余额不应识别为转账"
+        );
+
+        let one_way = submit_postings(
+            &state,
+            &[(cash, "1000.00"), (bank, "500.00"), (opening, "-1500.00")],
+        )
+        .await;
+        assert!(
+            !dto_of(&state, one_way).await.is_transfer,
+            "单向资产分录不应识别为转账"
+        );
+
+        // 一负一零：≥0 的零金额资产分录同样满足「非负」条件
+        let wallet = create_child_account(&state, "Assets:Cash", "Wallet").await;
+        let zero_leg = submit_postings(
+            &state,
+            &[(cash, "-1000.00"), (bank, "1000.00"), (wallet, "0.00")],
+        )
+        .await;
+        assert!(
+            dto_of(&state, zero_leg).await.is_transfer,
+            "含零金额资产分录的转账应识别为转账"
+        );
+
+        let non_builtin = submit_postings(
+            &state,
+            &[(cash, "-1000.00"), (bank, "950.00"), (food, "50.00")],
+        )
+        .await;
+        assert!(
+            !dto_of(&state, non_builtin).await.is_transfer,
+            "含非内置非资产账户不应识别为转账"
+        );
+    }
+
+    #[tokio::test]
+    async fn transfer_detection_survives_renamed_display_name() {
+        let state = setup().await;
+        let cash = AccountId(account_id(&state, "Assets:Cash").await);
+        let bank = create_child_account(&state, "Assets", "Bank").await;
+        let fees = AccountId(account_id(&state, "Expenses:Fees").await);
+
+        // 改掉 Fees 的 en 显示名；系统英文名与账户 ID 不变，识别不应受影响
+        state
+            .db()
+            .account_rename(fees, "服务费", "en")
+            .await
+            .unwrap();
+
+        let tx = submit_postings(
+            &state,
+            &[(cash, "-1010.00"), (bank, "1000.00"), (fees, "10.00")],
+        )
+        .await;
+        assert!(
+            dto_of(&state, tx).await.is_transfer,
+            "内置账户显示名变化后仍应按账户 ID 识别为转账"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_transactions_exposes_transfer_flag() {
+        let state = setup().await;
+        let cash = AccountId(account_id(&state, "Assets:Cash").await);
+        let bank = create_child_account(&state, "Assets", "Bank").await;
+        let transfer_id = submit_postings(&state, &[(cash, "-1000.00"), (bank, "1000.00")]).await;
+        let expense_id = create_expense(&state, vec![]).await;
+
+        let Json(dtos) = list_transactions(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Query(Vec::<(String, String)>::new()),
+        )
+        .await
+        .unwrap();
+
+        let transfer = dtos.iter().find(|d| d.id == transfer_id).unwrap();
+        let expense = dtos.iter().find(|d| d.id == expense_id).unwrap();
+        assert!(transfer.is_transfer, "列表应标记转账交易");
+        assert!(!expense.is_transfer, "列表不应把普通支出标记为转账");
     }
 
     #[tokio::test]

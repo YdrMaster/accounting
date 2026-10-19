@@ -34,6 +34,7 @@ function makeTx(
     pending: false,
     channel_paths: [],
     postings,
+    is_transfer: false,
     ...overrides,
   }
 }
@@ -92,8 +93,8 @@ describe('TransactionCard 折叠态', () => {
     expect(wrapper.find('.amount').text()).toBe('-35.00')
   })
 
-  it('转账摘要按资金流方向对位，金额为正值之和', () => {
-    const tx = makeTx({}, [
+  it('转账摘要按资金流方向对位，金额为蓝色转出额且无符号', () => {
+    const tx = makeTx({ is_transfer: true }, [
       posting({
         account: 'Assets:工商',
         account_type: 'asset',
@@ -109,7 +110,67 @@ describe('TransactionCard 折叠态', () => {
     ])
     const wrapper = mountCard(tx)
     expect(wrapper.find('.summary').text()).toBe('工商 → 招行')
-    expect(wrapper.find('.amount').text()).toBe('+8,000.00')
+    expect(wrapper.find('.amount').text()).toBe('8,000.00')
+    expect(wrapper.find('.amount').classes()).toContain('amount-transfer')
+    expect(wrapper.find('.amount-change').exists()).toBe(false)
+  })
+
+  it('含手续费转账：蓝色转出额 + 红色资产变动额', () => {
+    const tx = makeTx({ is_transfer: true }, [
+      posting({
+        account: 'Assets:储蓄',
+        account_type: 'asset',
+        commodity: 'CNY',
+        amount: '-1010.00',
+      }),
+      posting({
+        account: 'Assets:信用卡',
+        account_type: 'asset',
+        commodity: 'CNY',
+        amount: '1000.00',
+      }),
+      posting({
+        account: 'Expenses:Fees',
+        account_type: 'expense',
+        commodity: 'CNY',
+        amount: '10.00',
+      }),
+    ])
+    const wrapper = mountCard(tx)
+    expect(wrapper.find('.amount').text()).toBe('1,010.00')
+    expect(wrapper.find('.amount').classes()).toContain('amount-transfer')
+    const change = wrapper.find('.amount-change')
+    expect(change.text()).toBe('-10.00')
+    expect(change.classes()).toContain('negative')
+  })
+
+  it('含折扣转账：蓝色转出额 + 绿色资产变动额', () => {
+    const tx = makeTx({ is_transfer: true }, [
+      posting({
+        account: 'Assets:储蓄',
+        account_type: 'asset',
+        commodity: 'CNY',
+        amount: '-990.00',
+      }),
+      posting({
+        account: 'Assets:信用卡',
+        account_type: 'asset',
+        commodity: 'CNY',
+        amount: '1000.00',
+      }),
+      posting({
+        account: 'Equity:Discounts',
+        account_type: 'equity',
+        commodity: 'CNY',
+        amount: '-10.00',
+      }),
+    ])
+    const wrapper = mountCard(tx)
+    expect(wrapper.find('.amount').text()).toBe('990.00')
+    expect(wrapper.find('.amount').classes()).toContain('amount-transfer')
+    const change = wrapper.find('.amount-change')
+    expect(change.text()).toBe('+10.00')
+    expect(change.classes()).toContain('positive')
   })
 
   it('待分类交易带 pending 样式类且金额必现', () => {
@@ -205,5 +266,53 @@ describe('TransactionCard 折叠态', () => {
     await wrapper.trigger('click')
     expect(wrapper.find('.tx-entries').exists()).toBe(true)
     expect(wrapper.findAll('.entry-row')).toHaveLength(2)
+  })
+
+  const swipeTx = () =>
+    makeTx({}, [
+      posting({
+        account: 'Assets:Cash',
+        account_type: 'asset',
+        commodity: 'CNY',
+        amount: '-35.00',
+      }),
+      posting({
+        account: 'Expenses:餐饮',
+        account_type: 'expense',
+        commodity: 'CNY',
+        amount: '35.00',
+      }),
+    ])
+
+  it('右滑越阈给出反馈并在 touchend 触发删除', async () => {
+    const wrapper = mountCard(swipeTx())
+    await wrapper.trigger('touchstart', { changedTouches: [{ screenX: 0, screenY: 0 }] })
+
+    await wrapper.trigger('touchmove', { changedTouches: [{ screenX: 40, screenY: 0 }] })
+    expect(wrapper.emitted('delete')).toBeFalsy()
+    expect(wrapper.classes()).not.toContain('swipe-armed')
+
+    await wrapper.trigger('touchmove', { changedTouches: [{ screenX: 80, screenY: 0 }] })
+    expect(wrapper.classes()).toContain('swipe-armed')
+    expect(wrapper.attributes('style')).toContain('translateX')
+
+    await wrapper.trigger('touchend', { changedTouches: [{ screenX: 80, screenY: 0 }] })
+    expect(wrapper.emitted('delete')).toBeTruthy()
+    expect(wrapper.classes()).not.toContain('swipe-armed')
+  })
+
+  it('右滑未越阈不触发删除', async () => {
+    const wrapper = mountCard(swipeTx())
+    await wrapper.trigger('touchstart', { changedTouches: [{ screenX: 0, screenY: 0 }] })
+    await wrapper.trigger('touchmove', { changedTouches: [{ screenX: 30, screenY: 0 }] })
+    await wrapper.trigger('touchend', { changedTouches: [{ screenX: 30, screenY: 0 }] })
+    expect(wrapper.emitted('delete')).toBeFalsy()
+  })
+
+  it('左滑越阈触发编辑', async () => {
+    const wrapper = mountCard(swipeTx())
+    await wrapper.trigger('touchstart', { changedTouches: [{ screenX: 100, screenY: 0 }] })
+    await wrapper.trigger('touchend', { changedTouches: [{ screenX: 20, screenY: 0 }] })
+    expect(wrapper.emitted('edit')).toBeTruthy()
   })
 })

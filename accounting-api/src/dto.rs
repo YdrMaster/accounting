@@ -131,6 +131,8 @@ pub struct TransactionDto {
     pub channel_paths: Vec<ChannelPathNodeDto>,
     /// 分录列表。
     pub postings: Vec<PostingDto>,
+    /// 是否为转账交易（服务端按分录结构实时判定，不落盘）。
+    pub is_transfer: bool,
 }
 
 /// 分录响应。
