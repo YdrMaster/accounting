@@ -268,6 +268,78 @@ describe('TransactionCard 折叠态', () => {
     expect(wrapper.findAll('.entry-row')).toHaveLength(2)
   })
 
+  it('非转账零净额显示 muted 0.00，不回退取正值', () => {
+    const tx = makeTx({}, [
+      posting({
+        account: 'Assets:Cash',
+        account_type: 'asset',
+        commodity: 'CNY',
+        amount: '-100.00',
+      }),
+      posting({
+        account: 'Assets:Bank',
+        account_type: 'asset',
+        commodity: 'CNY',
+        amount: '100.00',
+      }),
+      posting({
+        account: 'Expenses:杂项',
+        account_type: 'expense',
+        commodity: 'CNY',
+        amount: '0.00',
+      }),
+    ])
+    const wrapper = mountCard(tx)
+    const amount = wrapper.find('.amount')
+    expect(amount.text()).toBe('0.00')
+    expect(amount.text()).not.toContain('+')
+    expect(amount.classes()).toContain('amount-zero')
+    expect(amount.classes()).not.toContain('amount-positive')
+    expect(amount.classes()).not.toContain('amount-transfer')
+  })
+
+  it('非转账零净额且无正值资产分录同样渲染 muted 0.00', () => {
+    const tx = makeTx({}, [
+      posting({
+        account: 'Assets:Cash',
+        account_type: 'asset',
+        commodity: 'CNY',
+        amount: '0.00',
+      }),
+      posting({
+        account: 'Expenses:杂项',
+        account_type: 'expense',
+        commodity: 'CNY',
+        amount: '0.00',
+      }),
+    ])
+    const wrapper = mountCard(tx)
+    const amount = wrapper.find('.amount')
+    expect(amount.text()).toBe('0.00')
+    expect(amount.classes()).toContain('amount-zero')
+  })
+
+  it('无资产分录的交易金额为 muted 0.00', () => {
+    const tx = makeTx({}, [
+      posting({
+        account: 'Income:工资',
+        account_type: 'income',
+        commodity: 'CNY',
+        amount: '-10.00',
+      }),
+      posting({
+        account: 'Expenses:杂项',
+        account_type: 'expense',
+        commodity: 'CNY',
+        amount: '10.00',
+      }),
+    ])
+    const wrapper = mountCard(tx)
+    const amount = wrapper.find('.amount')
+    expect(amount.text()).toBe('0.00')
+    expect(amount.classes()).toContain('amount-zero')
+  })
+
   const swipeTx = () =>
     makeTx({}, [
       posting({

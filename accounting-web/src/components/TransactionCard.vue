@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useCommodityStore } from '../stores/commodity'
 import type { TransactionDto } from '../types/api'
+import { sumAssetAmount } from '../utils/amount'
 
 const { t } = useI18n()
 const commodityStore = useCommodityStore()
@@ -24,13 +25,7 @@ function toggleExpand() {
 }
 
 function computeAmount(): Decimal {
-  const assetPostings = props.tx.postings.filter(p => p.account_type === 'asset')
-  const sum = assetPostings.reduce((acc, p) => acc.plus(new Decimal(p.amount)), new Decimal(0))
-  if (!sum.isZero()) return sum
-  return assetPostings.reduce((acc, p) => {
-    const a = new Decimal(p.amount)
-    return a.gt(0) ? acc.plus(a) : acc
-  }, new Decimal(0))
+  return sumAssetAmount(props.tx.postings)
 }
 
 const amount = computed(() => computeAmount())
@@ -127,6 +122,9 @@ const displayAmount = computed(() => {
   const sign = amount.value.gt(0) ? '+' : ''
   return { prefix, sign, body: formatAmount(amount.value), refund, transfer: false }
 })
+
+/** 非转账交易金额为 0：低对比度渲染 0.00 */
+const isZeroAmount = computed(() => !displayAmount.value.transfer && amount.value.isZero())
 
 /** 转账资产变动额：S>0（资产减少）显示红色 -S；S<0（资产增加）显示绿色 +S；S=0 不显示 */
 const assetChange = computed(() => {
@@ -226,6 +224,7 @@ function onDblClick() {
               refund: displayAmount.refund,
               'amount-transfer': displayAmount.transfer,
               'amount-positive': !displayAmount.transfer && amount.gt(0),
+              'amount-zero': isZeroAmount,
             }"
             >{{ displayAmount.prefix }}{{ displayAmount.sign }}{{ displayAmount.body }}</span
           >
@@ -259,6 +258,7 @@ function onDblClick() {
             refund: displayAmount.refund,
             'amount-transfer': displayAmount.transfer,
             'amount-positive': !displayAmount.transfer && amount.gt(0),
+            'amount-zero': isZeroAmount,
           }"
           >{{ displayAmount.prefix }}{{ displayAmount.sign }}{{ displayAmount.body }}</span
         >
@@ -400,6 +400,11 @@ function onDblClick() {
 
 .amount-positive {
   color: var(--color-income);
+}
+
+/* 零金额：低对比度，不占用收入/支出语义色 */
+.amount.amount-zero {
+  color: var(--text-muted);
 }
 
 .member {

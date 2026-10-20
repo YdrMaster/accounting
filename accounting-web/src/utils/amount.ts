@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js'
+import type { PostingDto } from '../types/api'
 import { toCents } from './money'
 
 /** 千分位格式化，保留两位小数 */
@@ -9,6 +10,22 @@ export function formatAmount(amt: Decimal): string {
   const abs = intPart.replace('-', '')
   const formatted = abs.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   return `${sign}${formatted}.${decPart}`
+}
+
+/**
+ * 资产类分录取和 —— 非转账交易金额口径。
+ * 严格等于资产类分录金额之和，不含任何回退。该回退曾用于兼容 is_transfer
+ * 标识出现之前的转账（转账资产分录净额恒为零），现由 DTO 的 is_transfer
+ * 与转账渲染分支接管，无需在金额计算里兜底。
+ */
+export function sumAssetAmount(
+  postings: ReadonlyArray<Pick<PostingDto, 'account_type' | 'amount'>>
+): Decimal {
+  let sum = new Decimal(0)
+  for (const p of postings) {
+    if (p.account_type === 'asset') sum = sum.plus(new Decimal(p.amount))
+  }
+  return sum
 }
 
 /**

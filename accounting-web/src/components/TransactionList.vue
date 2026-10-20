@@ -3,6 +3,7 @@ import Decimal from 'decimal.js'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TransactionDto } from '../types/api'
+import { sumAssetAmount } from '../utils/amount'
 import TransactionCard from './TransactionCard.vue'
 
 const { t, tm } = useI18n()
@@ -41,7 +42,7 @@ const dayGroups = computed<DayGroup[]>(() => {
     let dayIncome = new Decimal(0)
     let dayExpense = new Decimal(0)
     for (const tx of txs) {
-      const amt = computeAmount(tx)
+      const amt = sumAssetAmount(tx.postings)
       if (amt.gt(0)) dayIncome = dayIncome.plus(amt)
       else dayExpense = dayExpense.plus(amt.abs())
     }
@@ -55,16 +56,6 @@ const dayGroups = computed<DayGroup[]>(() => {
   }
   return result
 })
-
-function computeAmount(tx: TransactionDto): Decimal {
-  const assetPostings = tx.postings.filter(p => p.account_type === 'asset')
-  const sum = assetPostings.reduce((acc, p) => acc.plus(new Decimal(p.amount)), new Decimal(0))
-  if (!sum.isZero()) return sum
-  return assetPostings.reduce((acc, p) => {
-    const a = new Decimal(p.amount)
-    return a.gt(0) ? acc.plus(a) : acc
-  }, new Decimal(0))
-}
 </script>
 
 <template>

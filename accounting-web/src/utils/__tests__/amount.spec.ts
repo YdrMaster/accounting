@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCalendarAmount } from '../amount'
+import { formatCalendarAmount, sumAssetAmount } from '../amount'
 
 describe('formatCalendarAmount', () => {
   describe('zh locale', () => {
@@ -44,5 +44,29 @@ describe('formatCalendarAmount', () => {
 
   it('throws on invalid decimal string', () => {
     expect(() => formatCalendarAmount('abc', 'zh-CN')).toThrow()
+  })
+})
+
+describe('sumAssetAmount', () => {
+  const p = (account_type: string, amount: string) => ({ account_type, amount })
+
+  it('sums asset postings for an expense', () => {
+    expect(sumAssetAmount([p('asset', '-35.00'), p('expense', '35.00')]).toFixed(2)).toBe('-35.00')
+  })
+
+  it('sums asset postings for income', () => {
+    expect(sumAssetAmount([p('asset', '8000.00'), p('income', '-8000.00')]).toFixed(2)).toBe(
+      '8000.00'
+    )
+  })
+
+  it('returns zero for a zero-net asset transaction (no positive fallback)', () => {
+    expect(
+      sumAssetAmount([p('asset', '-100.00'), p('asset', '100.00'), p('expense', '0.00')]).isZero()
+    ).toBe(true)
+  })
+
+  it('returns zero when there are no asset postings', () => {
+    expect(sumAssetAmount([p('income', '-10.00'), p('expense', '10.00')]).isZero()).toBe(true)
   })
 })
