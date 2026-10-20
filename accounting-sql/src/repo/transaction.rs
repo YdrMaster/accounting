@@ -53,12 +53,10 @@ pub async fn transaction_get(
     row.map(|r| r.try_into()).transpose()
 }
 
-pub async fn transaction_list(
-    conn: &mut SqliteConnection,
-    filter: &TransactionFilter,
-    limit: usize,
-    offset: usize,
-) -> Result<Vec<Transaction>, DbError> {
+/// 构造一条带筛选条件、按时间倒序的原始交易查询（SELECT ... JOIN ... WHERE）。
+///
+/// 计数分页与整日分页都从这里起步，保证两条路径的筛选条件完全一致。
+fn build_transaction_query(filter: &TransactionFilter) -> QueryBuilder<sqlx::Sqlite> {
     let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
         "SELECT DISTINCT transactions.id, transactions.date_time, transactions.description, transactions.kind, transactions.member_id FROM transactions ",
     );
@@ -77,12 +75,67 @@ pub async fn transaction_list(
 
     apply_transaction_filter(&mut builder, filter);
 
+    builder
+}
+
+pub async fn transaction_list(
+    conn: &mut SqliteConnection,
+    filter: &TransactionFilter,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<Transaction>, DbError> {
+    let mut builder = build_transaction_query(filter);
     builder.push("ORDER BY transactions.date_time DESC, transactions.id DESC LIMIT ");
     builder.push_bind(limit as i64);
     builder.push(" OFFSET ");
     builder.push_bind(offset as i64);
 
     let rows: Vec<TransactionRow> = builder
+        .build_query_as()
+        .fetch_all(conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    rows.into_iter()
+        .map(|r| r.try_into())
+        .collect::<Result<_, _>>()
+}
+
+/// 整日分页：返回的最新一页天然由完整的若干天组成。
+///
+/// 先按筛选条件取最新 `limit` 笔，定位其中最早一笔所在的天 D；再返回
+/// `[start_of_day(D), end_of_day(to)]` 内的全部匹配交易（`to` 即 `filter.end_date`）。
+/// 因此返回条数不少于 `limit`（匹配总数不足时返回全部），且最旧一笔必是其所在天
+/// 的最早一笔。两步复用 [`build_transaction_query`]，筛选条件不会漂移。
+pub async fn transaction_list_full_days(
+    conn: &mut SqliteConnection,
+    filter: &TransactionFilter,
+    limit: usize,
+) -> Result<Vec<Transaction>, DbError> {
+    // 第 1 步：最新 limit 笔，用于定位分页下界所在的天 D
+    let mut probe = build_transaction_query(filter);
+    probe.push("ORDER BY transactions.date_time DESC, transactions.id DESC LIMIT ");
+    probe.push_bind(limit as i64);
+    let probe_rows: Vec<TransactionRow> = probe
+        .build_query_as()
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database(e.to_string()))?;
+    let probe_txs: Vec<Transaction> = probe_rows
+        .into_iter()
+        .map(|r| r.try_into())
+        .collect::<Result<_, _>>()?;
+    let Some(oldest) = probe_txs.last() else {
+        return Ok(Vec::new());
+    };
+    let day = oldest.date_time.date();
+
+    // 第 2 步：把下界放宽到 D 当天起点，返回整天；上界仍由筛选自带的 to 封顶
+    let mut day_filter = filter.clone();
+    day_filter.start_date = Some(day);
+    let mut query = build_transaction_query(&day_filter);
+    query.push("ORDER BY transactions.date_time DESC, transactions.id DESC");
+
+    let rows: Vec<TransactionRow> = query
         .build_query_as()
         .fetch_all(conn)
         .await
@@ -471,5 +524,71 @@ mod tests {
         };
         let list = transaction_list(&mut conn, &filter, 10, 0).await.unwrap();
         assert_eq!(list.len(), 1);
+    }
+
+    async fn insert_tx_at(
+        conn: &mut SqliteConnection,
+        member_id: MemberId,
+        dt: &str,
+    ) -> TransactionId {
+        let mut tx = sample_tx(member_id);
+        tx.date_time = chrono::NaiveDateTime::parse_from_str(dt, "%Y-%m-%d %H:%M:%S").unwrap();
+        transaction_insert(conn, &tx, &[]).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_list_full_days_aligns_page_to_whole_day() {
+        let mut conn = setup().await;
+        let member_id = create_test_member(&mut conn).await;
+        // 06-03 / 06-02 / 06-01 各 5 笔
+        for hour in 10..15 {
+            insert_tx_at(&mut conn, member_id, &format!("2024-06-03 {hour:02}:00:00")).await;
+            insert_tx_at(&mut conn, member_id, &format!("2024-06-02 {hour:02}:00:00")).await;
+            insert_tx_at(&mut conn, member_id, &format!("2024-06-01 {hour:02}:00:00")).await;
+        }
+
+        // limit=7 → 最新 7 笔 = 06-03 五笔 + 06-02 两笔，下界 D 落在 06-02；
+        // 整天返回应为 06-03(5) + 06-02(5) = 10，而不该把 06-02 切成 2 笔
+        let list = transaction_list_full_days(&mut conn, &TransactionFilter::default(), 7)
+            .await
+            .unwrap();
+        assert_eq!(list.len(), 10);
+        assert!(
+            list.iter().all(|t| matches!(
+                t.date_time.date().to_string().as_str(),
+                "2024-06-02" | "2024-06-03"
+            )),
+            "不应跨到下界之前的天"
+        );
+        // 页尾对齐整天：最旧一天完整返回
+        let day2_count = list
+            .iter()
+            .filter(|t| t.date_time.date().to_string() == "2024-06-02")
+            .count();
+        assert_eq!(day2_count, 5, "最旧一天应完整返回");
+        assert_eq!(
+            list.last().unwrap().date_time.date().to_string(),
+            "2024-06-02",
+            "最旧一笔应落在下界那一天"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_full_days_single_day_exceeds_limit() {
+        let mut conn = setup().await;
+        let member_id = create_test_member(&mut conn).await;
+        for i in 0..250 {
+            insert_tx_at(
+                &mut conn,
+                member_id,
+                &format!("2024-06-15 {:02}:{:02}:00", 8 + i / 60, i % 60),
+            )
+            .await;
+        }
+
+        let list = transaction_list_full_days(&mut conn, &TransactionFilter::default(), 100)
+            .await
+            .unwrap();
+        assert_eq!(list.len(), 250, "单日超过 limit 时应整天全量返回");
     }
 }

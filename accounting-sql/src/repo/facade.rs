@@ -370,6 +370,8 @@ facade! { db: transaction {
 
     transaction_list(filter: &accounting::transaction_filter::TransactionFilter,limit: usize,offset: usize) -> Vec<accounting::transaction::Transaction>;
 
+    transaction_list_full_days(filter: &accounting::transaction_filter::TransactionFilter,limit: usize) -> Vec<accounting::transaction::Transaction>;
+
     transaction_get(id: accounting::id::TransactionId) -> Option<accounting::transaction::Transaction>;
 
     transaction_insert(tx: &accounting::transaction::Transaction,tag_ids: &[accounting::id::TagId]) -> accounting::id::TransactionId;

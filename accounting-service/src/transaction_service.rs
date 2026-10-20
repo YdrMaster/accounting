@@ -141,19 +141,24 @@ impl TransactionService {
     }
 
     /// 列出交易（含分录和渠道链路）
+    ///
+    /// `full_days` 为 `true` 时走整日分页：返回最新一页，页尾对齐到整天（见
+    /// `transaction_list_full_days`），此时忽略 `offset`；为 `false` 时按计数分页。
     pub async fn list(
         &self,
         filter: TransactionFilter,
         limit: Option<i64>,
         offset: Option<i64>,
+        full_days: bool,
     ) -> Result<Vec<(Transaction, Vec<Posting>, Vec<ChannelPathNode>)>, AccountingError> {
         let limit = limit.map(|l| l as usize).unwrap_or(100);
         let offset = offset.map(|o| o as usize).unwrap_or(0);
-        let transactions = self
-            .db
-            .transaction_list(&filter, limit, offset)
-            .await
-            .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        let transactions = if full_days {
+            self.db.transaction_list_full_days(&filter, limit).await
+        } else {
+            self.db.transaction_list(&filter, limit, offset).await
+        }
+        .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
         let mut result = Vec::new();
         for tx in transactions {
             let postings = self

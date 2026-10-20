@@ -8,6 +8,7 @@ import {
   fetchBudgetStatuses,
   fetchSavingPlanStatus,
   fetchSavingPlanStatuses,
+  fetchTransactions,
 } from '../client'
 
 function mockFetchOk(body: unknown = []) {
@@ -161,5 +162,28 @@ describe('saving-plan and budget statuses endpoints', () => {
       body: JSON.stringify(data),
     })
     expect(result).toEqual(created)
+  })
+})
+
+describe('transaction list query passthrough', () => {
+  beforeEach(() => {
+    setLocale('zh-CN')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('fetchTransactions forwards full_days to the request URL', async () => {
+    const fetchMock = mockFetchOk([])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const params = new URLSearchParams({ to: '2026-07-12', limit: '100', full_days: 'true' })
+    await fetchTransactions(params)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/transactions?to=2026-07-12&limit=100&full_days=true&lang=zh-CN',
+      undefined
+    )
   })
 })

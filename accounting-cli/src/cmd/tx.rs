@@ -153,7 +153,7 @@ async fn run_list(
     let offset = args.offset;
     let filter = build_filter(&args, db).await?;
     let service = accounting_service::transaction_service::TransactionService::new(db.clone());
-    let results = service.list(filter, limit, offset).await?;
+    let results = service.list(filter, limit, offset, false).await?;
     let channel_names = channel_name_map(db, lang).await?;
     let rows: Vec<TransactionRow> = results
         .iter()

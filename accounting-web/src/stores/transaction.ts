@@ -17,8 +17,6 @@ interface LoadedRange {
   to: string
 }
 
-const EXPAND_CAP_WHEN_FILTERED = 3
-
 export const useTransactionStore = defineStore('transaction', () => {
   const loadedRange = ref<LoadedRange | null>(null)
   const transactions = ref<TransactionDto[]>([])
@@ -84,35 +82,24 @@ export const useTransactionStore = defineStore('transaction', () => {
     return dates
   })
 
-  async function expandSameDay(
-    toDate: string,
-    initialData: TransactionDto[],
-    initialLimit: number,
-    capped: boolean
-  ): Promise<TransactionDto[]> {
-    let currentLimit = initialLimit * 2
-    let expansions = 1
-    let data = initialData
-    while (data.length > 0) {
-      const newest = dateOf(data[0])
-      const oldest = dateOf(data[data.length - 1])
-      if (newest !== oldest) break
-      if (capped && expansions >= EXPAND_CAP_WHEN_FILTERED) break
-      const params = buildTxQuery(activeFilter.value, { to: toDate, limit: String(currentLimit) })
-      data = await apiFetchTransactions(params)
-      currentLimit *= 2
-      expansions++
-    }
-    return data
+  /** 返回某天的前一天（本地日期字符串） */
+  function prevDay(dateStr: string): string {
+    const [y, m, d] = dateStr.split('-').map(Number)
+    return formatDate(new Date(y, m - 1, d - 1))
   }
 
   async function loadInitial(toDate?: string, limit = 100) {
     const id = ++requestId
     loading.value = true
     error.value = null
-    const to = toDate ?? activeFilter.value?.to ?? todayStr()
+    // 筛选自带的上界优先，其次才是调用方传入的日期（通常是今天）
+    const to = activeFilter.value?.to ?? toDate ?? todayStr()
     try {
-      const params = buildTxQuery(activeFilter.value, { to, limit: String(limit) })
+      const params = buildTxQuery(activeFilter.value, {
+        to,
+        limit: String(limit),
+        full_days: 'true',
+      })
       const data = await apiFetchTransactions(params)
       if (id !== requestId) return
       if (data.length === 0) {
@@ -120,23 +107,8 @@ export const useTransactionStore = defineStore('transaction', () => {
         transactions.value = []
         return
       }
-      const newest = dateOf(data[0])
-      const oldest = dateOf(data[data.length - 1])
-      let finalData = data
-      if (newest === oldest) {
-        finalData = await expandSameDay(to, data, limit, filterActive.value)
-        if (id !== requestId) return
-      }
-      if (finalData.length === 0) {
-        loadedRange.value = null
-        transactions.value = []
-        return
-      }
-      transactions.value = finalData
-      loadedRange.value = {
-        from: dateOf(finalData[finalData.length - 1]),
-        to: dateOf(finalData[0]),
-      }
+      transactions.value = data
+      loadedRange.value = { from: dateOf(data[data.length - 1]), to: dateOf(data[0]) }
     } catch (e) {
       if (id !== requestId) return
       error.value = e instanceof Error ? e.message : String(e)
@@ -149,29 +121,18 @@ export const useTransactionStore = defineStore('transaction', () => {
     if (!loadedRange.value || loading.value) return
     const { from } = loadedRange.value
     if (activeFilter.value?.from && from <= activeFilter.value.from) return
-    const [y, m, d] = from.split('-').map(Number)
-    const prevDay = new Date(y, m - 1, d - 1)
-    const prevDayStr = formatDate(prevDay)
+    const cursor = prevDay(from)
     loading.value = true
     error.value = null
     try {
-      const params = buildTxQuery(activeFilter.value, { to: prevDayStr, limit: '100' })
+      // 游标 to 必须覆盖筛选上界：翻页取的是「更早一天」，比筛选 to 更紧
+      const params = buildTxQuery(activeFilter.value, { limit: '100', full_days: 'true' })
+      params.set('to', cursor)
       const data = await apiFetchTransactions(params)
       if (data.length === 0) return
       const oldest = dateOf(data[data.length - 1])
-      if (oldest === prevDayStr) {
-        const expanded = await expandSameDay(prevDayStr, data, 100, filterActive.value)
-        if (expanded.length > 0) {
-          transactions.value.push(...expanded)
-          loadedRange.value = {
-            from: dateOf(expanded[expanded.length - 1]),
-            to: loadedRange.value.to,
-          }
-        }
-      } else {
-        transactions.value.push(...data)
-        loadedRange.value = { from: oldest, to: loadedRange.value.to }
-      }
+      transactions.value.push(...data)
+      loadedRange.value = { from: oldest, to: loadedRange.value.to }
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
@@ -185,7 +146,7 @@ export const useTransactionStore = defineStore('transaction', () => {
     loading.value = true
     error.value = null
     try {
-      const params = new URLSearchParams({ from: date, to: date })
+      const params = new URLSearchParams({ from: date, to: date, full_days: 'true' })
       const data = await apiFetchTransactions(params)
       calendarDays.value.set(date, data)
     } catch (e) {

@@ -39,6 +39,7 @@ pub struct TxQuery {
     pub reimbursable: Option<bool>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub full_days: Option<bool>,
 }
 
 impl TxQuery {
@@ -54,6 +55,7 @@ impl TxQuery {
             reimbursable: None,
             limit: None,
             offset: None,
+            full_days: None,
         };
         for (key, value) in pairs {
             match key.as_str() {
@@ -77,6 +79,18 @@ impl TxQuery {
                 }
                 "limit" => q.limit = Some(parse_id(&key, &value, lang)?),
                 "offset" => q.offset = Some(parse_id(&key, &value, lang)?),
+                "full_days" => {
+                    q.full_days = Some(value.parse::<bool>().map_err(|e| {
+                        t!(
+                            "tx_err_invalid_query_value",
+                            locale = lang,
+                            key = key,
+                            value = value,
+                            error = e
+                        )
+                        .to_string()
+                    })?)
+                }
                 _ => {}
             }
         }
@@ -131,6 +145,11 @@ fn api_error(e: &AccountingError) -> (StatusCode, String) {
 /// handler 内联校验（账户/商品/渠道解析等）→ 400
 fn bad_request(msg: String) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, msg)
+}
+
+/// handler 内部/数据库故障 → 500
+fn internal_error(msg: String) -> (StatusCode, String) {
+    (StatusCode::INTERNAL_SERVER_ERROR, msg)
 }
 
 /// 交易展示所需的批量解析结果
@@ -217,26 +236,28 @@ async fn list_transactions(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Query(pairs): Query<Vec<(String, String)>>,
-) -> Result<Json<Vec<TransactionDto>>, String> {
-    let query = TxQuery::from_pairs(pairs, &lang)?;
+) -> Result<Json<Vec<TransactionDto>>, (StatusCode, String)> {
+    let query = TxQuery::from_pairs(pairs, &lang).map_err(bad_request)?;
     let db = state.db();
     let mut filter = TransactionFilter::default();
 
     if let Some(from) = query.from {
         let date = NaiveDate::parse_from_str(&from, "%Y-%m-%d").map_err(|e| {
-            t!(
-                "tx_err_invalid_from_date",
-                locale = lang.as_str(),
-                error = e
+            bad_request(
+                t!(
+                    "tx_err_invalid_from_date",
+                    locale = lang.as_str(),
+                    error = e
+                )
+                .to_string(),
             )
-            .to_string()
         })?;
         filter.start_date = Some(date);
     }
 
     if let Some(to) = query.to {
         let date = NaiveDate::parse_from_str(&to, "%Y-%m-%d").map_err(|e| {
-            t!("tx_err_invalid_to_date", locale = lang.as_str(), error = e).to_string()
+            bad_request(t!("tx_err_invalid_to_date", locale = lang.as_str(), error = e).to_string())
         })?;
         filter.end_date = Some(date);
     }
@@ -251,16 +272,18 @@ async fn list_transactions(
         let tag = db
             .tag_get_by_name(tag_name)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| internal_error(e.to_string()))?;
         if let Some(tag) = tag {
             filter.tag_ids.push(tag.id);
         } else {
-            return Err(t!(
-                "tx_err_tag_not_found",
-                locale = lang.as_str(),
-                name = tag_name
-            )
-            .to_string());
+            return Err(bad_request(
+                t!(
+                    "tx_err_tag_not_found",
+                    locale = lang.as_str(),
+                    name = tag_name
+                )
+                .to_string(),
+            ));
         }
     }
 
@@ -274,21 +297,28 @@ async fn list_transactions(
 
     let service = TransactionService::new(db.clone());
     let transactions = service
-        .list(filter, query.limit, query.offset)
+        .list(
+            filter,
+            query.limit,
+            query.offset,
+            query.full_days.unwrap_or(false),
+        )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| api_error(&e))?;
 
-    let ctx = load_display_context(db, &lang).await?;
+    let ctx = load_display_context(db, &lang)
+        .await
+        .map_err(internal_error)?;
     let tx_ids: Vec<TransactionId> = transactions.iter().map(|(tx, _, _)| tx.id).collect();
     let tag_map = db
         .tag_names_by_transactions(&tx_ids, &lang)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| internal_error(e.to_string()))?;
     let tag_ids_map = db
         .tag_ids_by_transactions(&tx_ids)
         .await
-        .map_err(|e| e.to_string())?;
-    let pending_id = pending_tag_id(db).await?;
+        .map_err(|e| internal_error(e.to_string()))?;
+    let pending_id = pending_tag_id(db).await.map_err(internal_error)?;
 
     let dtos: Vec<TransactionDto> = transactions
         .into_iter()
@@ -570,26 +600,33 @@ async fn get_transaction(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Path(id): Path<i64>,
-) -> Result<Json<TransactionDto>, String> {
+) -> Result<Json<TransactionDto>, (StatusCode, String)> {
     let db = state.db();
 
     let service = TransactionService::new(db.clone());
     let (tx, postings, channel_paths) = service
         .get(TransactionId(id))
         .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| t!("tx_err_not_found", locale = lang.as_str()).to_string())?;
+        .map_err(|e| api_error(&e))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                t!("tx_err_not_found", locale = lang.as_str()).to_string(),
+            )
+        })?;
 
-    let ctx = load_display_context(db, &lang).await?;
+    let ctx = load_display_context(db, &lang)
+        .await
+        .map_err(internal_error)?;
     let tag_map = db
         .tag_names_by_transactions(&[tx.id], &lang)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| internal_error(e.to_string()))?;
     let tag_ids_map = db
         .tag_ids_by_transactions(&[tx.id])
         .await
-        .map_err(|e| e.to_string())?;
-    let pending_id = pending_tag_id(db).await?;
+        .map_err(|e| internal_error(e.to_string()))?;
+    let pending_id = pending_tag_id(db).await.map_err(internal_error)?;
 
     let is_transfer = detect_transfer(&postings, &ctx);
     let posting_dtos: Vec<PostingDto> = postings
@@ -637,15 +674,22 @@ async fn get_posting(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Path(id): Path<i64>,
-) -> Result<Json<PostingDto>, String> {
+) -> Result<Json<PostingDto>, (StatusCode, String)> {
     let db = state.db();
     let posting = db
         .posting_get(PostingId(id))
         .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| t!("tx_err_posting_not_found", locale = lang.as_str()).to_string())?;
+        .map_err(|e| internal_error(e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                t!("tx_err_posting_not_found", locale = lang.as_str()).to_string(),
+            )
+        })?;
 
-    let ctx = load_display_context(db, &lang).await?;
+    let ctx = load_display_context(db, &lang)
+        .await
+        .map_err(internal_error)?;
 
     Ok(Json(posting_to_dto(posting, &ctx)))
 }
@@ -820,6 +864,11 @@ mod tests {
 
     /// 创建一笔 35.00 的普通支出（Fees → Cash），可附加指定标签。
     async fn create_expense(state: &Arc<AppState>, tag_ids: Vec<TagId>) -> i64 {
+        create_expense_at(state, "2026-01-01T12:00:00", tag_ids).await
+    }
+
+    /// 在指定日期时间创建一笔 35.00 的普通支出（Fees → Cash），可附加指定标签。
+    async fn create_expense_at(state: &Arc<AppState>, date_time: &str, tag_ids: Vec<TagId>) -> i64 {
         let service = TransactionService::new(state.db().clone());
         let member_id = state
             .db()
@@ -842,8 +891,7 @@ mod tests {
         );
         let tx = Transaction {
             id: TransactionId(0),
-            date_time: NaiveDateTime::parse_from_str("2026-01-01T12:00:00", "%Y-%m-%dT%H:%M:%S")
-                .unwrap(),
+            date_time: NaiveDateTime::parse_from_str(date_time, "%Y-%m-%dT%H:%M:%S").unwrap(),
             description: "午餐".to_string(),
             kind: TransactionKind::Normal,
             member_id,
@@ -1079,6 +1127,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_transactions_full_days_pads_page_to_whole_day() {
+        let state = setup().await;
+        // 01-03 / 01-02 / 01-01 各 2 笔；limit=3 的最新 3 笔里最旧落在 01-02
+        for (date, hour) in [
+            ("2026-01-03", 9),
+            ("2026-01-03", 10),
+            ("2026-01-02", 9),
+            ("2026-01-02", 10),
+            ("2026-01-01", 9),
+            ("2026-01-01", 10),
+        ] {
+            create_expense_at(&state, &format!("{date}T{hour:02}:00:00"), vec![]).await;
+        }
+
+        let Json(dtos) = list_transactions(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Query(vec![
+                ("limit".to_string(), "3".to_string()),
+                ("full_days".to_string(), "true".to_string()),
+            ]),
+        )
+        .await
+        .unwrap();
+        // 整天分页：01-03 两笔 + 01-02 两笔 = 4（把被切开的 01-02 补全）
+        assert_eq!(dtos.len(), 4);
+        assert_eq!(dtos.last().unwrap().date_time, "2026-01-02 09:00:00");
+        assert!(
+            dtos.iter().all(|d| !d.date_time.starts_with("2026-01-01")),
+            "不应跨过下界那一天"
+        );
+
+        // 缺省 false：恰好 limit 笔，保持计数分页语义
+        let Json(default_dtos) = list_transactions(
+            State(state.clone()),
+            Lang("en".to_string()),
+            Query(vec![("limit".to_string(), "3".to_string())]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(default_dtos.len(), 3);
+    }
+
+    #[tokio::test]
     async fn list_transactions_marks_system_pending_tag() {
         let state = setup().await;
         let pending_tag_id = state
@@ -1252,5 +1344,126 @@ mod tests {
             .unwrap();
         let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// 模拟前端「整天游标翻页」的一次请求，返回状态码与解析出的 JSON。
+    async fn page(state: Arc<AppState>, uri: &str) -> (StatusCode, Vec<serde_json::Value>) {
+        let resp = get_json(state, uri).await;
+        let status = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let dtos: Vec<serde_json::Value> =
+            serde_json::from_slice(&bytes).expect("交易列表响应必须是可解析的 JSON");
+        (status, dtos)
+    }
+
+    fn date_of(dto: &serde_json::Value) -> String {
+        dto["date_time"].as_str().unwrap_or_default().to_string()
+    }
+
+    #[tokio::test]
+    async fn paging_loop_single_day_over_limit_terminates() {
+        // 形态一：全部交易都在同一天。旧算法会把 limit 不断翻倍直到 i64 溢出，
+        // 这里模拟整日游标翻页，断言它两页即停且响应始终是合法 JSON。
+        let state = setup().await;
+        for i in 0..250 {
+            create_expense_at(
+                &state,
+                &format!("2026-01-01T{:02}:{:02}:00", 8 + i / 60, i % 60),
+                vec![],
+            )
+            .await;
+        }
+
+        let (status, first) = page(
+            state.clone(),
+            "/api/transactions?to=2026-01-01&limit=100&full_days=true&lang=en",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(first.len(), 250, "同一天超过 limit 时应整天全量返回");
+
+        let (status, second) = page(
+            state.clone(),
+            "/api/transactions?to=2025-12-31&limit=100&full_days=true&lang=en",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(second.is_empty(), "更早一天没有数据，游标翻页应到底");
+    }
+
+    #[tokio::test]
+    async fn paging_loop_walks_back_to_earliest_day() {
+        // 形态二：滚动翻页到最早一天。三天各 60 笔，按「最旧一天的前一天」逐页回退。
+        let state = setup().await;
+        for day in ["2026-01-03", "2026-01-02", "2026-01-01"] {
+            for i in 0..60 {
+                create_expense_at(
+                    &state,
+                    &format!("{day}T{:02}:{:02}:00", 8 + i / 60, i % 60),
+                    vec![],
+                )
+                .await;
+            }
+        }
+
+        let (_, page1) = page(
+            state.clone(),
+            "/api/transactions?to=2026-01-03&limit=100&full_days=true&lang=en",
+        )
+        .await;
+        assert_eq!(page1.len(), 120, "01-03 整天 60 + 01-02 整天 60");
+        assert_eq!(date_of(page1.last().unwrap()), "2026-01-02 08:00:00");
+
+        let (_, page2) = page(
+            state.clone(),
+            "/api/transactions?to=2026-01-01&limit=100&full_days=true&lang=en",
+        )
+        .await;
+        assert_eq!(page2.len(), 60, "01-01 整天 60");
+        assert_eq!(date_of(page2.last().unwrap()), "2026-01-01 08:00:00");
+
+        let (_, page3) = page(
+            state.clone(),
+            "/api/transactions?to=2025-12-31&limit=100&full_days=true&lang=en",
+        )
+        .await;
+        assert!(page3.is_empty(), "到最早一天之外返回空页即停");
+    }
+
+    async fn get_json(state: Arc<AppState>, uri: &str) -> axum::http::Response<axum::body::Body> {
+        let app = router().with_state(state);
+        let req = axum::http::Request::builder()
+            .method(axum::http::Method::GET)
+            .uri(uri)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        tower::ServiceExt::oneshot(app, req).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn list_transactions_http_invalid_limit_returns_400() {
+        let state = setup().await;
+        let resp = get_json(state, "/api/transactions?limit=abc&lang=en").await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "非法 limit 必须返回 400，而不是 200 + 纯文本"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_transactions_http_invalid_date_returns_400() {
+        let state = setup().await;
+        let resp = get_json(state, "/api/transactions?from=2026/07/01&lang=en").await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn get_transaction_http_not_found_returns_404() {
+        let state = setup().await;
+        let resp = get_json(state, "/api/transactions/9999?lang=en").await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }
