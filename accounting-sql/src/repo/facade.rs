@@ -341,7 +341,6 @@ facade! { db: posting {
 
     posting_daily_summary(start: chrono::NaiveDate,end: chrono::NaiveDate) -> Vec<crate::repo::posting::DailySummaryRow>;
 
-    posting_summary(start: Option<chrono::NaiveDate>,end: Option<chrono::NaiveDate>) -> crate::repo::posting::PostingSummary;
 
     posting_sum_with_ancestors(ancestor_id: accounting::id::AccountId) -> Vec<(accounting::id::CommodityId,rust_decimal::Decimal)>;
 

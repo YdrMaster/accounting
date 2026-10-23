@@ -93,6 +93,32 @@ describe('TransactionList 按日汇总口径', () => {
     expect(wrapper.find('.day-summary').text()).toBe('收：¥0.00 支：¥0.00')
   })
 
+  it('含手续费转账按资产净额只计支出（与后端 daily-summary 一致）', () => {
+    const tx = makeTx({ is_transfer: true }, [
+      posting({
+        account: 'Assets:工商',
+        account_type: 'asset',
+        commodity: 'CNY',
+        amount: '-1010.00',
+      }),
+      posting({
+        account: 'Assets:招行',
+        account_type: 'asset',
+        commodity: 'CNY',
+        amount: '1000.00',
+      }),
+      posting({
+        account: 'Expenses:Fees',
+        account_type: 'expense',
+        commodity: 'CNY',
+        amount: '10.00',
+      }),
+    ])
+    const wrapper = mountList([tx])
+    // 资产净额 = -1010 + 1000 = -10 → 支出 10，收入 0
+    expect(wrapper.find('.day-summary').text()).toBe('收：¥0.00 支：¥10.00')
+  })
+
   it('普通支出仍计入当日支出', () => {
     const tx = makeTx({}, [
       posting({

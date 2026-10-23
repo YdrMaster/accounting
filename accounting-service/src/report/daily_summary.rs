@@ -1,4 +1,4 @@
-//! 按天收支汇总
+//! 按天收支汇总（资产根「逐交易净额」口径）
 
 use accounting::error::AccountingError;
 use accounting_sql::SqliteDatabase;
@@ -10,9 +10,9 @@ use rust_decimal::Decimal;
 pub struct DailySummaryItem {
     /// 日期
     pub date: NaiveDate,
-    /// 收入（资产类分录正金额之和）
+    /// 收入（每笔交易的资产根分录净额为正之和）
     pub income: Decimal,
-    /// 支出（资产类分录负金额绝对值之和）
+    /// 支出（每笔交易的资产根分录净额为负之绝对值之和）
     pub expense: Decimal,
 }
 
@@ -28,7 +28,8 @@ impl DailySummaryService {
     }
 
     /// 查询 [from, to] 范围内每个有交易日期的收支汇总，按日期升序返回。
-    /// 无交易的日期不出现在结果中。
+    /// 口径为资产根分录「逐交易净额」：纯转账（净额 0）不计入，
+    /// 因此某日所有交易净额均为 0 时该日不出现在结果中；无交易的日期同样不返回。
     pub async fn daily_summary(
         &self,
         from: NaiveDate,
@@ -181,7 +182,7 @@ mod tests {
             &[(acc.bank, "500"), (acc.salary, "-500")],
         )
         .await;
-        // 2 月 1 日：转账 100（收支各计 100）
+        // 2 月 1 日：转账 100（资产净额 0，不计入收支）
         insert_tx(
             &db,
             member_id,
@@ -206,10 +207,10 @@ mod tests {
         assert_eq!(items[0].expense, Decimal::from_str("100").unwrap());
 
         assert_eq!(items[1].date, NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
-        // 收入 500 + 转账正端 100
-        assert_eq!(items[1].income, Decimal::from_str("600").unwrap());
-        // 转账负端 100
-        assert_eq!(items[1].expense, Decimal::from_str("100").unwrap());
+        // 收入 500；同日转账净额 0 不计入
+        assert_eq!(items[1].income, Decimal::from_str("500").unwrap());
+        // 转账净额 0，不产生支出
+        assert_eq!(items[1].expense, Decimal::from_str("0").unwrap());
     }
 
     #[tokio::test]
@@ -272,5 +273,76 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].income, Decimal::from_str("1010").unwrap());
         assert_eq!(items[0].expense, Decimal::from_str("0").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_daily_summary_per_transaction_net_transfer_and_fee() {
+        let db = setup_db().await;
+        let member_id = create_test_member(&db).await;
+        let acc = create_accounts(&db).await;
+        let service = DailySummaryService::new(db.clone());
+
+        let expenses_id = db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let fee_id = db
+            .account_create_with_name(&bare_account(Some(expenses_id)), "Fee", "en")
+            .await
+            .unwrap();
+        let opening_id = db
+            .account_get_by_name("Equity:OpeningBalances")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+
+        // 3-01 纯转账 50（资产 -50 / +50，净额 0）→ 当日不返回
+        let d1 = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+        insert_tx(&db, member_id, d1, &[(acc.bank, "-50"), (acc.cash, "50")]).await;
+
+        // 3-02 含手续费转账：资产 -1010 / +1000，手续费 +10 → 资产净额 -10 → expense 10
+        let d2 = NaiveDate::from_ymd_opt(2024, 3, 2).unwrap();
+        insert_tx(
+            &db,
+            member_id,
+            d2,
+            &[(acc.bank, "-1010"), (acc.cash, "1000"), (fee_id, "10")],
+        )
+        .await;
+
+        // 3-03 同日支出 100 + 纯转账 50 → 只计支出 100
+        let d3 = NaiveDate::from_ymd_opt(2024, 3, 3).unwrap();
+        insert_tx(&db, member_id, d3, &[(acc.bank, "-100"), (acc.food, "100")]).await;
+        insert_tx(&db, member_id, d3, &[(acc.bank, "-50"), (acc.cash, "50")]).await;
+
+        // 3-04 期初余额：资产 +1000 / Equity -1000 → income 1000，权益侧分录不计入
+        let d4 = NaiveDate::from_ymd_opt(2024, 3, 4).unwrap();
+        insert_tx(
+            &db,
+            member_id,
+            d4,
+            &[(acc.bank, "1000"), (opening_id, "-1000")],
+        )
+        .await;
+
+        let items = service.daily_summary(d1, d4).await.unwrap();
+
+        // 3-01 纯转账日不出现；其余三天按日升序
+        assert_eq!(items.len(), 3);
+
+        assert_eq!(items[0].date, d2);
+        assert_eq!(items[0].income, Decimal::from_str("0").unwrap());
+        assert_eq!(items[0].expense, Decimal::from_str("10").unwrap());
+
+        assert_eq!(items[1].date, d3);
+        assert_eq!(items[1].income, Decimal::from_str("0").unwrap());
+        assert_eq!(items[1].expense, Decimal::from_str("100").unwrap());
+
+        assert_eq!(items[2].date, d4);
+        assert_eq!(items[2].income, Decimal::from_str("1000").unwrap());
+        assert_eq!(items[2].expense, Decimal::from_str("0").unwrap());
     }
 }

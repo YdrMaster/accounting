@@ -331,88 +331,21 @@ async fn resolve_root_names(
         .await
 }
 
-/// 收支汇总结果
-pub struct PostingSummary {
-    /// 收入（资产类分录正金额之和）
-    pub income: Decimal,
-    /// 支出（资产类分录负金额之和的绝对值）
-    pub expense: Decimal,
-}
-
-pub async fn posting_summary(
-    conn: &mut SqliteConnection,
-    start: Option<chrono::NaiveDate>,
-    end: Option<chrono::NaiveDate>,
-) -> Result<PostingSummary, DbError> {
-    let precisions = load_precisions(conn).await?;
-
-    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
-        "SELECT p.commodity_id, SUM(p.amount)
-         FROM postings p
-         JOIN accounts a ON p.account_id = a.id
-         JOIN account_ancestors aa ON a.id = aa.account_id
-         JOIN account_names an ON aa.ancestor_id = an.account_id AND aa.depth = (
-             SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id
-         )
-         JOIN transactions t ON p.transaction_id = t.id
-         WHERE an.is_system = 1 AND an.name = 'Assets'",
-    );
-
-    if start.is_some() || end.is_some() {
-        builder.push("AND 1=1 ");
-    }
-
-    if let Some(start) = start {
-        builder.push("AND t.date_time >= ");
-        builder.push_bind(datetime_utils::start_of_day(start).to_string());
-        builder.push(" ");
-    }
-    if let Some(end) = end {
-        builder.push("AND t.date_time <= ");
-        builder.push_bind(datetime_utils::end_of_day(end).to_string());
-        builder.push(" ");
-    }
-
-    builder.push(" GROUP BY p.commodity_id");
-
-    let rows: Vec<(i64, i64)> = builder
-        .build_query_as()
-        .fetch_all(conn)
-        .await
-        .map_err(|e| DbError::Database(e.to_string()))?;
-
-    let mut income = Decimal::ZERO;
-    let mut expense = Decimal::ZERO;
-    for (commodity_id, amount) in rows {
-        let precision = precisions
-            .get(&CommodityId(commodity_id))
-            .copied()
-            .unwrap_or(2);
-        let d = from_db_amount(amount, precision);
-        if d > Decimal::ZERO {
-            income += d;
-        } else {
-            expense += d.abs();
-        }
-    }
-
-    Ok(PostingSummary { income, expense })
-}
-
 /// 按天收支汇总行
 pub struct DailySummaryRow {
     /// 日期
     pub date: chrono::NaiveDate,
-    /// 收入（资产根 Assets 分录正金额之和）
+    /// 收入（资产根分录按交易净额的正额之和）
     pub income: Decimal,
-    /// 支出（资产根 Assets 分录负金额绝对值之和）
+    /// 支出（资产根分录按交易净额的负额绝对值之和）
     pub expense: Decimal,
 }
 
-/// 按天汇总资产根（Assets）分录的收支
+/// 按天汇总资产根（Assets）分录的收支，口径为「逐交易净额」
 ///
-/// 权益根（Equity）分录不计入：权益是净资产的直接调整项（期初余额、返现、折扣），
-/// 资产↔权益划转只体现资产侧变动。口径与 `posting_summary` 一致。
+/// 对每笔交易（按币种）先求其全部资产根分录金额之和 S：S > 0 计入当日 income、
+/// S < 0 计入当日 expense（取绝对值）、S = 0 不计入（纯转账因此不产生收支）。
+/// 权益根（Equity）分录不计入。口径与前端 `sumAssetAmount`（逐交易资产净额）一致。
 ///
 /// 仅返回 [start, end] 范围内有分录的日期，按日期升序；多币种按各自精度换算后合并。
 pub async fn posting_daily_summary(
@@ -423,19 +356,26 @@ pub async fn posting_daily_summary(
     let precisions = load_precisions(conn).await?;
 
     let rows: Vec<(String, i64, i64, i64)> = sqlx::query_as(
-        "SELECT date(t.date_time) AS day, p.commodity_id,
-                SUM(CASE WHEN p.amount > 0 THEN p.amount ELSE 0 END),
-                SUM(CASE WHEN p.amount < 0 THEN -p.amount ELSE 0 END)
-         FROM postings p
-         JOIN accounts a ON p.account_id = a.id
-         JOIN account_ancestors aa ON a.id = aa.account_id
-         JOIN account_names an ON aa.ancestor_id = an.account_id AND aa.depth = (
-             SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id
-         )
-         JOIN transactions t ON p.transaction_id = t.id
-         WHERE an.is_system = 1 AND an.name = 'Assets'
-           AND t.date_time >= ?1 AND t.date_time <= ?2
-         GROUP BY day, p.commodity_id
+        "SELECT day, commodity_id,
+                SUM(CASE WHEN tx_net > 0 THEN tx_net ELSE 0 END),
+                SUM(CASE WHEN tx_net < 0 THEN -tx_net ELSE 0 END)
+         FROM (
+             SELECT date(t.date_time) AS day, p.commodity_id AS commodity_id,
+                    SUM(p.amount) AS tx_net
+             FROM postings p
+             JOIN accounts a ON p.account_id = a.id
+             JOIN account_ancestors aa ON a.id = aa.account_id
+             JOIN account_names an ON aa.ancestor_id = an.account_id AND aa.depth = (
+                 SELECT MAX(depth) FROM account_ancestors WHERE account_id = a.id
+             )
+             JOIN transactions t ON p.transaction_id = t.id
+             WHERE an.is_system = 1 AND an.name = 'Assets'
+               AND t.date_time >= ?1 AND t.date_time <= ?2
+             GROUP BY t.id, p.commodity_id
+         ) sub
+         GROUP BY day, commodity_id
+         HAVING SUM(CASE WHEN tx_net > 0 THEN tx_net ELSE 0 END) <> 0
+             OR SUM(CASE WHEN tx_net < 0 THEN -tx_net ELSE 0 END) <> 0
          ORDER BY day",
     )
     .bind(datetime_utils::start_of_day(start).to_string())
@@ -1387,7 +1327,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_summary_and_assets_not_doubled() {
+    async fn test_assets_not_doubled() {
         // 回归（原 B1）：根账户有 en + zh-CN 两个显示名时，
         // 聚合不得因 JOIN 命中多行而翻倍
         let mut conn = setup().await;
@@ -1399,10 +1339,6 @@ mod tests {
         let p2 = sample_posting(tx_id, income, "-100.00");
         posting_insert(&mut conn, &p1).await.unwrap();
         posting_insert(&mut conn, &p2).await.unwrap();
-
-        let summary = posting_summary(&mut conn, None, None).await.unwrap();
-        assert_eq!(summary.income, Decimal::from_str("100.00").unwrap());
-        assert_eq!(summary.expense, Decimal::ZERO);
 
         let assets = posting_sum_all_assets(&mut conn).await.unwrap();
         let card_rows: Vec<_> = assets.iter().filter(|(a, _, _)| *a == asset).collect();
@@ -1585,6 +1521,98 @@ mod tests {
         assert_eq!(deltas.len(), 1);
         assert_eq!(deltas[0].0, asset);
         assert!(!deltas.iter().any(|(id, _, _)| *id == equity_id));
+    }
+
+    #[tokio::test]
+    async fn test_daily_summary_uses_per_transaction_asset_net() {
+        let mut conn = setup().await;
+        let bank = insert_account(&mut conn, "Bank").await;
+        let cash = insert_account(&mut conn, "Cash").await;
+        let food = insert_expense_account(&mut conn, "Food").await;
+        let salary = insert_income_account(&mut conn, "Salary").await;
+        let fee = insert_expense_account(&mut conn, "Fees2").await;
+
+        // 03-01 支出 100：资产 -100 / Expenses +100 → 资产净额 -100 → expense 100
+        let tx = insert_transaction_on(&mut conn, "2024-03-01").await;
+        posting_insert(&mut conn, &sample_posting(tx, bank, "-100.00"))
+            .await
+            .unwrap();
+        posting_insert(&mut conn, &sample_posting(tx, food, "100.00"))
+            .await
+            .unwrap();
+
+        // 03-02 纯转账 50：资产 -50 / +50 → 净额 0，不计入、当日不出现
+        let tx = insert_transaction_on(&mut conn, "2024-03-02").await;
+        posting_insert(&mut conn, &sample_posting(tx, bank, "-50.00"))
+            .await
+            .unwrap();
+        posting_insert(&mut conn, &sample_posting(tx, cash, "50.00"))
+            .await
+            .unwrap();
+
+        // 03-03 收入 500：资产 +500 / Income -500 → income 500
+        let tx = insert_transaction_on(&mut conn, "2024-03-03").await;
+        posting_insert(&mut conn, &sample_posting(tx, bank, "500.00"))
+            .await
+            .unwrap();
+        posting_insert(&mut conn, &sample_posting(tx, salary, "-500.00"))
+            .await
+            .unwrap();
+
+        // 03-04 含手续费转账：资产 -1010 / +1000，手续费 +10 → 净额 -10 → expense 10
+        let tx = insert_transaction_on(&mut conn, "2024-03-04").await;
+        posting_insert(&mut conn, &sample_posting(tx, bank, "-1010.00"))
+            .await
+            .unwrap();
+        posting_insert(&mut conn, &sample_posting(tx, cash, "1000.00"))
+            .await
+            .unwrap();
+        posting_insert(&mut conn, &sample_posting(tx, fee, "10.00"))
+            .await
+            .unwrap();
+
+        // 03-05 同日支出 100 + 纯转账 50：只计支出 100
+        let tx = insert_transaction_on(&mut conn, "2024-03-05").await;
+        posting_insert(&mut conn, &sample_posting(tx, bank, "-100.00"))
+            .await
+            .unwrap();
+        posting_insert(&mut conn, &sample_posting(tx, food, "100.00"))
+            .await
+            .unwrap();
+        let tx = insert_transaction_on(&mut conn, "2024-03-05").await;
+        posting_insert(&mut conn, &sample_posting(tx, bank, "-50.00"))
+            .await
+            .unwrap();
+        posting_insert(&mut conn, &sample_posting(tx, cash, "50.00"))
+            .await
+            .unwrap();
+
+        let rows = posting_daily_summary(
+            &mut conn,
+            NaiveDate::from_ymd_opt(2024, 3, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 3, 5).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        // 03-02 纯转账日不出现，其余四天按日升序
+        assert_eq!(rows.len(), 4);
+
+        assert_eq!(rows[0].date, NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
+        assert_eq!(rows[0].income, Decimal::from_str("0").unwrap());
+        assert_eq!(rows[0].expense, Decimal::from_str("100").unwrap());
+
+        assert_eq!(rows[1].date, NaiveDate::from_ymd_opt(2024, 3, 3).unwrap());
+        assert_eq!(rows[1].income, Decimal::from_str("500").unwrap());
+        assert_eq!(rows[1].expense, Decimal::from_str("0").unwrap());
+
+        assert_eq!(rows[2].date, NaiveDate::from_ymd_opt(2024, 3, 4).unwrap());
+        assert_eq!(rows[2].income, Decimal::from_str("0").unwrap());
+        assert_eq!(rows[2].expense, Decimal::from_str("10").unwrap());
+
+        assert_eq!(rows[3].date, NaiveDate::from_ymd_opt(2024, 3, 5).unwrap());
+        assert_eq!(rows[3].income, Decimal::from_str("0").unwrap());
+        assert_eq!(rows[3].expense, Decimal::from_str("100").unwrap());
     }
 
     async fn insert_child_account(

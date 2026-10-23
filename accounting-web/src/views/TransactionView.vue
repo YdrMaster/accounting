@@ -7,6 +7,7 @@ import TransactionList from '../components/TransactionList.vue'
 import TransactionFormOverlay from '../components/layout/TransactionFormOverlay.vue'
 import { panelActionKey } from '../components/layout/panelAction'
 import { useTransactionStore } from '../stores/transaction'
+import { sumAssetAmount } from '../utils/amount'
 import { monthOf, todayStr } from '../utils/date'
 import { confirmDialog } from '../utils/dialog'
 
@@ -40,43 +41,29 @@ const currentMonthStr = computed(() => {
   return monthOf({ date_time: txStore.loadedRange.to })
 })
 
-const monthlyExpense = computed(() => {
+// 月收支汇总口径与交易列表日分组一致：每笔交易取资产账户分录之和 S，
+// 收入 = Σmax(S,0)、支出 = Σmax(-S,0)、结余 = ΣS（净额 0 的纯转账不计入）
+const monthlyTotals = computed(() => {
   const m = currentMonthStr.value
-  if (!m) return '0.00'
-  let sum = new Decimal(0)
+  let income = new Decimal(0)
+  let expense = new Decimal(0)
+  if (!m) return { income, expense }
   for (const tx of txStore.transactions) {
-    if (monthOf(tx) === m) {
-      for (const p of tx.postings) {
-        if (p.account_type === 'expense') {
-          sum = sum.plus(new Decimal(p.amount))
-        }
-      }
-    }
+    if (monthOf(tx) !== m) continue
+    const net = sumAssetAmount(tx.postings)
+    if (net.gt(0)) income = income.plus(net)
+    else if (net.lt(0)) expense = expense.plus(net.abs())
   }
-  return sum.toFixed(2)
+  return { income, expense }
 })
 
-const monthlyIncome = computed(() => {
-  const m = currentMonthStr.value
-  if (!m) return '0.00'
-  let sum = new Decimal(0)
-  for (const tx of txStore.transactions) {
-    if (monthOf(tx) === m) {
-      for (const p of tx.postings) {
-        if (p.account_type === 'income') {
-          sum = sum.plus(new Decimal(p.amount))
-        }
-      }
-    }
-  }
-  return sum.negated().toFixed(2)
-})
+const monthlyExpense = computed(() => monthlyTotals.value.expense.toFixed(2))
 
-const monthlyBalance = computed(() => {
-  const exp = new Decimal(monthlyExpense.value)
-  const incomeVal = monthlyIncome.value
-  return new Decimal(incomeVal).minus(exp).toFixed(2)
-})
+const monthlyIncome = computed(() => monthlyTotals.value.income.toFixed(2))
+
+const monthlyBalance = computed(() =>
+  monthlyTotals.value.income.minus(monthlyTotals.value.expense).toFixed(2)
+)
 
 function formatAmount(amt: Decimal): string {
   const fixed = amt.toFixed(2)
