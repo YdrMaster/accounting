@@ -99,10 +99,24 @@ function formatDateTime(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
+/** 金额文本合法性：可选前导负号、至多一个小数点、至少一位数字（如 -5、10.、.5、0） */
+const AMOUNT_PATTERN = /^-?(\d+(\.\d*)?|\.\d+)$/
+
+/** 金额文本是否合法；空串视为「未填」，不算合法 */
+function isAmountValid(text: string): boolean {
+  return AMOUNT_PATTERN.test(text)
+}
+
+/** 容错解析金额文本：空串或非法文本返回 null，避免 decimal.js 抛异常 */
+function parseAmount(text: string): Decimal | null {
+  return isAmountValid(text) ? new Decimal(text) : null
+}
+
 function addPosting() {
+  // 非法/未填金额不入和（容错，避免解析异常导致表单崩溃）
   const sum = postings.value.reduce((acc, p) => {
-    const amt = new Decimal(p.amount || 0)
-    return acc.plus(amt)
+    const amt = parseAmount(p.amount)
+    return amt === null ? acc : acc.plus(amt)
   }, new Decimal(0))
 
   const balancedAmount = sum.isZero() ? '' : sum.negated().toFixed(2)
@@ -140,22 +154,29 @@ function onAccountSelect(index: number, accountId: number) {
 
 const isBalanced = computed(() => {
   if (postings.value.length < 2) return false
-  const sum = postings.value.reduce((acc, p) => {
-    const amt = new Decimal(p.amount || 0)
-    return acc.plus(amt)
-  }, new Decimal(0))
+  // 非法或未填金额直接判为不平，避免 new Decimal('-') 抛出 DecimalError
+  let sum = new Decimal(0)
+  for (const p of postings.value) {
+    const amt = parseAmount(p.amount)
+    if (amt === null) return false
+    sum = sum.plus(amt)
+  }
   return sum.isZero()
 })
 
-/** 存在未填完的分录（分类或金额为空）时不允许再添加新分录 */
-const canAddPosting = computed(() => postings.value.every(p => p.accountId && p.amount))
+/** 每条分录都必须有账户且金额非空且合法（非法金额不算已填写） */
+const allAmountsValid = computed(() =>
+  postings.value.every(p => p.accountId && isAmountValid(p.amount))
+)
+
+/** 存在未填完或非法的分录（分类、金额为空或金额非法）时不允许再添加新分录 */
+const canAddPosting = computed(() => allAmountsValid.value)
 
 const canSubmit = computed(() => {
   if (!isBalanced.value) return false
   if (!dateTime.value) return false
   if (!memberId.value) return false
-  // Check all postings have accounts and amounts
-  return postings.value.every(p => p.accountId && p.amount)
+  return allAmountsValid.value
 })
 
 async function loadTransaction(id: number) {
@@ -312,6 +333,7 @@ async function handleDelete() {
             <input
               :value="posting.amount"
               class="amount-input"
+              :class="{ invalid: posting.amount !== '' && !isAmountValid(posting.amount) }"
               type="text"
               inputmode="decimal"
               placeholder="0.00"
@@ -584,6 +606,11 @@ async function handleDelete() {
   color: var(--text-heading);
   font-size: 0.8125rem;
   outline: none;
+}
+
+.amount-input.invalid,
+.amount-input.invalid:focus {
+  border-color: var(--color-expense);
 }
 
 .checkbox-field label {

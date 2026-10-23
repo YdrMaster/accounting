@@ -112,3 +112,91 @@ describe('TransactionFormOverlay 删除操作', () => {
     expect(wrapper.find('.delete-btn').exists()).toBe(true)
   })
 })
+
+describe('TransactionFormOverlay 金额合法性', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  async function mountEdit() {
+    const wrapper = mountOverlay(1)
+    await flushPromises()
+    return wrapper
+  }
+
+  function amountInput(wrapper: ReturnType<typeof mountOverlay>, index: number) {
+    return wrapper.findAll('.amount-input')[index]
+  }
+
+  it('清空后输入 - 不崩溃，标红且确认/添加分录按钮均禁用', async () => {
+    const wrapper = await mountEdit()
+    await amountInput(wrapper, 0).setValue('-')
+
+    expect(wrapper.find('.form-overlay').exists()).toBe(true)
+    const input = amountInput(wrapper, 0)
+    expect((input.element as HTMLInputElement).value).toBe('-')
+    expect(input.classes()).toContain('invalid')
+    expect(wrapper.find('.submit-btn').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.add-posting-btn').attributes('disabled')).toBeDefined()
+  })
+
+  it('其他非法中间态（. 和 -.）同样标红且不崩溃', async () => {
+    const wrapper = await mountEdit()
+    for (const v of ['.', '-.']) {
+      await amountInput(wrapper, 0).setValue(v)
+      expect(wrapper.find('.form-overlay').exists()).toBe(true)
+      expect(amountInput(wrapper, 0).classes()).toContain('invalid')
+    }
+  })
+
+  it('合法金额与空串都不标红', async () => {
+    const wrapper = await mountEdit()
+    for (const v of ['-5', '5.', '.5', '0']) {
+      await amountInput(wrapper, 0).setValue(v)
+      expect(amountInput(wrapper, 0).classes()).not.toContain('invalid')
+    }
+    await amountInput(wrapper, 0).setValue('')
+    expect(amountInput(wrapper, 0).classes()).not.toContain('invalid')
+  })
+
+  it('所有金额非空合法且配平、日期与成员已填时确认可用；非法或不平时禁用', async () => {
+    const wrapper = await mountEdit()
+    // 初始：10.00 / -10.00 平衡且合法
+    expect(wrapper.find('.submit-btn').attributes('disabled')).toBeUndefined()
+
+    // 不平 -> 禁用
+    await amountInput(wrapper, 0).setValue('5')
+    expect(wrapper.find('.submit-btn').attributes('disabled')).toBeDefined()
+
+    // 重新配平且合法 -> 可用
+    await amountInput(wrapper, 0).setValue('10')
+    expect(wrapper.find('.submit-btn').attributes('disabled')).toBeUndefined()
+
+    // 非法 -> 禁用
+    await amountInput(wrapper, 0).setValue('-')
+    expect(wrapper.find('.submit-btn').attributes('disabled')).toBeDefined()
+  })
+
+  it('缺少日期时间或成员时确认禁用', async () => {
+    const wrapper = await mountEdit()
+
+    // 缺日期时间
+    await wrapper.find('input[type="datetime-local"]').setValue('')
+    expect(wrapper.find('.submit-btn').attributes('disabled')).toBeDefined()
+    await wrapper.find('input[type="datetime-local"]').setValue('2026-01-01T12:00:00')
+    expect(wrapper.find('.submit-btn').attributes('disabled')).toBeUndefined()
+
+    // 缺成员：选中值为 null 的占位项
+    const memberSelect = wrapper.find('.field-member select')
+    const placeholder = memberSelect.findAll('option')[0]
+    ;(placeholder.element as HTMLOptionElement).selected = true
+    await memberSelect.trigger('change')
+    expect(wrapper.find('.submit-btn').attributes('disabled')).toBeDefined()
+  })
+
+  it('存在空金额时确认禁用', async () => {
+    const wrapper = await mountEdit()
+    await amountInput(wrapper, 0).setValue('')
+    expect(wrapper.find('.submit-btn').attributes('disabled')).toBeDefined()
+  })
+})
