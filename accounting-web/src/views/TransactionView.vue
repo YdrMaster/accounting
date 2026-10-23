@@ -185,7 +185,6 @@ watchEffect(() => {
 
 <style scoped>
 .transaction-root {
-  position: relative;
   height: 100%;
 }
 

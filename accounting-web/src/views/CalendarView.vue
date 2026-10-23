@@ -101,9 +101,10 @@ watchEffect(() => {
 </script>
 
 <template>
-  <div class="calendar-view" :class="{ 'no-scroll': showFormOverlay }">
+  <div class="calendar-view">
     <div
       class="calendar-body"
+      :class="{ 'no-scroll': showFormOverlay }"
       :inert="showFormOverlay ? true : undefined"
       :aria-hidden="showFormOverlay ? 'true' : undefined"
     >
@@ -132,28 +133,31 @@ watchEffect(() => {
 </template>
 
 <style scoped>
+/* 覆盖层的定位上下文是 .view-panel（非滚动容器），覆盖层可铺满整个面板；
+   此处不能再设 position，否则覆盖层会退回只覆盖面板主体、并可能随内容滚动。 */
 .calendar-view {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  position: relative;
   height: 100%;
-  overflow-y: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.calendar-view.no-scroll {
   overflow: hidden;
 }
 
 .calendar-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.calendar-view::-webkit-scrollbar {
+.calendar-body.no-scroll {
+  overflow: hidden;
+}
+
+.calendar-body::-webkit-scrollbar {
   display: none;
 }
 

@@ -44,6 +44,9 @@ provide(panelActionKey, actions)
   background: var(--card-bg);
   border-radius: 1rem;
   overflow: hidden;
+  /* 视图内覆盖层（如交易表单）的定位上下文：覆盖整个面板含标题栏。
+     必须是非滚动容器，否则覆盖层会随内容滚动。 */
+  position: relative;
 }
 
 .panel-header {
