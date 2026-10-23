@@ -102,7 +102,11 @@ watchEffect(() => {
 
 <template>
   <div class="calendar-view" :class="{ 'no-scroll': showFormOverlay }">
-    <template v-if="!showFormOverlay">
+    <div
+      class="calendar-body"
+      :inert="showFormOverlay ? true : undefined"
+      :aria-hidden="showFormOverlay ? 'true' : undefined"
+    >
       <CalendarGrid
         :daily-stats="dailyStats"
         :selected-date="selectedDate"
@@ -116,7 +120,7 @@ watchEffect(() => {
       <div v-else-if="txStore.error" class="error">{{ txStore.error }}</div>
 
       <TransactionList :transactions="filteredTransactions" @edit="onEditTx" @delete="onDeleteTx" />
-    </template>
+    </div>
 
     <TransactionFormOverlay
       v-if="showFormOverlay"
@@ -141,6 +145,12 @@ watchEffect(() => {
 
 .calendar-view.no-scroll {
   overflow: hidden;
+}
+
+.calendar-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .calendar-view::-webkit-scrollbar {

@@ -127,44 +127,44 @@ watchEffect(() => {
       ref="scrollContainer"
       class="transaction"
       :class="{ 'no-scroll': showFormOverlay }"
+      :inert="showFormOverlay ? true : undefined"
+      :aria-hidden="showFormOverlay ? 'true' : undefined"
       @scroll="onScroll"
     >
-      <template v-if="!showFormOverlay">
-        <div class="hero">
-          <p class="month-label">
-            {{
-              t('transactions.monthLabel', {
-                year: monthLabelDate.slice(0, 4),
-                month: monthLabelDate.slice(5, 7),
-              })
-            }}
-            <span v-if="txStore.filterActive" class="filtered-badge">{{
-              t('txFilter.filtered')
-            }}</span>
-          </p>
-          <p class="label">{{ t('transactions.monthlyExpense') }}</p>
-          <p class="amount">¥{{ formatAmount(new Decimal(monthlyExpense)) }}</p>
-          <p class="sub">
-            {{ t('transactions.monthlyIncome') }} ¥{{ formatAmount(new Decimal(monthlyIncome)) }} ·
-            {{ t('transactions.monthlyBalance') }} ¥{{ formatAmount(new Decimal(monthlyBalance)) }}
-          </p>
-        </div>
+      <div class="hero">
+        <p class="month-label">
+          {{
+            t('transactions.monthLabel', {
+              year: monthLabelDate.slice(0, 4),
+              month: monthLabelDate.slice(5, 7),
+            })
+          }}
+          <span v-if="txStore.filterActive" class="filtered-badge">{{
+            t('txFilter.filtered')
+          }}</span>
+        </p>
+        <p class="label">{{ t('transactions.monthlyExpense') }}</p>
+        <p class="amount">¥{{ formatAmount(new Decimal(monthlyExpense)) }}</p>
+        <p class="sub">
+          {{ t('transactions.monthlyIncome') }} ¥{{ formatAmount(new Decimal(monthlyIncome)) }} ·
+          {{ t('transactions.monthlyBalance') }} ¥{{ formatAmount(new Decimal(monthlyBalance)) }}
+        </p>
+      </div>
 
-        <div v-if="txStore.loading && txStore.transactions.length === 0" class="loading">
-          {{ t('common.loading') }}
-        </div>
-        <div v-else-if="txStore.error" class="error">{{ txStore.error }}</div>
+      <div v-if="txStore.loading && txStore.transactions.length === 0" class="loading">
+        {{ t('common.loading') }}
+      </div>
+      <div v-else-if="txStore.error" class="error">{{ txStore.error }}</div>
 
-        <TransactionList
-          :transactions="txStore.transactions"
-          @edit="onEditTx"
-          @delete="onDeleteTx"
-        />
+      <TransactionList
+        :transactions="txStore.transactions"
+        @edit="onEditTx"
+        @delete="onDeleteTx"
+      />
 
-        <div v-if="txStore.loading && txStore.transactions.length > 0" class="loading-more">
-          {{ t('transactions.loadingMore') }}
-        </div>
-      </template>
+      <div v-if="txStore.loading && txStore.transactions.length > 0" class="loading-more">
+        {{ t('transactions.loadingMore') }}
+      </div>
     </div>
 
     <TransactionFormOverlay

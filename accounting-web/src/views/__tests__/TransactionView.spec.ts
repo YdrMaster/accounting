@@ -1,7 +1,9 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick, ref } from 'vue'
 import { fetchTransactions } from '../../api/client'
+import { panelActionKey, type PanelAction } from '../../components/layout/panelAction'
 import { i18n } from '../../i18n'
 import type { PostingDto, TransactionDto } from '../../types/api'
 import TransactionView from '../TransactionView.vue'
@@ -108,5 +110,62 @@ describe('TransactionView 月收支汇总口径', () => {
     const sub = wrapper.find('.sub').text()
     expect(sub).toContain('¥0.00')
     expect(sub).toContain('-100.00')
+  })
+})
+
+
+function isInert(el: Element): boolean {
+  return el.hasAttribute('inert') || (el as unknown as { inert?: boolean }).inert === true
+}
+
+describe('TransactionView 详情覆盖层往返', () => {
+  it('打开覆盖层时保留底层列表，关闭后滚动位置不变（编辑路径）', async () => {
+    vi.mocked(fetchTransactions).mockResolvedValue([])
+    const wrapper = mount(TransactionView, { global: { plugins: [i18n] } })
+    await nextTick()
+
+    const container = wrapper.find('.transaction')
+    ;(container.element as HTMLElement).scrollTop = 320
+
+    wrapper.findComponent({ name: 'TransactionList' }).vm.$emit('edit', 1)
+    await nextTick()
+
+    // 覆盖层打开时底层列表仍挂载（未被 v-if 卸载），只是被屏蔽交互
+    expect(wrapper.findComponent({ name: 'TransactionFormOverlay' }).exists()).toBe(true)
+    expect(wrapper.find('.transaction .hero').exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'TransactionList' }).exists()).toBe(true)
+    expect(isInert(container.element)).toBe(true)
+
+    wrapper.findComponent({ name: 'TransactionFormOverlay' }).vm.$emit('close')
+    await nextTick()
+
+    expect(isInert(container.element)).toBe(false)
+    expect((wrapper.find('.transaction').element as HTMLElement).scrollTop).toBe(320)
+  })
+
+  it('通过新建动作打开覆盖层时同样保留底层列表与滚动位置', async () => {
+    vi.mocked(fetchTransactions).mockResolvedValue([])
+    const actions = ref<PanelAction[]>([])
+    const wrapper = mount(TransactionView, {
+      global: { plugins: [i18n], provide: { [panelActionKey]: actions } },
+    })
+    await nextTick()
+    await vi.waitFor(() => expect(actions.value.length).toBeGreaterThan(0))
+
+    const container = wrapper.find('.transaction')
+    ;(container.element as HTMLElement).scrollTop = 180
+
+    actions.value[0].onClick()
+    await nextTick()
+
+    expect(wrapper.findComponent({ name: 'TransactionFormOverlay' }).exists()).toBe(true)
+    expect(wrapper.find('.transaction .hero').exists()).toBe(true)
+    expect(isInert(container.element)).toBe(true)
+
+    wrapper.findComponent({ name: 'TransactionFormOverlay' }).vm.$emit('close')
+    await nextTick()
+
+    expect(isInert(container.element)).toBe(false)
+    expect((wrapper.find('.transaction').element as HTMLElement).scrollTop).toBe(180)
   })
 })
