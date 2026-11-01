@@ -11,9 +11,12 @@ import {
   updateAccountFields,
 } from '../../api/client'
 import type { AccountDto, MemberDto } from '../../types/api'
-import { confirmDialog } from '../../utils/dialog'
+import { useAccountStore } from '../../stores/account'
+import { alertDialog, confirmDialog } from '../../utils/dialog'
 
 const { t } = useI18n()
+
+const store = useAccountStore()
 
 const props = defineProps<{
   account: AccountDto
@@ -77,6 +80,20 @@ function resetDrafts() {
 const isRoot = props.account.parent_id === null
 const isSystem = props.account.is_system
 const isClosed = computed(() => props.account.closed_at !== null)
+
+/** 后代总数（含各级子账户），用于确认弹窗体现级联范围 */
+const descendantCount = computed(() => {
+  let count = 0
+  const queue = [props.account.id]
+  while (queue.length > 0) {
+    const id = queue.pop()!
+    for (const child of store.getChildren(id)) {
+      count += 1
+      queue.push(child.id)
+    }
+  }
+  return count
+})
 
 const currentOwners = computed(() =>
   members.value.filter(m => selectedOwnerIds.value.includes(m.id))
@@ -209,12 +226,19 @@ async function doReopen() {
 async function doDelete() {
   if (isRoot || isSystem) return
   clearMessages()
-  if (!(await confirmDialog(t('drawer.deleteConfirm', { name: props.account.name })))) return
+  const confirmMessage =
+    descendantCount.value > 0
+      ? t('drawer.deleteSubtreeConfirm', {
+          name: props.account.name,
+          count: descendantCount.value,
+        })
+      : t('drawer.deleteConfirm', { name: props.account.name })
+  if (!(await confirmDialog(confirmMessage))) return
   try {
     await deleteAccount(props.account.id)
     emit('deleted', props.account.id)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    alertDialog(t('drawer.deleteFailed', { message: e instanceof Error ? e.message : String(e) }))
   }
 }
 </script>

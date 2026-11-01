@@ -221,51 +221,84 @@ async fn reopen_account(
     Ok("reopened".to_string())
 }
 
-/// 删除账户
+/// 删除账户（级联删除整棵干净子树）
 async fn delete_account(
     State(state): State<Arc<AppState>>,
     Lang(lang): Lang,
     Path(id): Path<i64>,
-) -> Result<String, String> {
+) -> Result<String, (StatusCode, String)> {
+    use accounting_service::account_service::DeleteAccountError;
+    use accounting_sql::repo::account::AccountReferenceSource;
+
     let db = state.db();
-    let target = db
-        .account_get(AccountId(id))
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or(t!("account_not_found", locale = lang.as_str()).to_string())?;
-
-    if target.is_system {
-        return Err(t!("cannot_delete_system_account", locale = lang.as_str()).to_string());
+    let service = accounting_service::account_service::AccountService::new(db.clone());
+    if let Err(e) = service.delete(AccountId(id)).await {
+        let status = match &e {
+            DeleteAccountError::NotFound(_) => StatusCode::NOT_FOUND,
+            DeleteAccountError::SystemAccount(_) => StatusCode::BAD_REQUEST,
+            DeleteAccountError::Blocked { .. } => StatusCode::CONFLICT,
+            DeleteAccountError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        let msg = match e {
+            DeleteAccountError::NotFound(_) => {
+                t!("account_not_found", locale = lang.as_str()).to_string()
+            }
+            DeleteAccountError::SystemAccount(_) => {
+                t!("cannot_delete_system_account", locale = lang.as_str()).to_string()
+            }
+            DeleteAccountError::Blocked { account_id, source } => {
+                match db
+                    .account_display_name(account_id, &lang)
+                    .await
+                    .ok()
+                    .flatten()
+                {
+                    Some(name) => match source {
+                        AccountReferenceSource::Posting => t!(
+                            "account_subtree_blocked_by_posting",
+                            locale = lang.as_str(),
+                            name = name
+                        )
+                        .to_string(),
+                        AccountReferenceSource::Mapping => t!(
+                            "account_subtree_blocked_by_mapping",
+                            locale = lang.as_str(),
+                            name = name
+                        )
+                        .to_string(),
+                        AccountReferenceSource::BudgetLimit => t!(
+                            "account_subtree_blocked_by_budget",
+                            locale = lang.as_str(),
+                            name = name
+                        )
+                        .to_string(),
+                        AccountReferenceSource::SavingPlan => t!(
+                            "account_subtree_blocked_by_saving_plan",
+                            locale = lang.as_str(),
+                            name = name
+                        )
+                        .to_string(),
+                        AccountReferenceSource::Channel => t!(
+                            "account_subtree_blocked_by_channel",
+                            locale = lang.as_str(),
+                            name = name
+                        )
+                        .to_string(),
+                    },
+                    None => t!(
+                        "account_delete_blocked_fallback",
+                        locale = lang.as_str(),
+                        id = account_id.0
+                    )
+                    .to_string(),
+                }
+            }
+            DeleteAccountError::Database(_) => {
+                t!("err_database", locale = lang.as_str()).to_string()
+            }
+        };
+        return Err((status, msg));
     }
-
-    let children = db
-        .account_list_children(AccountId(id))
-        .await
-        .map_err(|e| e.to_string())?;
-    if !children.is_empty() {
-        return Err(t!("delete_children_first", locale = lang.as_str()).to_string());
-    }
-
-    let has_postings = db
-        .posting_has_postings(AccountId(id))
-        .await
-        .map_err(|e| e.to_string())?;
-    if has_postings {
-        return Err(t!("account_has_postings", locale = lang.as_str()).to_string());
-    }
-
-    // 检查是否被账户映射引用
-    let mapping_count = db
-        .account_mapping_count_by_account(AccountId(id))
-        .await
-        .map_err(|e| e.to_string())?;
-    if mapping_count > 0 {
-        return Err(t!("account_referenced_by_mapping", locale = lang.as_str()).to_string());
-    }
-
-    db.account_delete(AccountId(id))
-        .await
-        .map_err(|e| e.to_string())?;
     Ok("deleted".to_string())
 }
 
@@ -736,5 +769,277 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(json["parent_id"], serde_json::json!(expenses));
+    }
+
+    async fn delete_http(
+        state: Arc<AppState>,
+        id: i64,
+        lang: &str,
+    ) -> axum::http::Response<axum::body::Body> {
+        let app = router().with_state(state);
+        let req = axum::http::Request::builder()
+            .method(axum::http::Method::DELETE)
+            .uri(format!("/api/accounts/{id}?lang={lang}"))
+            .body(axum::body::Body::empty())
+            .unwrap();
+        tower::ServiceExt::oneshot(app, req).await.unwrap()
+    }
+
+    async fn body_text(resp: axum::http::Response<axum::body::Body>) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    /// 在 `account_id` 上插一条分录引用（走公开 repo 门面，测试造数）。
+    async fn insert_posting(state: &Arc<AppState>, account_id: i64) {
+        let db = state.db();
+        let member = db.member_get_or_create_by_name("甲", "en").await.unwrap();
+        let cny = db.commodity_get_by_symbol("CNY").await.unwrap().unwrap().id;
+        let tx_id = db
+            .transaction_insert(
+                &accounting::transaction::Transaction {
+                    id: accounting::id::TransactionId(0),
+                    date_time: chrono::NaiveDate::from_ymd_opt(2026, 1, 1)
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap(),
+                    description: "t".to_string(),
+                    kind: accounting::transaction::TransactionKind::Normal,
+                    member_id: member,
+                },
+                &[],
+            )
+            .await
+            .unwrap();
+        db.posting_insert(&accounting::posting::Posting {
+            id: accounting::id::PostingId(0),
+            transaction_id: tx_id,
+            account_id: AccountId(account_id),
+            commodity_id: cny,
+            amount: rust_decimal::Decimal::ONE,
+            cost: None,
+            cost_commodity_id: None,
+            is_reimbursable: false,
+            linked_posting_id: None,
+            reversal_total: rust_decimal::Decimal::ZERO,
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn delete_http_rejects_system_and_root_account() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let cash = account_id_by_name(&state, "Assets:Cash").await;
+
+        // 根账户（is_system）删除被拒：非 2xx + 400 + 文案
+        let resp = delete_http(state.clone(), assets, "en").await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let text = body_text(resp).await;
+        assert!(
+            text.contains("Cannot delete system account"),
+            "unexpected body: {text}"
+        );
+
+        // 系统子账户同样被拒
+        let resp = delete_http(state, cash, "en").await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn delete_http_missing_account_returns_404() {
+        let state = setup().await;
+        let resp = delete_http(state, 999_999, "en").await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let text = body_text(resp).await;
+        assert!(
+            text.contains("Account not found"),
+            "unexpected body: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_http_blocked_by_own_posting_returns_409_names_account() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let bank = create_child(&state, assets, "Bank").await;
+        insert_posting(&state, bank).await;
+
+        let resp = delete_http(state, bank, "en").await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        let text = body_text(resp).await;
+        assert!(
+            text.contains("Bank") && text.contains("postings"),
+            "conflict body should name the account and source, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_http_blocked_by_deep_descendant_names_descendant() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let bank = create_child(&state, assets, "Bank").await;
+        let sub = create_child(&state, bank, "Sub").await;
+        // 引用挂在深层后代 Sub 上，删除 Bank 被拒且指名 Sub
+        insert_posting(&state, sub).await;
+
+        let resp = delete_http(state.clone(), bank, "en").await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        let text = body_text(resp).await;
+        assert!(
+            text.contains("Sub") && text.contains("postings"),
+            "conflict body should name the descendant, got: {text}"
+        );
+        // 挡路后两账户都原样保留
+        assert!(
+            state
+                .db()
+                .account_get(AccountId(bank))
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            state
+                .db()
+                .account_get(AccountId(sub))
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    /// 在 `account_id` 上插一条 `kind` 类型引用（budget/saving_plan/mapping/channel，测试造数）。
+    async fn insert_reference(state: &Arc<AppState>, kind: &str, account_id: i64) {
+        let db = state.db();
+        match kind {
+            "budget" => {
+                let cny = db.commodity_get_by_symbol("CNY").await.unwrap().unwrap().id;
+                db.budget_create(
+                    "预算",
+                    None,
+                    None,
+                    cny,
+                    &[(AccountId(account_id), rust_decimal::Decimal::ONE)],
+                    "en",
+                )
+                .await
+                .unwrap();
+            }
+            "saving_plan" => {
+                let cny = db.commodity_get_by_symbol("CNY").await.unwrap().unwrap().id;
+                db.saving_plan_create(
+                    "攒钱",
+                    None,
+                    None,
+                    cny,
+                    rust_decimal::Decimal::ONE,
+                    &[AccountId(account_id)],
+                    "en",
+                )
+                .await
+                .unwrap();
+            }
+            "mapping" => {
+                let member = db.member_get_or_create_by_name("甲", "en").await.unwrap();
+                let channel = db.channel_get_by_name("Alipay").await.unwrap().unwrap().id;
+                db.account_mapping_upsert(&accounting::account_mapping::AccountMapping {
+                    member_id: member,
+                    channel_id: channel,
+                    category: "收支:餐饮".to_string(),
+                    account_id: AccountId(account_id),
+                })
+                .await
+                .unwrap();
+            }
+            "channel" => {
+                db.channel_create(&accounting::channel::Channel {
+                    id: accounting::id::ChannelId(0),
+                    description: None,
+                    account_id: Some(AccountId(account_id)),
+                    is_system: false,
+                })
+                .await
+                .unwrap();
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_http_blocked_by_budget_saving_plan_mapping_and_channel() {
+        for (kind, word) in [
+            ("budget", "budget limit"),
+            ("saving_plan", "saving plan"),
+            ("mapping", "account mappings"),
+            ("channel", "channel"),
+        ] {
+            let state = setup().await;
+            let assets = account_id_by_name(&state, "Assets").await;
+            let bank = create_child(&state, assets, "Bank").await;
+            let sub = create_child(&state, bank, "Sub").await;
+            // 无分录时其余四类引用同样拦截（挂深层后代 Sub 上）
+            insert_reference(&state, kind, sub).await;
+
+            let resp = delete_http(state, bank, "en").await;
+            assert_eq!(resp.status(), StatusCode::CONFLICT, "kind={kind}");
+            let text = body_text(resp).await;
+            assert!(
+                text.contains("Sub") && text.contains(word),
+                "kind={kind} body should name descendant and source, got: {text}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_http_blocked_reports_zh_message() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let bank = create_child(&state, assets, "银行").await;
+        insert_posting(&state, bank).await;
+
+        let resp = delete_http(state, bank, "zh-CN").await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        let text = body_text(resp).await;
+        assert!(
+            text.contains("银行") && text.contains("关联分录"),
+            "zh conflict body should name the account, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_http_cascades_clean_subtree() {
+        let state = setup().await;
+        let assets = account_id_by_name(&state, "Assets").await;
+        let bank = create_child(&state, assets, "Bank").await;
+        let sub = create_child(&state, bank, "Sub").await;
+        let leaf = create_child(&state, sub, "Leaf").await;
+
+        let resp = delete_http(state.clone(), bank, "en").await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 整棵子树消失，账户列表不再包含任何后代
+        for id in [bank, sub, leaf] {
+            assert!(
+                state
+                    .db()
+                    .account_get(AccountId(id))
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let dtos = list_accounts(State(state), Lang("en".to_string()))
+            .await
+            .unwrap()
+            .0;
+        assert!(
+            dtos.iter()
+                .all(|d| d.id != bank && d.id != sub && d.id != leaf),
+            "account list should not contain deleted subtree"
+        );
     }
 }

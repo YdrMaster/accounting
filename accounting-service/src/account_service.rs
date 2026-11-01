@@ -4,10 +4,27 @@ use accounting::error::AccountingError;
 use accounting::id::{AccountId, CommodityId, MemberId};
 use accounting::validation::validate_account_close;
 use accounting_sql::SqliteDatabase;
+use accounting_sql::repo::account::AccountReferenceSource;
 use rust_decimal::Decimal;
 use rust_i18n::t;
 use std::collections::HashMap;
 use std::str::FromStr;
+
+/// 删除账户的结构化错误，HTTP/CLI 层按变体判定结果并做本地化。
+#[derive(Debug, PartialEq, Eq)]
+pub enum DeleteAccountError {
+    /// 账户不存在
+    NotFound(AccountId),
+    /// 系统账户（含根账户）不可删除
+    SystemAccount(AccountId),
+    /// 子树内仍有引用：挡路账户及其引用来源
+    Blocked {
+        account_id: AccountId,
+        source: AccountReferenceSource,
+    },
+    /// 数据库错误
+    Database(String),
+}
 
 /// 账户服务
 pub struct AccountService {
@@ -322,6 +339,45 @@ impl AccountService {
         tx.commit()
             .await
             .map_err(|e| AccountingError::DatabaseError(e.to_string()))?;
+        Ok(())
+    }
+
+    /// 删除账户及其整棵子树
+    ///
+    /// 单事务内完成：目标存在且非系统账户校验 → 子树五类引用检查 → 子树删除。
+    /// 子树内任一账户被分录、映射、预算限额、攒钱计划或渠道引用即整体拒绝，
+    /// 错误指认挡路账户与引用来源；校验失败不产生任何删除。
+    pub async fn delete(&self, id: AccountId) -> Result<(), DeleteAccountError> {
+        let mut tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(|e| DeleteAccountError::Database(e.to_string()))?;
+
+        let account = tx
+            .account_get(id)
+            .await
+            .map_err(|e| DeleteAccountError::Database(e.to_string()))?
+            .ok_or(DeleteAccountError::NotFound(id))?;
+        if account.is_system {
+            return Err(DeleteAccountError::SystemAccount(id));
+        }
+
+        if let Some((account_id, source)) = tx
+            .account_find_subtree_reference(id)
+            .await
+            .map_err(|e| DeleteAccountError::Database(e.to_string()))?
+        {
+            return Err(DeleteAccountError::Blocked { account_id, source });
+        }
+
+        tx.account_delete_subtree(id)
+            .await
+            .map_err(|e| DeleteAccountError::Database(e.to_string()))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| DeleteAccountError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -920,5 +976,320 @@ mod tests {
             .unwrap();
         assert!(service.reparent(food_bank, assets, "en").await.is_ok());
         let _ = bank;
+    }
+
+    /// 在 Assets 下建 Bank→Sub→Leaf，在 Expenses 下建 Food，返回 (bank, sub, leaf, food)。
+    async fn build_delete_fixture(
+        service: &AccountService,
+    ) -> (AccountId, AccountId, AccountId, AccountId) {
+        let assets = service
+            .db
+            .account_get_by_name("Assets")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let expenses = service
+            .db
+            .account_get_by_name("Expenses")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let bank = service
+            .create(bare_account(Some(assets)), "Bank", "en")
+            .await
+            .unwrap();
+        let sub = service
+            .create(bare_account(Some(bank)), "Sub", "en")
+            .await
+            .unwrap();
+        let leaf = service
+            .create(bare_account(Some(sub)), "Leaf", "en")
+            .await
+            .unwrap();
+        let food = service
+            .create(bare_account(Some(expenses)), "Food", "en")
+            .await
+            .unwrap();
+        (bank, sub, leaf, food)
+    }
+
+    /// 在 `account_id` 上插一条分录引用（走公开 repo 门面，测试造数）。
+    async fn insert_posting(service: &AccountService, account_id: AccountId) {
+        let member = service
+            .db
+            .member_get_or_create_by_name("甲", "en")
+            .await
+            .unwrap();
+        let cny = service
+            .db
+            .commodity_get_by_symbol("CNY")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        let tx_id = service
+            .db
+            .transaction_insert(
+                &accounting::transaction::Transaction {
+                    id: accounting::id::TransactionId(0),
+                    date_time: chrono::NaiveDate::from_ymd_opt(2026, 1, 1)
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap(),
+                    description: "t".to_string(),
+                    kind: accounting::transaction::TransactionKind::Normal,
+                    member_id: member,
+                },
+                &[],
+            )
+            .await
+            .unwrap();
+        service
+            .db
+            .posting_insert(&accounting::posting::Posting {
+                id: accounting::id::PostingId(0),
+                transaction_id: tx_id,
+                account_id,
+                commodity_id: cny,
+                amount: rust_decimal::Decimal::ONE,
+                cost: None,
+                cost_commodity_id: None,
+                is_reimbursable: false,
+                linked_posting_id: None,
+                reversal_total: rust_decimal::Decimal::ZERO,
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_delete_leaf_account_success() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (_bank, _sub, _leaf, food) = build_delete_fixture(&service).await;
+
+        service.delete(food).await.unwrap();
+        assert!(service.get(food).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_cascades_clean_subtree() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (bank, sub, leaf, _food) = build_delete_fixture(&service).await;
+
+        service.delete(bank).await.unwrap();
+
+        for id in [bank, sub, leaf] {
+            assert!(
+                service.get(id).await.unwrap().is_none(),
+                "{id:?} 应被级联删除"
+            );
+            assert!(
+                service.db.account_subtree_ids(id).await.unwrap().is_empty(),
+                "{id:?} 的闭包行应被级联清除"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delete_blocked_by_own_posting() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (bank, _sub, _leaf, _food) = build_delete_fixture(&service).await;
+        insert_posting(&service, bank).await;
+
+        let result = service.delete(bank).await;
+        assert_eq!(
+            result,
+            Err(DeleteAccountError::Blocked {
+                account_id: bank,
+                source: accounting_sql::repo::account::AccountReferenceSource::Posting,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_blocked_by_deep_descendant_reference() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (bank, _sub, leaf, _food) = build_delete_fixture(&service).await;
+        // 引用挂在最深层后代 Leaf 上，删除 Bank 应被拒且指认 Leaf
+        insert_posting(&service, leaf).await;
+
+        let result = service.delete(bank).await;
+        assert_eq!(
+            result,
+            Err(DeleteAccountError::Blocked {
+                account_id: leaf,
+                source: accounting_sql::repo::account::AccountReferenceSource::Posting,
+            })
+        );
+    }
+
+    /// 在 `target` 账户上插入 `source` 类型的一条引用（走公开 repo 门面，测试造数）。
+    async fn insert_reference(
+        service: &AccountService,
+        source: accounting_sql::repo::account::AccountReferenceSource,
+        target: AccountId,
+    ) {
+        use accounting_sql::repo::account::AccountReferenceSource as Src;
+        match source {
+            Src::Posting => insert_posting(service, target).await,
+            Src::Mapping => {
+                let member = service
+                    .db
+                    .member_get_or_create_by_name("甲", "en")
+                    .await
+                    .unwrap();
+                let channel = service
+                    .db
+                    .channel_get_by_name("Alipay")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .id;
+                service
+                    .db
+                    .account_mapping_upsert(&accounting::account_mapping::AccountMapping {
+                        member_id: member,
+                        channel_id: channel,
+                        category: "收支:餐饮".to_string(),
+                        account_id: target,
+                    })
+                    .await
+                    .unwrap();
+            }
+            Src::BudgetLimit => {
+                let cny = service
+                    .db
+                    .commodity_get_by_symbol("CNY")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .id;
+                service
+                    .db
+                    .budget_create(
+                        "预算",
+                        None,
+                        None,
+                        cny,
+                        &[(target, rust_decimal::Decimal::ONE)],
+                        "en",
+                    )
+                    .await
+                    .unwrap();
+            }
+            Src::SavingPlan => {
+                let cny = service
+                    .db
+                    .commodity_get_by_symbol("CNY")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .id;
+                service
+                    .db
+                    .saving_plan_create(
+                        "攒钱",
+                        None,
+                        None,
+                        cny,
+                        rust_decimal::Decimal::ONE,
+                        &[target],
+                        "en",
+                    )
+                    .await
+                    .unwrap();
+            }
+            Src::Channel => {
+                service
+                    .db
+                    .channel_create(&accounting::channel::Channel {
+                        id: accounting::id::ChannelId(0),
+                        description: None,
+                        account_id: Some(target),
+                        is_system: false,
+                    })
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delete_blocked_by_budget_saving_plan_mapping_and_channel() {
+        use accounting_sql::repo::account::AccountReferenceSource as Src;
+        for source in [
+            Src::Mapping,
+            Src::BudgetLimit,
+            Src::SavingPlan,
+            Src::Channel,
+        ] {
+            let db = setup_db().await;
+            let service = AccountService::new(db);
+            let (bank, _sub, leaf, _food) = build_delete_fixture(&service).await;
+            // 无分录、无映射之外，仅这一类引用挂在最深层后代上也应拦截
+            insert_reference(&service, source, leaf).await;
+            let result = service.delete(bank).await;
+            assert_eq!(
+                result,
+                Err(DeleteAccountError::Blocked {
+                    account_id: leaf,
+                    source
+                }),
+                "source {source:?} 应拦截删除并指认 Leaf"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delete_rejects_system_and_missing_account() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let cash = service
+            .db
+            .account_get_by_name("Assets:Cash")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+
+        assert_eq!(
+            service.delete(cash).await,
+            Err(DeleteAccountError::SystemAccount(cash))
+        );
+        assert!(service.get(cash).await.unwrap().is_some());
+
+        let missing = AccountId(999_999);
+        assert_eq!(
+            service.delete(missing).await,
+            Err(DeleteAccountError::NotFound(missing))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_blocked_leaves_subtree_intact() {
+        let db = setup_db().await;
+        let service = AccountService::new(db);
+        let (bank, sub, leaf, _food) = build_delete_fixture(&service).await;
+        insert_posting(&service, leaf).await;
+
+        service.delete(bank).await.unwrap_err();
+
+        for id in [bank, sub, leaf] {
+            assert!(
+                service.get(id).await.unwrap().is_some(),
+                "{id:?} 应原样保留"
+            );
+        }
+        assert_eq!(
+            service.db.account_subtree_ids(bank).await.unwrap().len(),
+            3,
+            "闭包行应保持原样"
+        );
     }
 }

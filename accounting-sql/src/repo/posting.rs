@@ -103,19 +103,6 @@ pub async fn posting_list_by_account(
         .collect::<Result<_, _>>()
 }
 
-pub async fn posting_has_postings(
-    conn: &mut SqliteConnection,
-    account_id: AccountId,
-) -> Result<bool, DbError> {
-    let row: Option<i64> =
-        sqlx::query_scalar("SELECT 1 FROM postings WHERE account_id = ?1 LIMIT 1")
-            .bind(account_id.0)
-            .fetch_optional(conn)
-            .await
-            .map_err(|e| DbError::Database(e.to_string()))?;
-    Ok(row.is_some())
-}
-
 pub async fn posting_sum_by_account(
     conn: &mut SqliteConnection,
     account_id: AccountId,

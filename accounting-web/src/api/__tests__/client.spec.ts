@@ -187,3 +187,46 @@ describe('transaction list query passthrough', () => {
     )
   })
 })
+
+describe('deleteAccount error propagation', () => {
+  beforeEach(() => {
+    setLocale('zh-CN')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('throws with the localized response text on non-2xx', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: 'Conflict',
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve('账户〈外卖〉有关联分录，不能删除'),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(deleteAccount(7)).rejects.toThrow('账户〈外卖〉有关联分录，不能删除')
+  })
+
+  it('falls back to statusText when the error body is empty', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve(''),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(deleteAccount(7)).rejects.toThrow('Internal Server Error')
+  })
+
+  it('resolves on 2xx', async () => {
+    const fetchMock = mockFetchOk({})
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(deleteAccount(7)).resolves.toBeUndefined()
+  })
+})

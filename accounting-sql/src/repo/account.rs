@@ -203,6 +203,93 @@ pub async fn account_delete(conn: &mut SqliteConnection, id: AccountId) -> Resul
     Ok(())
 }
 
+/// 枚举账户子树（自身 + 所有后代）的 ID。
+///
+/// 走闭包表 `ancestor_id` 索引，含自身 depth=0 行。
+pub async fn account_subtree_ids(
+    conn: &mut SqliteConnection,
+    id: AccountId,
+) -> Result<Vec<AccountId>, DbError> {
+    let rows: Vec<i64> = sqlx::query_scalar(
+        "SELECT account_id FROM account_ancestors WHERE ancestor_id = ?1 ORDER BY account_id",
+    )
+    .bind(id.0)
+    .fetch_all(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(rows.into_iter().map(AccountId).collect())
+}
+
+/// 子树删除时的引用来源，用于结构化错误与本地化文案选型。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountReferenceSource {
+    /// 分录（postings）
+    Posting,
+    /// 账户映射（account_mappings）
+    Mapping,
+    /// 预算限额（budget_limits）
+    BudgetLimit,
+    /// 攒钱计划账户（saving_plan_accounts）
+    SavingPlan,
+    /// 渠道（channels.account_id）
+    Channel,
+}
+
+/// 在账户子树（自身 + 所有后代）内探测引用。
+///
+/// 依次检查五类无级联外键引用表（postings、account_mappings、budget_limits、
+/// saving_plan_accounts、channels），返回第一个挡路账户及其引用来源；
+/// 子树干净时返回 `None`。表名是内部常量，非用户输入。
+pub async fn account_find_subtree_reference(
+    conn: &mut SqliteConnection,
+    id: AccountId,
+) -> Result<Option<(AccountId, AccountReferenceSource)>, DbError> {
+    const PROBES: &[(&str, AccountReferenceSource)] = &[
+        ("postings", AccountReferenceSource::Posting),
+        ("account_mappings", AccountReferenceSource::Mapping),
+        ("budget_limits", AccountReferenceSource::BudgetLimit),
+        ("saving_plan_accounts", AccountReferenceSource::SavingPlan),
+        ("channels", AccountReferenceSource::Channel),
+    ];
+    for (table, source) in PROBES {
+        let mut builder = sqlx::QueryBuilder::new("SELECT t.account_id FROM ");
+        builder.push(*table);
+        builder.push(
+            " t WHERE t.account_id IN
+                 (SELECT account_id FROM account_ancestors WHERE ancestor_id = ",
+        );
+        builder.push_bind(id.0);
+        builder.push(") ORDER BY t.account_id LIMIT 1");
+        let hit: Option<i64> = builder
+            .build_query_scalar()
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(|e| DbError::Database(e.to_string()))?;
+        if let Some(account_id) = hit {
+            return Ok(Some((AccountId(account_id), *source)));
+        }
+    }
+    Ok(None)
+}
+
+/// 删除账户子树（自身 + 所有后代）：单语句删除，
+/// 闭包行 / 所有者 / 名字行靠 `ON DELETE CASCADE` 级联清理。
+/// 五类引用检查须由调用方在同一事务内先行完成，否则撞外键约束。
+pub async fn account_delete_subtree(
+    conn: &mut SqliteConnection,
+    id: AccountId,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "DELETE FROM accounts
+         WHERE id IN (SELECT account_id FROM account_ancestors WHERE ancestor_id = ?1)",
+    )
+    .bind(id.0)
+    .execute(conn)
+    .await
+    .map_err(|e| DbError::Database(e.to_string()))?;
+    Ok(())
+}
+
 pub async fn account_get_or_create_by_path(
     conn: &mut SqliteConnection,
     path: &str,
@@ -1389,5 +1476,196 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(again, id);
+    }
+
+    #[tokio::test]
+    async fn test_subtree_ids_multi_level_and_leaf() {
+        let mut conn = setup().await;
+        let (_a, b, _c, d) = build_chain(&mut conn).await;
+
+        let subtree = account_subtree_ids(&mut conn, b).await.unwrap();
+        assert_eq!(subtree.len(), 3);
+        assert!(subtree.contains(&b));
+        assert!(subtree.contains(&d));
+
+        // 叶子账户子树只含自身
+        let leaf = account_subtree_ids(&mut conn, d).await.unwrap();
+        assert_eq!(leaf, vec![d]);
+    }
+
+    /// 在 `account_id` 上插入 `source` 类型的一条引用（测试造数，绕过 repo 语义封装）。
+    async fn insert_reference(
+        conn: &mut SqliteConnection,
+        source: AccountReferenceSource,
+        account_id: AccountId,
+    ) {
+        let cny: i64 = sqlx::query_scalar("SELECT id FROM commodities WHERE symbol = 'CNY'")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+        match source {
+            AccountReferenceSource::Posting => {
+                let member = crate::repo::member::member_get_or_create_by_name(conn, "甲", "zh-CN")
+                    .await
+                    .unwrap();
+                let tx_id: i64 = sqlx::query_scalar(
+                    "INSERT INTO transactions (date_time, description, member_id)
+                     VALUES ('2026-01-01T00:00:00', 't', ?1) RETURNING id",
+                )
+                .bind(member.0)
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+                sqlx::query(
+                    "INSERT INTO postings (transaction_id, account_id, commodity_id, amount)
+                     VALUES (?1, ?2, ?3, 100)",
+                )
+                .bind(tx_id)
+                .bind(account_id.0)
+                .bind(cny)
+                .execute(&mut *conn)
+                .await
+                .unwrap();
+            }
+            AccountReferenceSource::Mapping => {
+                let member = crate::repo::member::member_get_or_create_by_name(conn, "甲", "zh-CN")
+                    .await
+                    .unwrap();
+                let channel: i64 =
+                    sqlx::query_scalar("SELECT id FROM channels WHERE is_system = 1 LIMIT 1")
+                        .fetch_one(&mut *conn)
+                        .await
+                        .unwrap();
+                sqlx::query(
+                    "INSERT INTO account_mappings (member_id, channel_id, category, account_id)
+                     VALUES (?1, ?2, 'food', ?3)",
+                )
+                .bind(member.0)
+                .bind(channel)
+                .bind(account_id.0)
+                .execute(&mut *conn)
+                .await
+                .unwrap();
+            }
+            AccountReferenceSource::BudgetLimit => {
+                let budget_id: i64 = sqlx::query_scalar(
+                    "INSERT INTO budgets (commodity_id) VALUES (?1) RETURNING id",
+                )
+                .bind(cny)
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+                sqlx::query(
+                    "INSERT INTO budget_limits (budget_id, account_id, amount) VALUES (?1, ?2, 100)",
+                )
+                .bind(budget_id)
+                .bind(account_id.0)
+                .execute(&mut *conn)
+                .await
+                .unwrap();
+            }
+            AccountReferenceSource::SavingPlan => {
+                let plan_id: i64 = sqlx::query_scalar(
+                    "INSERT INTO saving_plans (commodity_id, target_amount) VALUES (?1, 100) RETURNING id",
+                )
+                .bind(cny)
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+                sqlx::query(
+                    "INSERT INTO saving_plan_accounts (plan_id, account_id) VALUES (?1, ?2)",
+                )
+                .bind(plan_id)
+                .bind(account_id.0)
+                .execute(&mut *conn)
+                .await
+                .unwrap();
+            }
+            AccountReferenceSource::Channel => {
+                let channel: i64 =
+                    sqlx::query_scalar("SELECT id FROM channels WHERE is_system = 1 LIMIT 1")
+                        .fetch_one(&mut *conn)
+                        .await
+                        .unwrap();
+                sqlx::query("UPDATE channels SET account_id = ?2 WHERE id = ?1")
+                    .bind(channel)
+                    .bind(account_id.0)
+                    .execute(&mut *conn)
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_find_subtree_reference_none_when_clean() {
+        let mut conn = setup().await;
+        let (_a, b, _c, _d) = build_chain(&mut conn).await;
+        assert_eq!(
+            account_find_subtree_reference(&mut conn, b).await.unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn test_find_subtree_reference_detects_deep_descendant_and_five_sources() {
+        for source in [
+            AccountReferenceSource::Posting,
+            AccountReferenceSource::Mapping,
+            AccountReferenceSource::BudgetLimit,
+            AccountReferenceSource::SavingPlan,
+            AccountReferenceSource::Channel,
+        ] {
+            let mut conn = setup().await;
+            let (_a, b, _c, d) = build_chain(&mut conn).await;
+            // 引用挂在最深层后代 D 上，从 B 探测须能检出
+            insert_reference(&mut conn, source, d).await;
+            assert_eq!(
+                account_find_subtree_reference(&mut conn, b).await.unwrap(),
+                Some((d, source)),
+                "source {source:?} 应被检出"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delete_subtree_cascades_relations() {
+        let mut conn = setup().await;
+        let (a, b, c, d) = build_chain(&mut conn).await;
+        let member = crate::repo::member::member_get_or_create_by_name(&mut conn, "甲", "zh-CN")
+            .await
+            .unwrap();
+        crate::repo::account::account_set_owners(&mut conn, b, &[member])
+            .await
+            .unwrap();
+
+        account_delete_subtree(&mut conn, b).await.unwrap();
+
+        // 子树账户行、闭包行、owners 行全部清除
+        for id in [b, c, d] {
+            assert!(account_get(&mut conn, id).await.unwrap().is_none());
+        }
+        let closure: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM account_ancestors WHERE account_id IN (?1, ?2, ?3)",
+        )
+        .bind(b.0)
+        .bind(c.0)
+        .bind(d.0)
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(closure, 0);
+        let owners: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM account_owners WHERE account_id IN (?1, ?2, ?3)",
+        )
+        .bind(b.0)
+        .bind(c.0)
+        .bind(d.0)
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(owners, 0);
+        // 子树外的 A 不受影响
+        assert!(account_get(&mut conn, a).await.unwrap().is_some());
     }
 }

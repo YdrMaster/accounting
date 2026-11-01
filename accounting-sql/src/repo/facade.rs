@@ -204,6 +204,12 @@ facade! { db: account {
 
     account_delete(id: accounting::id::AccountId) -> ();
 
+    account_delete_subtree(id: accounting::id::AccountId) -> ();
+
+    account_subtree_ids(id: accounting::id::AccountId) -> Vec<accounting::id::AccountId>;
+
+    account_find_subtree_reference(id: accounting::id::AccountId) -> Option<(accounting::id::AccountId,crate::repo::account::AccountReferenceSource)>;
+
     account_reopen(id: accounting::id::AccountId) -> ();
 
     account_close(id: accounting::id::AccountId) -> ();
@@ -311,6 +317,12 @@ facade! { tx: account {
 
     account_delete(id: accounting::id::AccountId) -> ();
 
+    account_delete_subtree(id: accounting::id::AccountId) -> ();
+
+    account_subtree_ids(id: accounting::id::AccountId) -> Vec<accounting::id::AccountId>;
+
+    account_find_subtree_reference(id: accounting::id::AccountId) -> Option<(accounting::id::AccountId,crate::repo::account::AccountReferenceSource)>;
+
     account_reopen(id: accounting::id::AccountId) -> ();
 
     account_close(id: accounting::id::AccountId) -> ();
@@ -347,8 +359,6 @@ facade! { db: posting {
     posting_delete_by_transaction(transaction_id: accounting::id::TransactionId) -> ();
 
     posting_sum_by_account(account_id: accounting::id::AccountId) -> Vec<(accounting::id::CommodityId,rust_decimal::Decimal)>;
-
-    posting_has_postings(account_id: accounting::id::AccountId) -> bool;
 
     posting_list_by_account(account_id: accounting::id::AccountId) -> Vec<accounting::posting::Posting>;
 
@@ -411,8 +421,6 @@ facade! { tx: posting {
     posting_delete_by_transaction(transaction_id: accounting::id::TransactionId) -> ();
 
     posting_sum_by_account(account_id: accounting::id::AccountId) -> Vec<(accounting::id::CommodityId,rust_decimal::Decimal)>;
-
-    posting_has_postings(account_id: accounting::id::AccountId) -> bool;
 
     posting_list_by_account(account_id: accounting::id::AccountId) -> Vec<accounting::posting::Posting>;
 
@@ -490,8 +498,6 @@ facade! { tx: posting {
 facade! { db: account_mapping {
 
     account_mapping_list_all() -> Vec<accounting::account_mapping::AccountMapping> as mapping_list_all;
-
-    account_mapping_count_by_account(account_id: accounting::id::AccountId) -> i64 as mapping_count_by_account;
 
     account_mapping_delete(member_id: accounting::id::MemberId,channel_id: accounting::id::ChannelId,category: &str) -> bool as mapping_delete;
 

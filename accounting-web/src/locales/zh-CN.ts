@@ -212,6 +212,8 @@ export default {
     accountClosed: '账户已关闭',
     accountReopened: '账户已重开',
     deleteConfirm: '确定删除账户「{name}」？',
+    deleteSubtreeConfirm: '确定删除账户「{name}」及其 {count} 个子账户？',
+    deleteFailed: '删除失败: {message}',
   },
   createDrawer: {
     title: '新建账户',

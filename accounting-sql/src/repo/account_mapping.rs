@@ -117,20 +117,6 @@ pub async fn mapping_list_all(conn: &mut SqliteConnection) -> Result<Vec<Account
     Ok(rows.into_iter().map(|r| r.into_model()).collect())
 }
 
-/// 统计引用某账户的映射数量
-pub async fn mapping_count_by_account(
-    conn: &mut SqliteConnection,
-    account_id: AccountId,
-) -> Result<i64, DbError> {
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM account_mappings WHERE account_id = ?1")
-            .bind(account_id.0)
-            .fetch_one(conn)
-            .await
-            .map_err(|e| DbError::Database(e.to_string()))?;
-    Ok(count)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,29 +262,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_count_by_account() {
-        let (mut conn, member_id, channel_id, account_id) = setup().await;
-        let m1 = AccountMapping {
-            member_id,
-            channel_id,
-            category: "收支:餐饮美食".to_string(),
-            account_id,
-        };
-        let m2 = AccountMapping {
-            member_id,
-            channel_id,
-            category: "收支:交通出行".to_string(),
-            account_id,
-        };
-        mapping_upsert(&mut conn, &m1).await.unwrap();
-        mapping_upsert(&mut conn, &m2).await.unwrap();
-        let count = mapping_count_by_account(&mut conn, account_id)
-            .await
-            .unwrap();
-        assert_eq!(count, 2);
-    }
-
-    #[tokio::test]
     async fn test_delete_account_blocked_by_mapping() {
         let (mut conn, member_id, channel_id, account_id) = setup().await;
         let mapping = AccountMapping {
@@ -309,13 +272,7 @@ mod tests {
         };
         mapping_upsert(&mut conn, &mapping).await.unwrap();
 
-        // 验证 count > 0
-        let count = mapping_count_by_account(&mut conn, account_id)
-            .await
-            .unwrap();
-        assert!(count > 0);
-
-        // 直接删除账户应被外键约束拒绝
+        // 直接删除账户应被外键约束拒绝（应用层检查之外的最后兜底）
         let result = crate::repo::account::account_delete(&mut conn, account_id).await;
         assert!(result.is_err(), "被映射引用的账户不应被删除");
     }

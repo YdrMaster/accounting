@@ -5,7 +5,10 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn db_path() -> String {
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-    format!("/tmp/accounting_cli_account_test_{id}.db")
+    std::env::temp_dir()
+        .join(format!("accounting_cli_account_test_{id}.db"))
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn run(db: &str, args: &[&str], lang: &str) -> String {

@@ -213,6 +213,9 @@ export default {
     accountClosed: 'Account closed',
     accountReopened: 'Account reopened',
     deleteConfirm: 'Are you sure you want to delete the account "{name}"?',
+    deleteSubtreeConfirm:
+      'Are you sure you want to delete the account "{name}" and its {count} sub-accounts?',
+    deleteFailed: 'Delete failed: {message}',
   },
   createDrawer: {
     title: 'New Account',
